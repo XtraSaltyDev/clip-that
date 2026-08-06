@@ -1,0 +1,350 @@
+.lib-shell {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+}
+
+.lib-top {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  height: 52px;
+  padding: 0 12px 0 var(--lib-left-pad, 12px);
+  background: var(--bg-1);
+  border-bottom: 1px solid var(--line);
+  flex: none;
+}
+body.mac .lib-top {
+  --lib-left-pad: 82px;
+}
+
+.lib-search {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: min(420px, 45vw);
+  height: 30px;
+  padding: 0 6px 0 10px;
+  border-radius: 999px;
+  background: var(--bg-2);
+  border: 1px solid var(--line);
+  color: var(--ink-2);
+}
+.lib-search:focus-within {
+  border-color: var(--accent);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent) 20%, transparent);
+}
+.lib-search-input {
+  flex: 1;
+  min-width: 0;
+  background: none;
+  border: none;
+  outline: none;
+  color: var(--ink-0);
+  user-select: text;
+}
+
+.lib-body {
+  display: flex;
+  flex: 1;
+  min-height: 0;
+}
+
+.lib-side {
+  display: flex;
+  flex-direction: column;
+  width: 190px;
+  flex: none;
+  padding: 12px 8px;
+  background: var(--bg-1);
+  border-right: 1px solid var(--line);
+  overflow-y: auto;
+}
+.lib-side-group {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+}
+.lib-nav {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  height: 32px;
+  padding: 0 10px;
+  border-radius: var(--radius);
+  color: var(--ink-1);
+  text-align: left;
+}
+.lib-nav:hover {
+  background: var(--bg-3);
+  color: var(--ink-0);
+}
+.lib-nav.active {
+  background: color-mix(in srgb, var(--accent) 18%, transparent);
+  color: var(--ink-0);
+  font-weight: 500;
+}
+.lib-stats {
+  padding: 10px;
+  line-height: 1.6;
+}
+
+.lib-main {
+  flex: 1;
+  min-width: 0;
+  overflow-y: auto;
+  padding: 16px;
+  align-content: start;
+}
+.lib-main.grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(190px, 1fr));
+  gap: 14px;
+}
+.lib-main.list {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+/* The empty state is a sibling of the cards, so it has to opt out of the grid tracks. */
+.lib-main .empty {
+  grid-column: 1 / -1;
+  min-height: 60vh;
+}
+
+.lib-card {
+  display: flex;
+  flex-direction: column;
+  gap: 7px;
+  padding: 7px;
+  border-radius: var(--radius-lg);
+  border: 1px solid transparent;
+  cursor: default;
+  transition: background 120ms ease, border-color 120ms ease, transform 120ms ease;
+}
+.lib-card:hover {
+  background: var(--bg-1);
+  border-color: var(--line);
+}
+.lib-card.selected {
+  background: color-mix(in srgb, var(--accent) 14%, var(--bg-1));
+  border-color: var(--accent);
+}
+.lib-main.list .lib-card {
+  flex-direction: row;
+  align-items: center;
+  gap: 12px;
+  padding: 6px 10px;
+  border-radius: var(--radius);
+}
+
+.lib-thumb {
+  position: relative;
+  display: grid;
+  place-items: center;
+  aspect-ratio: 4 / 3;
+  border-radius: var(--radius);
+  background: var(--bg-2);
+  border: 1px solid var(--line);
+  overflow: hidden;
+  color: var(--ink-3);
+}
+.lib-main.list .lib-thumb {
+  width: 72px;
+  aspect-ratio: 4 / 3;
+  flex: none;
+}
+.lib-thumb img {
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+}
+.lib-badge {
+  position: absolute;
+  left: 6px;
+  bottom: 6px;
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  padding: 2px 6px;
+  border-radius: 999px;
+  background: #000000b3;
+  color: #fff;
+  font-size: 10px;
+  font-variant-numeric: tabular-nums;
+}
+.lib-fav {
+  position: absolute;
+  right: 6px;
+  top: 6px;
+  display: grid;
+  place-items: center;
+  width: 20px;
+  height: 20px;
+  border-radius: 50%;
+  background: #000000b3;
+  color: var(--warn);
+}
+.lib-meta {
+  min-width: 0;
+  padding: 0 2px;
+}
+.lib-main.list .lib-meta {
+  flex: 1;
+}
+
+/* ---------- details ---------- */
+
+.lib-details {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  width: 268px;
+  flex: none;
+  padding: 14px;
+  background: var(--bg-1);
+  border-left: 1px solid var(--line);
+  overflow-y: auto;
+}
+.lib-preview {
+  display: grid;
+  place-items: center;
+  aspect-ratio: 4 / 3;
+  border-radius: var(--radius);
+  background: var(--bg-2);
+  border: 1px solid var(--line);
+  overflow: hidden;
+  color: var(--ink-3);
+}
+.lib-preview img {
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+}
+.lib-facts {
+  display: grid;
+  gap: 3px;
+  color: var(--ink-1);
+}
+.lib-facts .muted {
+  display: inline-block;
+  width: 56px;
+}
+
+.lib-tags {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 5px;
+  align-items: center;
+}
+.lib-tag {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  height: 22px;
+  padding: 0 4px 0 8px;
+  border-radius: 999px;
+  background: var(--bg-3);
+  border: 1px solid var(--line);
+  font-size: 11px;
+}
+.lib-tag button {
+  display: grid;
+  place-items: center;
+  width: 14px;
+  height: 14px;
+  border-radius: 50%;
+  color: var(--ink-2);
+}
+.lib-tag button:hover {
+  background: var(--danger);
+  color: #fff;
+}
+.lib-tag-input {
+  width: 84px;
+  height: 22px;
+  padding: 0 8px;
+  border-radius: 999px;
+  background: transparent;
+  border: 1px dashed var(--line-strong);
+  color: var(--ink-0);
+  outline: none;
+  font-size: 11px;
+  user-select: text;
+}
+.lib-tag-input:focus {
+  border-style: solid;
+  border-color: var(--accent);
+}
+
+.lib-ocr summary {
+  cursor: pointer;
+}
+.lib-ocr-body {
+  max-height: 150px;
+  overflow-y: auto;
+  margin-top: 6px;
+  padding: 8px;
+  border-radius: var(--radius-sm);
+  background: var(--bg-2);
+  border: 1px solid var(--line);
+  color: var(--ink-1);
+  white-space: pre-wrap;
+  user-select: text;
+}
+
+.lib-actions {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 6px;
+}
+
+.lib-selection {
+  position: fixed;
+  left: 50%;
+  bottom: 20px;
+  transform: translateX(-50%);
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 8px 8px 8px 16px;
+  border-radius: 999px;
+  background: var(--bg-elevated);
+  border: 1px solid var(--line-strong);
+  box-shadow: var(--shadow-2);
+  z-index: 50;
+}
+
+/* ---------- timeline grouping ---------- */
+
+.lib-group {
+  grid-column: 1 / -1;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 14px 4px 2px;
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+  color: var(--ink-2);
+}
+.lib-group:first-child {
+  padding-top: 0;
+}
+.lib-group-count {
+  padding: 0 6px;
+  border-radius: 99px;
+  background: var(--bg-2);
+  border: 1px solid var(--line);
+  font-size: 10px;
+  letter-spacing: 0;
+  font-variant-numeric: tabular-nums;
+}
+
+/* Skip layout and paint for cards scrolled out of view — a library with
+   thousands of captures then costs the same as one with twenty. */
+.lib-card {
+  content-visibility: auto;
+  contain-intrinsic-size: auto 190px;
+}

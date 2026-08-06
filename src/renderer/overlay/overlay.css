@@ -1,0 +1,281 @@
+.ov {
+  position: fixed;
+  inset: 0;
+  overflow: hidden;
+  background-size: 100% 100%;
+  background-repeat: no-repeat;
+  cursor: crosshair;
+}
+
+/* The scrim dims the frozen screenshot; the hole is the live selection. */
+.ov-scrim {
+  position: absolute;
+  inset: 0;
+  background: #05070ba8;
+  pointer-events: none;
+}
+.ov-hole {
+  position: absolute;
+  background: transparent;
+  box-shadow: 0 0 0 9999px #05070ba8;
+  /* The box-shadow paints the dim; clear the element itself. */
+  mix-blend-mode: normal;
+}
+.ov.has-box .ov-scrim {
+  background: transparent;
+}
+
+.ov-guide {
+  position: absolute;
+  pointer-events: none;
+  background: #ffffff55;
+  box-shadow: 0 0 0 0.5px #00000066;
+}
+.ov-guide.v {
+  top: 0;
+  bottom: 0;
+  width: 1px;
+}
+.ov-guide.h {
+  left: 0;
+  right: 0;
+  height: 1px;
+}
+
+.ov-box {
+  position: absolute;
+  outline: 1.5px solid #ffffff;
+  box-shadow: 0 0 0 1px #00000070;
+  cursor: move;
+}
+.ov-thirds {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  background:
+    linear-gradient(to right, transparent 33.33%, #ffffff2e 33.33%, #ffffff2e calc(33.33% + 1px), transparent calc(33.33% + 1px)),
+    linear-gradient(to right, transparent 66.66%, #ffffff2e 66.66%, #ffffff2e calc(66.66% + 1px), transparent calc(66.66% + 1px)),
+    linear-gradient(to bottom, transparent 33.33%, #ffffff2e 33.33%, #ffffff2e calc(33.33% + 1px), transparent calc(33.33% + 1px)),
+    linear-gradient(to bottom, transparent 66.66%, #ffffff2e 66.66%, #ffffff2e calc(66.66% + 1px), transparent calc(66.66% + 1px));
+  opacity: 0;
+  transition: opacity 160ms ease;
+}
+.ov-box:hover .ov-thirds {
+  opacity: 1;
+}
+
+.ov-handle {
+  position: absolute;
+  width: 10px;
+  height: 10px;
+  background: #fff;
+  border: 1px solid #0006;
+  border-radius: 2px;
+}
+.ov-handle.nw { left: -5px; top: -5px; cursor: nwse-resize; }
+.ov-handle.n  { left: calc(50% - 5px); top: -5px; cursor: ns-resize; }
+.ov-handle.ne { right: -5px; top: -5px; cursor: nesw-resize; }
+.ov-handle.e  { right: -5px; top: calc(50% - 5px); cursor: ew-resize; }
+.ov-handle.se { right: -5px; bottom: -5px; cursor: nwse-resize; }
+.ov-handle.s  { left: calc(50% - 5px); bottom: -5px; cursor: ns-resize; }
+.ov-handle.sw { left: -5px; bottom: -5px; cursor: nesw-resize; }
+.ov-handle.w  { left: -5px; top: calc(50% - 5px); cursor: ew-resize; }
+
+.ov-size {
+  position: absolute;
+  padding: 4px 8px;
+  border-radius: 6px;
+  background: #000000cc;
+  color: #fff;
+  font-size: 12px;
+  letter-spacing: 0.02em;
+  pointer-events: none;
+  backdrop-filter: blur(6px);
+}
+.ov-size-pt {
+  color: #ffffff80;
+}
+
+/* ---------- loupe ---------- */
+
+.ov-loupe {
+  position: absolute;
+  width: 154px;
+  padding: 6px;
+  border-radius: 12px;
+  background: #0b0e13ee;
+  border: 1px solid #ffffff26;
+  box-shadow: 0 10px 30px #000a;
+  pointer-events: none;
+  backdrop-filter: blur(10px);
+}
+.ov-loupe canvas {
+  display: block;
+  width: 132px;
+  height: 132px;
+  border-radius: 7px;
+  background: #000;
+  image-rendering: pixelated;
+}
+.ov-loupe-foot {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-top: 6px;
+  font-size: 11px;
+  color: #e8edf5;
+}
+.ov-swatch {
+  width: 12px;
+  height: 12px;
+  border-radius: 3px;
+  border: 1px solid #ffffff40;
+}
+.ov-loupe-pos {
+  color: #93a0b4;
+  margin-top: 1px;
+}
+
+/* ---------- action bar ---------- */
+
+.ov-actions {
+  position: absolute;
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  padding: 4px;
+  border-radius: 10px;
+  background: #12161dee;
+  border: 1px solid #ffffff26;
+  box-shadow: 0 10px 30px #000a;
+  backdrop-filter: blur(10px);
+  cursor: default;
+}
+.ov-actions-sep {
+  width: 1px;
+  height: 18px;
+  background: #ffffff1f;
+}
+
+.ov-hint {
+  position: absolute;
+  left: 50%;
+  bottom: 34px;
+  transform: translateX(-50%);
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  padding: 9px 16px;
+  border-radius: 999px;
+  background: #12161dd9;
+  border: 1px solid #ffffff1f;
+  color: #c4cddc;
+  font-size: 12px;
+  box-shadow: 0 10px 30px #0008;
+  backdrop-filter: blur(10px);
+  pointer-events: none;
+}
+.ov-hint b {
+  color: #fff;
+  font-weight: 600;
+}
+.ov-hint .kbd {
+  background: #ffffff14;
+  border-color: #ffffff26;
+  color: #dbe3ef;
+}
+
+/* ---------- window picker ---------- */
+
+.ov-window {
+  cursor: default;
+}
+.ov-window-scrim {
+  position: absolute;
+  inset: 0;
+  background: #05070bd0;
+  backdrop-filter: blur(18px);
+}
+.ov-picker {
+  position: relative;
+  width: min(1000px, 88vw);
+  max-height: 78vh;
+  margin: 8vh auto 0;
+  display: flex;
+  flex-direction: column;
+  padding: 16px;
+  border-radius: 18px;
+  background: #12161df2;
+  border: 1px solid #ffffff1f;
+  box-shadow: 0 30px 80px #000c;
+}
+.ov-picker header {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-bottom: 14px;
+  color: #e8edf5;
+}
+.ov-picker h1 {
+  margin: 0;
+  font-size: 15px;
+  font-weight: 600;
+}
+.ov-loading {
+  padding: 40px;
+  text-align: center;
+  color: #93a0b4;
+}
+.ov-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
+  gap: 12px;
+  overflow-y: auto;
+  padding-right: 4px;
+}
+.ov-card {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 8px;
+  border-radius: 12px;
+  background: #ffffff08;
+  border: 1px solid #ffffff14;
+  text-align: left;
+  color: #e8edf5;
+  transition: background 120ms ease, border-color 120ms ease, transform 100ms ease;
+}
+.ov-card:hover {
+  background: #ffffff12;
+  border-color: #4f8cff99;
+  transform: translateY(-2px);
+}
+.ov-card-shot {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  height: 124px;
+  border-radius: 8px;
+  background: #05070b;
+  overflow: hidden;
+  color: #4b5566;
+}
+.ov-card-shot img {
+  max-width: 100%;
+  max-height: 100%;
+  object-fit: contain;
+}
+.ov-card-meta {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 12px;
+}
+.ov-card-icon {
+  width: 18px;
+  height: 18px;
+  flex: none;
+  border-radius: 4px;
+}
+
+

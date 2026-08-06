@@ -1,0 +1,82 @@
+appId: dev.clipthat.app
+productName: ClipThat
+copyright: Copyright © 2026 ClipThat
+directories:
+  output: dist
+  buildResources: build
+
+files:
+  - out/**/*
+  - package.json
+  - '!**/*.map'
+
+asarUnpack:
+  - '**/node_modules/@ffmpeg-installer/**'
+
+# Tray icons are loaded from disk at runtime, so they must sit outside the asar.
+extraResources:
+  - from: build
+    to: build
+    filter:
+      - '*.png'
+
+extraMetadata:
+  main: out/main/index.js
+
+mac:
+  category: public.app-category.productivity
+  target:
+    - target: dmg
+      arch: [arm64, x64]
+    - target: zip
+      arch: [arm64, x64]
+  darkModeSupport: true
+  hardenedRuntime: true
+  gatekeeperAssess: false
+  entitlements: build/entitlements.mac.plist
+  entitlementsInherit: build/entitlements.mac.plist
+  extendInfo:
+    NSCameraUsageDescription: ClipThat uses your camera for webcam overlays in screen recordings.
+    NSMicrophoneUsageDescription: ClipThat uses your microphone to record narration.
+    NSScreenCaptureUsageDescription: ClipThat needs screen recording access to capture screenshots and video.
+    LSUIElement: false
+
+dmg:
+  artifactName: ${productName}-${version}-${arch}.${ext}
+  contents:
+    - x: 140
+      y: 200
+    - x: 400
+      y: 200
+      type: link
+      path: /Applications
+
+win:
+  target:
+    - target: nsis
+      arch: [x64, arm64]
+    - target: portable
+      arch: [x64]
+  artifactName: ${productName}-${version}-${arch}.${ext}
+
+nsis:
+  oneClick: false
+  perMachine: false
+  allowToChangeInstallationDirectory: true
+  createDesktopShortcut: true
+  createStartMenuShortcut: true
+  shortcutName: ClipThat
+
+linux:
+  target:
+    - AppImage
+    - deb
+    - rpm
+  category: Graphics
+  synopsis: Screen capture, annotation and recording
+  desktop:
+    entry:
+      Name: ClipThat
+      Categories: Graphics;Utility;
+
+publish: null
