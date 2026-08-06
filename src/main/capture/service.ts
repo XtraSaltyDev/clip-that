@@ -14,6 +14,8 @@ import {
   withAppWindowsHidden
 } from '../windows/manager'
 import { closeOverlay, openOverlay, takeFrozenSnapshot, type OverlaySelection } from '../windows/overlay'
+import { showQuickAccess } from '../windows/quick'
+import { runPipeline } from '../pipeline'
 import { captureDisplay, captureRegionCli, captureWindow, snapshotAllDisplays } from './backend'
 import { displayUnderCursor, findDisplay } from './displays'
 import { stitchFrames } from './stitch'
@@ -333,13 +335,38 @@ export async function performCapture(req: CaptureRequest): Promise<CaptureResult
   return result
 }
 
+/** Open a capture in the editor, linked to an existing library item when there is one. */
+export function openResultInEditor(result: CaptureResult, libraryId?: string): void {
+  const doc = documentFromCapture(result)
+  // The editor keys its save-back-to-library behaviour off the document id.
+  if (libraryId) doc.id = libraryId
+  openInEditor(doc)
+}
+
 /** Apply the user's "after capture" preference and always index into the library. */
 export async function routeResult(
   result: CaptureResult,
-  overrideAction?: 'editor' | 'clipboard' | 'file' | 'clipboardAndFile'
+  overrideAction?: import('@shared/types').AfterCapture
 ): Promise<void> {
   const s = settings.get()
   const action = overrideAction ?? s.afterCapture
+
+  if (action === 'pipeline') {
+    await runPipeline(result, s.pipeline, openResultInEditor)
+    return
+  }
+
+  if (action === 'quickAccess') {
+    // Library first so nothing is lost even if the card is dismissed unread.
+    const item = await library.addImage({
+      dataUrl: result.dataUrl,
+      title: result.title || formatFilename(s.filenameTemplate),
+      width: result.width,
+      height: result.height
+    })
+    showQuickAccess(result, item.id)
+    return
+  }
 
   if (action === 'clipboard' || action === 'clipboardAndFile') {
     copyImageToClipboard(result.dataUrl)

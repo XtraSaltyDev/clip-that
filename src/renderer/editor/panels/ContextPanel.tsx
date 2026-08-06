@@ -14,6 +14,7 @@ import {
   type Entity,
   type Swatch
 } from '../../shared/extract'
+import { decodeQrFromImage, looksLikeUrl } from '../../shared/qr'
 import { orderWords, selectedText } from '../canvas/LiveText'
 import { useEditor } from '../store'
 
@@ -38,6 +39,7 @@ export default function ContextPanel({ image }: { image: HTMLImageElement | null
   const liveText = useEditor((s) => s.liveTextOn)
   const liveSelection = useEditor((s) => s.liveSelection)
   const [palette, setPalette] = useState<Swatch[]>([])
+  const [qr, setQr] = useState<string | null>(null)
 
   const analyse = useCallback(async () => {
     const state = useEditor.getState()
@@ -62,7 +64,11 @@ export default function ContextPanel({ image }: { image: HTMLImageElement | null
   }, [doc?.id])
 
   useEffect(() => {
-    if (image) setPalette(extractPalette(image))
+    if (!image) return
+    setPalette(extractPalette(image))
+    // QR decode is ~30ms at panel scale; run it off the click path anyway.
+    const t = setTimeout(() => setQr(decodeQrFromImage(image)), 50)
+    return () => clearTimeout(t)
   }, [image])
 
   const entities = useMemo(() => (ocr ? extractEntities(ocr) : []), [ocr])
@@ -296,6 +302,32 @@ export default function ContextPanel({ image }: { image: HTMLImageElement | null
           ))}
         </Section>
       ))}
+
+      {qr && (
+        <Section icon="grid" title="QR code">
+          <div className="ctx-row">
+            <span className="ctx-value mono truncate" title={qr}>
+              {qr}
+            </span>
+            <button
+              className="btn sm ghost icon tip"
+              data-tip="Copy"
+              onClick={() => void copy(qr, 'QR contents copied')}
+            >
+              <Icon name="copy" size={13} />
+            </button>
+            {looksLikeUrl(qr) && (
+              <button
+                className="btn sm ghost icon tip"
+                data-tip="Open in browser"
+                onClick={() => void api.system.openExternal(qr.startsWith('http') ? qr : 'https://' + qr)}
+              >
+                <Icon name="externalLink" size={13} />
+              </button>
+            )}
+          </div>
+        </Section>
+      )}
 
       {palette.length > 0 && (
         <Section icon="sparkles" title="Palette">

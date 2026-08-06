@@ -299,6 +299,10 @@ export interface LibraryQuery {
 export interface RecordingOptions {
   /** 'display' records a whole screen, 'region' crops to a rect, 'window' picks a window. */
   target: 'display' | 'region' | 'window'
+  /** Smoothed camera that follows the cursor, Screen Studio style. */
+  autoZoom: boolean
+  /** Magnification while auto-zoom is engaged. */
+  zoomLevel: number
   displayId?: string
   windowId?: string
   region?: Rect
@@ -339,7 +343,23 @@ export interface VideoExportOptions {
  * Settings
  * ------------------------------------------------------------------ */
 
-export type AfterCapture = 'editor' | 'clipboard' | 'file' | 'clipboardAndFile'
+export type AfterCapture =
+  | 'quickAccess'
+  | 'editor'
+  | 'clipboard'
+  | 'file'
+  | 'clipboardAndFile'
+  | 'pipeline'
+
+/** One configurable chain of things that happen to a capture, ShareX style. */
+export interface Pipeline {
+  copy: boolean
+  save: boolean
+  pin: boolean
+  edit: boolean
+  /** Shell command run after save; `{file}` expands to the saved path. */
+  command: string
+}
 
 export interface Hotkeys {
   captureRegion: string
@@ -356,6 +376,7 @@ export interface Hotkeys {
 export interface Settings {
   hotkeys: Hotkeys
   afterCapture: AfterCapture
+  pipeline: Pipeline
   saveDirectory: string
   filenameTemplate: string
   imageFormat: 'png' | 'jpg' | 'webp'

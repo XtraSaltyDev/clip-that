@@ -49,6 +49,12 @@ export const IPC = {
   recordSources: 'record:sources',
   recordHudCommand: 'record:hud-command',
 
+  // pins & quick access
+  pinCreate: 'pin:create',
+  pinInit: 'pin:init',
+  quickInit: 'quick:init',
+  quickAction: 'quick:action',
+
   // settings
   settingsGet: 'settings:get',
   settingsSet: 'settings:set',

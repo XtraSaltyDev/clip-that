@@ -219,3 +219,167 @@ body {
   background: var(--accent);
   transition: width 250ms ease;
 }
+
+/* ---------- pinned screenshot ---------- */
+
+.pin {
+  position: relative;
+  width: 100vw;
+  height: 100vh;
+  border-radius: 10px;
+  overflow: hidden;
+  border: 1px solid #ffffff30;
+  box-shadow: 0 12px 40px #000a;
+  background: #0b0e13;
+}
+.pin img {
+  width: 100%;
+  height: 100%;
+  object-fit: fill;
+  display: block;
+  -webkit-user-drag: none;
+}
+.pin-close {
+  position: absolute;
+  top: 6px;
+  right: 6px;
+  display: grid;
+  place-items: center;
+  width: 22px;
+  height: 22px;
+  border-radius: 50%;
+  background: #000000c9;
+  color: #fff;
+  opacity: 0;
+  transition: opacity 130ms ease;
+}
+.pin:hover .pin-close {
+  opacity: 1;
+}
+.pin-close:hover {
+  background: var(--danger);
+}
+
+/* ---------- quick access card ---------- */
+
+.qa {
+  position: relative;
+  display: flex;
+  gap: 12px;
+  width: 100vw;
+  height: 100vh;
+  padding: 10px;
+  border-radius: 16px;
+  background: var(--bg-1);
+  border: 1px solid var(--line-strong);
+  box-shadow: 0 18px 50px #000a;
+  animation: qa-in 240ms cubic-bezier(0.16, 1, 0.3, 1);
+}
+@keyframes qa-in {
+  from {
+    opacity: 0;
+    transform: translateY(14px) scale(0.97);
+  }
+}
+.qa-thumb {
+  position: relative;
+  flex: none;
+  width: 168px;
+  border-radius: 10px;
+  overflow: hidden;
+  background: var(--bg-0);
+  border: 1px solid var(--line);
+  cursor: grab;
+  display: grid;
+  place-items: center;
+}
+.qa-thumb:active {
+  cursor: grabbing;
+}
+.qa-thumb img {
+  max-width: 100%;
+  max-height: 100%;
+  object-fit: contain;
+  -webkit-user-drag: none;
+  pointer-events: none;
+}
+.qa-done {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 4px;
+  background: color-mix(in srgb, var(--ok) 24%, #000000cc);
+  color: #fff;
+  font-weight: 600;
+  font-size: 12px;
+  animation: qa-in 160ms ease;
+}
+.qa-body {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  gap: 8px;
+}
+.qa-meta {
+  padding-left: 2px;
+}
+.qa-actions {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 6px;
+}
+.qa-btn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  height: 32px;
+  border-radius: 9px;
+  background: var(--bg-3);
+  border: 1px solid var(--line);
+  color: var(--ink-0);
+  font-size: 12px;
+  font-weight: 500;
+  transition: background 110ms ease, border-color 110ms ease;
+}
+.qa-btn:hover {
+  background: var(--bg-elevated);
+  border-color: var(--line-strong);
+}
+.qa-btn.primary {
+  background: var(--accent);
+  border-color: transparent;
+  color: var(--accent-ink);
+}
+.qa-btn.primary:hover {
+  filter: brightness(1.08);
+}
+.qa-hint {
+  text-align: center;
+}
+.qa-close {
+  position: absolute;
+  top: -7px;
+  left: -7px;
+  display: grid;
+  place-items: center;
+  width: 22px;
+  height: 22px;
+  border-radius: 50%;
+  background: var(--bg-elevated);
+  border: 1px solid var(--line-strong);
+  color: var(--ink-1);
+  opacity: 0;
+  transition: opacity 130ms ease;
+}
+.qa:hover .qa-close {
+  opacity: 1;
+}
+.qa-close:hover {
+  color: var(--danger);
+}

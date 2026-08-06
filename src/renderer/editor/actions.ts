@@ -117,6 +117,13 @@ export function useEditorActions(stageRef: StageRef, settings: Settings | null) 
     [quality, render, syncLibrary]
   )
 
+  const pinToScreen = useCallback(async () => {
+    const png = await render()
+    if (!png) return
+    const ok = await api.pin.create(png)
+    toast(ok ? 'success' : 'error', ok ? 'Pinned to screen' : 'Pin failed')
+  }, [render])
+
   const dragOut = useCallback(async () => {
     const png = await render()
     const doc = useEditor.getState().doc
@@ -206,7 +213,7 @@ export function useEditorActions(stageRef: StageRef, settings: Settings | null) 
     }
   }, [])
 
-  return { copy, save, exportAs, dragOut, grabText, autoRedact, render, syncLibrary }
+  return { copy, save, exportAs, dragOut, grabText, autoRedact, pinToScreen, render, syncLibrary }
 }
 
 export type EditorActions = ReturnType<typeof useEditorActions>

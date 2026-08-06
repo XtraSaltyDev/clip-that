@@ -1,4 +1,12 @@
 import type { RecordingOptions, Rect } from '@shared/types'
+import { api } from '../shared/api'
+import {
+  DEFAULT_CAMERA_CONFIG,
+  initialCamera,
+  sourceRect,
+  stepCamera,
+  type CameraConfig
+} from './zoom-camera'
 
 export interface CaptureHandles {
   stream: MediaStream
@@ -72,11 +80,40 @@ function playInline(stream: MediaStream): HTMLVideoElement {
  * through a canvas and we record `canvas.captureStream()`. Otherwise the display stream is
  * recorded directly, which is materially cheaper on CPU.
  */
+/** The very first getDisplayMedia after launch sometimes hangs while the capture
+ * service warms up; a bounded attempt with one retry turns a dead recorder into a
+ * one-second hiccup. */
+async function getDisplayStream(options: RecordingOptions): Promise<MediaStream> {
+  const attempt = () =>
+    navigator.mediaDevices.getDisplayMedia({
+      video: { frameRate: { ideal: options.fps, max: options.fps } },
+      audio: options.systemAudio
+    } as MediaStreamConstraints)
+
+  const bounded = (ms: number) =>
+    new Promise<MediaStream>((resolve, reject) => {
+      const timer = setTimeout(() => reject(new Error('display capture timed out')), ms)
+      attempt().then(
+        (stream) => {
+          clearTimeout(timer)
+          resolve(stream)
+        },
+        (err) => {
+          clearTimeout(timer)
+          reject(err)
+        }
+      )
+    })
+
+  try {
+    return await bounded(8000)
+  } catch {
+    return bounded(12000)
+  }
+}
+
 export async function startCapture(options: RecordingOptions, region?: Rect): Promise<CaptureHandles> {
-  const display = await navigator.mediaDevices.getDisplayMedia({
-    video: { frameRate: { ideal: options.fps, max: options.fps } },
-    audio: options.systemAudio
-  } as MediaStreamConstraints)
+  const display = await getDisplayStream(options)
 
   const displayTrack = display.getVideoTracks()[0]
   const settings = displayTrack.getSettings()
@@ -87,7 +124,10 @@ export async function startCapture(options: RecordingOptions, region?: Rect): Pr
   const webcam = options.webcam ? await getWebcamStream(options.webcamDeviceId) : null
 
   const cropped = region && region.width > 0 && region.height > 0
-  const needsCanvas = Boolean(webcam) || cropped
+  // Auto-zoom needs per-frame reframing, which only the canvas path can do. It applies
+  // to whole-display recordings; a cropped region is already a deliberate framing.
+  const autoZoom = options.autoZoom && options.target === 'display' && !cropped
+  const needsCanvas = Boolean(webcam) || cropped || autoZoom
 
   let outWidth = cropped ? Math.round(region!.width) : sourceWidth
   let outHeight = cropped ? Math.round(region!.height) : sourceHeight
@@ -100,6 +140,7 @@ export async function startCapture(options: RecordingOptions, region?: Rect): Pr
   let raf = 0
   let displayVideo: HTMLVideoElement | null = null
   let webcamVideo: HTMLVideoElement | null = null
+  let offCursor: (() => void) | null = null
 
   if (needsCanvas) {
     displayVideo = playInline(new MediaStream([displayTrack]))
@@ -112,6 +153,34 @@ export async function startCapture(options: RecordingOptions, region?: Rect): Pr
 
     const bubble = Math.min(options.webcamSize, Math.round(Math.min(outWidth, outHeight) * 0.4))
     const margin = Math.round(bubble * 0.12) + 12
+
+    // ---- auto-zoom camera ----
+    let camera = initialCamera({ width: sourceWidth, height: sourceHeight })
+    const cameraCfg: CameraConfig = {
+      width: sourceWidth,
+      height: sourceHeight,
+      zoom: Math.max(1.1, Math.min(3, options.zoomLevel || 1.6)),
+      ...DEFAULT_CAMERA_CONFIG
+    }
+    let cursorPx: { x: number; y: number } | null = null
+    if (autoZoom) {
+      // Map global-DIP cursor positions into source-frame pixels.
+      const displays = await api.capture.displays()
+      const display =
+        displays.find((d) => d.id === options.displayId) ??
+        displays.find((d) => d.primary) ??
+        displays[0]
+      if (display) {
+        const px = sourceWidth / display.bounds.width
+        const py = sourceHeight / display.bounds.height
+        offCursor = api.recording.onCursor((point) => {
+          const x = (point.x - display.bounds.x) * px
+          const y = (point.y - display.bounds.y) * py
+          // Cursor on another display: hold the last position rather than yanking.
+          if (x >= 0 && y >= 0 && x <= sourceWidth && y <= sourceHeight) cursorPx = { x, y }
+        })
+      }
+    }
 
     const draw = () => {
       raf = requestAnimationFrame(draw)
@@ -129,6 +198,10 @@ export async function startCapture(options: RecordingOptions, region?: Rect): Pr
           outWidth,
           outHeight
         )
+      } else if (autoZoom) {
+        camera = stepCamera(camera, cursorPx, cameraCfg)
+        const { sx, sy, sw, sh } = sourceRect(camera, cameraCfg)
+        ctx.drawImage(displayVideo, sx, sy, sw, sh, 0, 0, outWidth, outHeight)
       } else {
         ctx.drawImage(displayVideo, 0, 0, outWidth, outHeight)
       }
@@ -210,6 +283,7 @@ export async function startCapture(options: RecordingOptions, region?: Rect): Pr
   }
 
   const dispose = () => {
+    offCursor?.()
     if (raf) cancelAnimationFrame(raf)
     displayVideo?.pause()
     webcamVideo?.pause()

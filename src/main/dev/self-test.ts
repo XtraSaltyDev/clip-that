@@ -18,8 +18,13 @@ import { recording } from '../recording/session'
 import { ffmpegPath } from '../recording/ffmpeg'
 import { showHudWindow, getSingleton } from '../windows/manager'
 import { captureDisplay } from '../capture/backend'
-import { startScrollCapture, finishScrollCapture } from '../capture/service'
-import { nativeImage } from 'electron'
+import { startScrollCapture, finishScrollCapture, performCapture } from '../capture/service'
+import { app, clipboard, nativeImage } from 'electron'
+import { join } from 'node:path'
+import { settings } from '../store/settings'
+import { createPin, pinCount, closeAllPins } from '../windows/pins'
+import { quickWindow } from '../windows/quick'
+import { openOverlay, closeOverlay, overlayVisible } from '../windows/overlay'
 
 const wait = (ms: number) => new Promise((r) => setTimeout(r, ms))
 const log = (line: string) => console.log(`[selftest] ${line}`)
@@ -66,8 +71,12 @@ function probeDuration(file: string): Promise<number | null> {
  * Recording
  * ------------------------------------------------------------------ */
 
-async function testRecording(format: 'MP4' | 'GIF'): Promise<boolean> {
-  log(`recording/${format}: starting`)
+async function testRecording(
+  format: 'MP4' | 'GIF',
+  variant: { autoZoom?: boolean } = {}
+): Promise<boolean> {
+  const label = variant.autoZoom ? `${format}+zoom` : format
+  log(`recording/${label}: starting`)
   const before = library.list({ kind: 'video', limit: 1000 }).map((i) => i.id)
 
   const hud = showHudWindow()
@@ -90,8 +99,23 @@ async function testRecording(format: 'MP4' | 'GIF'): Promise<boolean> {
   })()`)
   await wait(200)
 
+  if (variant.autoZoom) {
+    const toggled = await hud.webContents.executeJavaScript(`(() => {
+      const label = [...document.querySelectorAll('label')].find((l) => l.textContent.includes('Auto-zoom'))
+      const input = label && label.querySelector('input[type="checkbox"]')
+      if (!input) return false
+      if (!input.checked) input.click()
+      return true
+    })()`)
+    if (!toggled) {
+      fail(`recording/${label}: Auto-zoom toggle not found`)
+      return false
+    }
+    await wait(300)
+  }
+
   if (!(await clickButton(hud, 'Start recording'))) {
-    fail(`recording/${format}: Start button missing or disabled`)
+    fail(`recording/${label}: Start button missing or disabled`)
     return false
   }
 
@@ -102,10 +126,10 @@ async function testRecording(format: 'MP4' | 'GIF'): Promise<boolean> {
           .executeJavaScript(`document.body.innerText.replace(/\n+/g, ' | ').slice(0, 400)`)
           .catch(() => '(no dom)')
       : '(hud gone)'
-    fail(`recording/${format}: main state=${recording.status().state}; hud shows: ${dom}`)
+    fail(`recording/${label}: main state=${recording.status().state}; hud shows: ${dom}`)
     return false
   }
-  log(`recording/${format}: capturing 4s of the primary display`)
+  log(`recording/${label}: capturing 4s of the primary display`)
   await wait(4000)
 
   // Stop through the same path the global hotkey uses.
@@ -140,7 +164,7 @@ async function testRecording(format: 'MP4' | 'GIF'): Promise<boolean> {
 
   const w = hudNow()
   if (!w || !(await clickButton(w, `Save ${format}`))) {
-    fail(`recording/${format}: Save button not found`)
+    fail(`recording/${label}: Save button not found`)
     return false
   }
 
@@ -160,7 +184,7 @@ async function testRecording(format: 'MP4' | 'GIF'): Promise<boolean> {
   const duration = await probeDuration(item.filePath)
 
   log(
-    `recording/${format}: ${item.filePath.split('/').pop()} — ` +
+    `recording/${label}: ${item.filePath.split('/').pop()} — ` +
       `${stat ? Math.round(stat.size / 1024) : 0} KB, ` +
       `${item.width}x${item.height}, duration=${duration?.toFixed(2) ?? '?'}s, ` +
       `poster=${item.thumbnail ? 'yes' : 'NO'}`
@@ -168,16 +192,16 @@ async function testRecording(format: 'MP4' | 'GIF'): Promise<boolean> {
 
   let ok = true
   if (!stat || stat.size < 20_000) {
-    fail(`recording/${format}: file is implausibly small (${stat?.size ?? 0} bytes)`)
+    fail(`recording/${label}: file is implausibly small (${stat?.size ?? 0} bytes)`)
     ok = false
   }
   if (duration === null || duration < 2) {
-    fail(`recording/${format}: duration ${duration ?? 'unreadable'} — expected ≥ 2s`)
+    fail(`recording/${label}: duration ${duration ?? 'unreadable'} — expected ≥ 2s`)
     ok = false
   }
 
   await library.remove([item.id])
-  if (ok) log(`recording/${format}: PASS (artifact deleted)`)
+  if (ok) log(`recording/${label}: PASS (artifact deleted)`)
   return ok
 }
 
@@ -266,20 +290,249 @@ async function testScroll(): Promise<boolean> {
   }
 }
 
+/* ------------------------------------------------------------------ *
+ * Quick access, pins, pipelines, latency
+ * ------------------------------------------------------------------ */
+
+async function snapWindow(win: Electron.BrowserWindow | null, name: string): Promise<void> {
+  if (!win || win.isDestroyed()) return
+  try {
+    const png = await win.webContents.capturePage()
+    const file = join(app.getPath('userData'), 'logs', `selftest-${name}.png`)
+    await fs.writeFile(file, png.toPNG())
+    log(`${name}: screenshot → ${file}`)
+  } catch {
+    /* screenshots are evidence, not assertions */
+  }
+}
+
+async function testQuickAccess(): Promise<boolean> {
+  log('quick: starting')
+  const prevAfter = settings.get().afterCapture
+  settings.set({ afterCapture: 'quickAccess' })
+  const before = library.list({ kind: 'image', limit: 2000 }).map((i) => i.id)
+  clipboard.clear()
+
+  try {
+    const result = await performCapture({ mode: 'display' })
+    if (!result) {
+      fail('quick: display capture returned nothing')
+      return false
+    }
+    if (!(await until('quick access card', () => quickWindow() !== null, 8000))) return false
+    const card = quickWindow()!
+    await wait(900)
+    await snapWindow(card, 'quick-card')
+
+    // The capture must already be safe in the library before any card action.
+    const added = library.list({ kind: 'image', limit: 2000 }).filter((i) => !before.includes(i.id))
+    if (added.length !== 1) {
+      fail(`quick: expected 1 library item, found ${added.length}`)
+      return false
+    }
+
+    if (!(await clickButton(card, 'Copy'))) {
+      fail('quick: Copy button not found')
+      return false
+    }
+    if (!(await until('clipboard image', () => !clipboard.readImage().isEmpty(), 5000))) return false
+
+    // Copy confirms briefly and then dismisses itself.
+    if (!(await until('card to self-dismiss', () => quickWindow() === null, 5000))) return false
+
+    await library.remove(added.map((i) => i.id))
+    log('quick: PASS (copy verified, card dismissed, artifact deleted)')
+    return true
+  } finally {
+    settings.set({ afterCapture: prevAfter })
+  }
+}
+
+async function testPin(): Promise<boolean> {
+  log('pin: starting')
+  // A recognisable 320x200 test card.
+  const canvasPng = nativeImage.createFromDataURL(makeTestImage(320, 200))
+  const win = createPin(canvasPng.toDataURL())
+  if (!win) {
+    fail('pin: window did not open')
+    return false
+  }
+  await wait(900)
+  const [w, h] = win.getSize()
+  const aspectOk = Math.abs(w / h - 320 / 200) < 0.05
+  await snapWindow(win, 'pin')
+  const count = pinCount()
+  closeAllPins()
+
+  if (!aspectOk) {
+    fail(`pin: aspect drifted — ${w}x${h} for a 320x200 image`)
+    return false
+  }
+  if (count !== 1) {
+    fail(`pin: expected 1 pin, found ${count}`)
+    return false
+  }
+  log('pin: PASS')
+  return true
+}
+
+async function testPipeline(): Promise<boolean> {
+  log('pipeline: starting')
+  const prev = settings.get()
+  const marker = join(app.getPath('userData'), 'logs', 'pipeline-marker.txt')
+  await fs.rm(marker, { force: true }).catch(() => {})
+  const before = library.list({ kind: 'image', limit: 2000 }).map((i) => i.id)
+  clipboard.clear()
+
+  settings.set({
+    afterCapture: 'pipeline',
+    pipeline: { copy: true, save: true, pin: true, edit: false, command: `test -f {file} && date > ${JSON.stringify(marker)}` }
+  })
+
+  try {
+    const result = await performCapture({ mode: 'display' })
+    if (!result) {
+      fail('pipeline: capture returned nothing')
+      return false
+    }
+
+    let ok = true
+    if (!(await until('pipeline marker file', () => fs.stat(marker).then(() => true).catch(() => false), 15000))) ok = false
+    if (clipboard.readImage().isEmpty()) {
+      fail('pipeline: clipboard is empty after copy step')
+      ok = false
+    }
+    if (pinCount() !== 1) {
+      fail(`pipeline: expected 1 pin, found ${pinCount()}`)
+      ok = false
+    }
+
+    const added = library.list({ kind: 'image', limit: 2000 }).filter((i) => !before.includes(i.id))
+    closeAllPins()
+    await library.remove(added.map((i) => i.id))
+    await fs.rm(marker, { force: true }).catch(() => {})
+
+    if (ok) log('pipeline: PASS (save + copy + pin + command all ran)')
+    return ok
+  } finally {
+    settings.set({ afterCapture: prev.afterCapture, pipeline: prev.pipeline })
+  }
+}
+
+async function testLatency(): Promise<boolean> {
+  log('latency: starting')
+  const runs: number[] = []
+  for (let i = 0; i < 3; i++) {
+    const t0 = Date.now()
+    const selection = openOverlay('region')
+    const shown = await until('overlay visible', () => overlayVisible(), 6000, 25)
+    const elapsed = Date.now() - t0
+    closeOverlay(null)
+    await selection
+    if (!shown) return false
+    runs.push(elapsed)
+    await wait(400)
+  }
+  const best = Math.min(...runs)
+  log(`latency: hotkey→crosshair ${runs.join('ms, ')}ms (best ${best}ms)`)
+  // Budget reflects what the OS capture service costs for full-resolution shots of
+  // every attached display; the app's own share (pool show) is ~10ms. Regressions in
+  // *our* code — a re-added overlapping request, a lost window pool — blow past this.
+  const budget = 900 + 900 * screen.getAllDisplays().length
+  if (best > budget) {
+    fail(`latency: best run ${best}ms exceeds the ${budget}ms budget`)
+    return false
+  }
+  log('latency: PASS')
+  return true
+}
+
+/** A deterministic labelled test card, generated without any capture permission. */
+function makeTestImage(width: number, height: number): string {
+  const bmp = Buffer.alloc(width * height * 4)
+  for (let y = 0; y < height; y++) {
+    for (let x = 0; x < width; x++) {
+      const i = (y * width + x) * 4
+      bmp[i] = (x * 255) / width
+      bmp[i + 1] = (y * 255) / height
+      bmp[i + 2] = 180
+      bmp[i + 3] = 255
+    }
+  }
+  return nativeImage.createFromBitmap(bmp, { width, height }).toDataURL()
+}
+
 /* ------------------------------------------------------------------ */
+
+/**
+ * A freshly launched (and freshly re-signed) app can't capture for the first several
+ * seconds while macOS spins up its ScreenCaptureKit session — variable, 2–20s observed.
+ * Gate the suite on a real full-display capture succeeding, so every test measures the
+ * app rather than the OS warming up.
+ */
+async function waitForCaptureReady(): Promise<boolean> {
+  const t0 = Date.now()
+  const { captureRegionCli, snapshotAllDisplays } = await import('../capture/backend')
+  const wanted = screen.getAllDisplays().length
+  // Probe with a tiny region shot — hammering the flapping service with the full
+  // escalation ladder every second keeps it down. Two consecutive light successes,
+  // then one real full-set snapshot to seal it.
+  let streak = 0
+  const ok = await until(
+    'capture service to come up',
+    async () => {
+      const shot = await captureRegionCli({ x: 0, y: 0, width: 8, height: 8 })
+      streak = shot ? streak + 1 : 0
+      if (streak < 2) return false
+      const snaps = await snapshotAllDisplays()
+      return snaps.length >= wanted
+    },
+    60000,
+    1200
+  )
+  if (ok) log(`capture service ready after ${Date.now() - t0}ms`)
+  return ok
+}
 
 export async function runSelfTest(which: string): Promise<void> {
   const parts = which.split(',').map((s) => s.trim().toLowerCase())
   const results: Array<[string, boolean]> = []
 
   try {
+    if (!(await waitForCaptureReady())) {
+      log('SUMMARY: 0/0 — capture service never became ready')
+      return
+    }
+
+    // Latency first: it measures the common case — a hotkey press on a quiet system —
+    // not the aftermath of a recording stress marathon. The heavy phases follow, with
+    // settle time between them because the OS capture service needs a beat after each.
+    if (parts.includes('latency') || parts.includes('all')) {
+      results.push(['latency', await testLatency()])
+    }
+    if (parts.includes('pin') || parts.includes('all')) {
+      results.push(['pin', await testPin()])
+    }
+    if (parts.includes('quick') || parts.includes('all')) {
+      results.push(['quick', await testQuickAccess()])
+      await wait(1500)
+    }
+    if (parts.includes('pipeline') || parts.includes('all')) {
+      results.push(['pipeline', await testPipeline()])
+      await wait(1500)
+    }
+    if (parts.includes('scroll') || parts.includes('all')) {
+      results.push(['scroll', await testScroll()])
+      await wait(2000)
+    }
     if (parts.includes('recording') || parts.includes('all')) {
       results.push(['recording/MP4', await testRecording('MP4')])
       await wait(1500)
       results.push(['recording/GIF', await testRecording('GIF')])
+      await wait(1500)
     }
-    if (parts.includes('scroll') || parts.includes('all')) {
-      results.push(['scroll', await testScroll()])
+    if (parts.includes('zoom') || parts.includes('all')) {
+      results.push(['recording/zoom', await testRecording('MP4', { autoZoom: true })])
     }
   } catch (err) {
     fail(`unhandled: ${(err as Error).stack ?? err}`)

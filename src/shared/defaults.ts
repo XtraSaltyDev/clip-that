@@ -44,6 +44,8 @@ export const BEAUTIFY_CANVAS: CanvasStyle = {
 
 export const DEFAULT_RECORDING: RecordingOptions = {
   target: 'display',
+  autoZoom: false,
+  zoomLevel: 1.6,
   fps: 30,
   microphone: false,
   systemAudio: false,
@@ -66,7 +68,9 @@ export function defaultSettings(picturesDir: string): Settings {
       openLibrary: `${mod}+Shift+9`,
       grabText: `${mod}+Shift+T`
     },
-    afterCapture: 'editor',
+    // The card, not the editor: most captures just need to be somewhere else fast.
+    afterCapture: 'quickAccess',
+    pipeline: { copy: true, save: true, pin: false, edit: false, command: '' },
     saveDirectory: picturesDir,
     filenameTemplate: 'ClipThat {yyyy}-{MM}-{dd} at {HH}.{mm}.{ss}',
     imageFormat: 'png',

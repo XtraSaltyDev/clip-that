@@ -29,9 +29,10 @@ Open the **Context** panel (or `⌘K → Screen context`) and you get:
 | **Palette** | The dominant colours of the capture, as copyable hex. |
 | **Suggested name** | The heading in the screenshot, instead of `2026-08-05 at 21.04.11`. |
 
-Every capture is also **indexed in the background**, whatever you did with it — so the
-library is searchable by words that only ever appeared *inside* an image. Search
-"marcus bell" and find the invoice screenshot you took last Tuesday.
+It also decodes **QR codes** offline, and every capture is **indexed in the background**
+whatever you did with it — so the library is searchable by words that only ever appeared
+*inside* an image. Search "marcus bell" and find the invoice screenshot you took last
+Tuesday.
 
 ---
 
@@ -52,6 +53,15 @@ library is searchable by words that only ever appeared *inside* an image. Search
 
 ## Everything else it does
 
+### After the capture
+The editor is opt-in. By default a **Quick Access card** appears in the corner with the
+things a capture usually needs: drag it straight into another app, or copy, save, **pin**,
+or edit. Pinned captures float above every window as reference while you work.
+
+Prefer automation? Switch the after-capture action to **Pipeline** and configure a chain —
+copy, save, pin, edit, then a shell command with `{file}` — so one hotkey can save, copy a
+link, and upload wherever you like, without ClipThat needing a cloud of its own.
+
 ### Capture
 - **Region** — frozen-frame selection with a pixel loupe, live dimensions in native pixels, and a hex eyedropper (`C` copies the colour under the cursor).
 - **Window** — a visual picker with live thumbnails and app icons. On macOS the grab goes through `screencapture -l` for true native-resolution pixels.
@@ -70,8 +80,10 @@ Full undo/redo, multi-select, a layers panel, snapping alignment guides, and a f
 toolbar that appears at whatever you've selected.
 
 ### Recording
-Screen or window, 15–60 fps, microphone, system audio (Windows/Linux), and a circular
-**webcam bubble** composited into the video. Floating controller with pause/resume, then a
+Screen or window, 15–60 fps, microphone, system audio (Windows/Linux), a circular
+**webcam bubble** composited into the video, and **auto-zoom** — a smoothed camera that
+follows your cursor with a dead-zone, so recordings read like produced video instead of a
+raw screen dump. Floating controller with pause/resume, then a
 review step with trimming and export to **MP4 (H.264)**, **GIF** (two-pass palette), or **WebM**.
 
 ### Library
@@ -144,7 +156,7 @@ outside the library directory.
 
 | | macOS | Windows | Linux |
 |---|---|---|---|
-| Capture | `screencapture` CLI (native pixels, per-region `-R` for scroll frames); `desktopCapturer` as fallback only — it proved intermittently unreliable at large sizes | `desktopCapturer` | `desktopCapturer` (X11), portal picker (Wayland) |
+| Capture | `screencapture -R` per display (the full-display forms fail in-process); `desktopCapturer` as fallback only | `desktopCapturer` | `desktopCapturer` (X11), portal picker (Wayland) |
 | System audio | not supported without a virtual audio device — the UI says so | loopback | loopback (PipeWire) |
 | Permissions | Screen Recording must be granted; the app verifies by actually reading pixels, not by trusting the status flag | — | — |
 
@@ -185,9 +197,10 @@ CLIPTHAT_VISUAL_CHECK=/tmp/shots npm run dev
 # Run the real extraction engine over a PNG and print what it found.
 node scripts/extract-check.mjs /tmp/shots/00-source.png
 
-# End-to-end: record the screen to MP4 + GIF and stitch a live scrolling window,
-# inside the packaged app with real permissions. Verified 3/3 on macOS.
-CLIPTHAT_SELF_TEST=recording,scroll /Applications/ClipThat.app/Contents/MacOS/ClipThat
+# End-to-end, inside the packaged app with real permissions: latency budget, pin,
+# quick access, pipeline, scrolling capture, and MP4/GIF/auto-zoom recording.
+# Verified 8/8 on macOS.
+CLIPTHAT_SELF_TEST=all /Applications/ClipThat.app/Contents/MacOS/ClipThat
 ```
 
 On macOS, `npm run install:mac` builds, signs (Developer ID if present), installs to

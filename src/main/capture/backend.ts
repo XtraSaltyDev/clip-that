@@ -89,17 +89,47 @@ async function grabScreenSources(): Promise<Map<string, Electron.NativeImage>> {
 
 export async function snapshotAllDisplays(): Promise<DisplaySnapshot[]> {
   const displays = screen.getAllDisplays()
+  const t0 = Date.now()
 
-  // macOS: the `screencapture` CLI first. It talks to the same capture service as the
-  // system screenshot tool, returns true native pixels, and — unlike desktopCapturer,
-  // which we have watched time out and return empty thumbnails intermittently at large
-  // sizes — it either works or fails with an error we can log.
-  let images = IS_MAC ? await grabScreensViaCli() : new Map<string, Electron.NativeImage>()
-
-  if (images.size < displays.length) {
-    const dc = await grabScreenSources()
-    for (const [id, img] of dc) if (!images.has(id)) images.set(id, img)
+  /*
+   * Two capture paths with opposite failure modes:
+   *   - desktopCapturer is fast (~200ms, GPU path) but intermittently returns empty
+   *     thumbnails or hangs for seconds.
+   *   - the `screencapture` CLI is trustworthy but pays a PNG encode/decode round-trip
+   *     (~1–2.5s for a Retina display), and very occasionally fails transiently.
+   *
+   * So: give the fast path a short budget; every failure it can produce is detectable
+   * (missing display, empty thumbnail), so falling through is always safe. The CLI
+   * gets one retry because its failures are transient.
+   */
+  const images = new Map<string, Electron.NativeImage>()
+  const absorb = (from: Map<string, Electron.NativeImage>) => {
+    for (const [id, img] of from) if (!images.has(id)) images.set(id, img)
   }
+  const complete = () => images.size >= displays.length
+
+  /*
+   * One path at a time, never overlapping. A timeout that abandons a desktopCapturer
+   * request does not cancel it — the request keeps running, holding the OS capture
+   * service, and everything started afterwards contends with it. Racing the two paths
+   * made a 0.7s capture take 10s.
+   *
+   * macOS leads with `screencapture -R` per display: proven to work in-process, where
+   * the full-display forms fail outright. Elsewhere desktopCapturer is the only option.
+   */
+  const path: string[] = []
+  if (IS_MAC) {
+    path.push('cli')
+    absorb(await grabScreensViaCli())
+  }
+  if (!complete()) {
+    path.push('dc')
+    absorb(await grabScreenSources().catch(() => new Map<string, Electron.NativeImage>()))
+  }
+
+  console.log(
+    `[clipthat] snapshot: ${images.size}/${displays.length} via ${path.join('→')} in ${Date.now() - t0}ms`
+  )
 
   const results: DisplaySnapshot[] = []
   for (const d of displays) {
@@ -131,96 +161,46 @@ export async function snapshotAllDisplays(): Promise<DisplaySnapshot[]> {
  * second. Ambiguity is only possible with identical same-size monitors, where the
  * positional fallback is as good as any other rule.
  */
-async function cliShot(dIndex: number): Promise<Electron.NativeImage | null> {
-  const file = await tempPng()
-  try {
-    await run('screencapture', ['-x', '-o', '-t', 'png', `-D${dIndex}`, file])
-    const img = nativeImage.createFromBuffer(await fs.readFile(file))
-    if (!img.isEmpty()) return img
-    console.warn(`[clipthat] screencapture -D${dIndex}: wrote an empty image`)
-    return null
-  } catch (err) {
-    console.warn(`[clipthat] screencapture -D${dIndex} failed: ${(err as Error).message}`)
-    return null
-  } finally {
-    await fs.rm(file, { force: true }).catch(() => {})
-  }
-}
-
 /**
- * Which `screencapture -D` index photographs which Electron display, learned from the
- * last full pass. Scroll capture photographs one display 2–3 times a second; without
- * this it had to photograph every screen each frame just to pick one out by size.
- * Keyed by the display configuration so plugging or rotating a monitor invalidates it.
+ * Capture each display with `screencapture -R <its bounds>`.
+ *
+ * The full-display forms (`-D<n>`, and multiple output paths) fail from inside this app
+ * with "could not create image from display" while succeeding from a shell — the same
+ * binary, the same flags. `-R` is the one form that works in-process, which is also why
+ * the permission self-check uses it. Region coordinates are global desktop points, so a
+ * display at a negative origin is captured correctly, and Retina displays come back at
+ * native pixel size.
  */
-const cliIndexCache = new Map<string, number>()
-let cliCacheKey = ''
+async function cliShotAll(): Promise<Map<string, Electron.NativeImage>> {
+  const displays = screen.getAllDisplays()
+  const byDisplay = new Map<string, Electron.NativeImage>()
 
-function displayConfigKey(): string {
-  return screen
-    .getAllDisplays()
-    .map((d) => `${d.id}:${d.bounds.width}x${d.bounds.height}@${d.scaleFactor}r${d.rotation}`)
-    .join('|')
+  // Sequential, measured: running the region shots concurrently doubled total latency
+  // (1.7s → 3.4s). They contend for the one capture service rather than overlapping,
+  // and two processes competing is slower than two taking turns.
+  for (const d of displays) {
+    const shot = await captureRegionCli(d.bounds)
+    if (shot) byDisplay.set(String(d.id), nativeImage.createFromDataURL(shot.dataUrl))
+  }
+  return byDisplay
 }
 
 async function grabScreensViaCli(): Promise<Map<string, Electron.NativeImage>> {
   const displays = screen.getAllDisplays()
-
-  // All displays in parallel: sequential calls froze each screen roughly half a second
-  // apart, so a window moving between the shots appeared in inconsistent states.
-  const shots = (
-    await Promise.all(
-      displays.map(async (_d, i) => ({ dIndex: i + 1, img: await cliShot(i + 1) }))
-    )
-  ).filter((s): s is { dIndex: number; img: Electron.NativeImage } => s.img !== null)
-
-  const byDisplay = new Map<string, Electron.NativeImage>()
-  const used = new Set<number>()
-  cliIndexCache.clear()
-  cliCacheKey = displayConfigKey()
-
-  for (const d of displays) {
-    const native = displayPixelSize(d)
-    let idx = shots.findIndex((s, i) => {
-      if (used.has(i)) return false
-      const size = s.img.getSize()
-      return size.width === native.width && size.height === native.height
-    })
-    if (idx === -1) idx = shots.findIndex((_, i) => !used.has(i))
-    if (idx === -1) continue
-    used.add(idx)
-    byDisplay.set(String(d.id), shots[idx].img)
-    cliIndexCache.set(String(d.id), shots[idx].dIndex)
-  }
-
-  console.log(
-    `[clipthat] cli snapshots: ${byDisplay.size}/${displays.length} displays` +
-      (shots.length !== displays.length ? ` (${shots.length} shots)` : '')
-  )
+  const byDisplay = await cliShotAll()
+  console.log(`[clipthat] cli snapshots: ${byDisplay.size}/${displays.length} displays`)
   return byDisplay
 }
 
-/** One display, one CLI call — falls back to a full pass when the mapping is unknown. */
+/** One display via its bounds — a single region shot, no full-desktop pass. */
 async function cliShotForDisplay(displayId: string): Promise<Electron.NativeImage | null> {
   const d = findDisplay(displayId)
   if (!d) return null
-
-  if (cliCacheKey === displayConfigKey()) {
-    const dIndex = cliIndexCache.get(displayId)
-    if (dIndex !== undefined) {
-      const img = await cliShot(dIndex)
-      // Trust but verify: the shot must still be this display's pixel size.
-      if (img) {
-        const size = img.getSize()
-        const native = displayPixelSize(d)
-        if (size.width === native.width && size.height === native.height) return img
-        console.warn(`[clipthat] -D${dIndex} no longer matches display ${displayId}; remapping`)
-      }
-    }
-  }
-
+  const shot = await captureRegionCli(d.bounds)
+  if (shot) return nativeImage.createFromDataURL(shot.dataUrl)
   return (await grabScreensViaCli()).get(displayId) ?? null
 }
+
 /**
  * Capture a region directly, given in global desktop DIPs.
  *

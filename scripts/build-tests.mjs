@@ -16,7 +16,9 @@ const ENTRIES = {
   extract: 'src/renderer/shared/extract.ts',
   defaults: 'src/shared/defaults.ts',
   stitch: 'src/main/capture/stitch-core.ts',
-  layout: 'src/renderer/editor/layout.ts'
+  layout: 'src/renderer/editor/layout.ts',
+  camera: 'src/renderer/hud/zoom-camera.ts',
+  qr: 'src/renderer/shared/qr.ts'
 }
 
 rmSync(outdir, { recursive: true, force: true })

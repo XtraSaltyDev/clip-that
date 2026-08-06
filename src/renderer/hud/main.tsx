@@ -4,6 +4,8 @@ import '../shared/theme.css'
 import { api } from '../shared/api'
 import Recorder from './Recorder'
 import ScrollHud from './ScrollHud'
+import Pin from './Pin'
+import QuickAccess from './QuickAccess'
 
 /**
  * Invisible OCR worker. The main process has no DOM and no WASM host, so text
@@ -28,6 +30,11 @@ function OcrWorker(): React.ReactElement {
 
 const mode = window.location.hash.replace('#', '')
 
-createRoot(document.getElementById('root')!).render(
-  mode === 'worker' ? <OcrWorker /> : mode === 'scroll' ? <ScrollHud /> : <Recorder />
-)
+const roots: Record<string, React.ReactElement> = {
+  worker: <OcrWorker />,
+  scroll: <ScrollHud />,
+  pin: <Pin />,
+  quick: <QuickAccess />
+}
+
+createRoot(document.getElementById('root')!).render(roots[mode] ?? <Recorder />)

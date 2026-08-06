@@ -56,7 +56,8 @@ class SettingsStore extends EventEmitter {
         ...raw,
         hotkeys: { ...base.hotkeys, ...(raw.hotkeys ?? {}) },
         recording: { ...base.recording, ...(raw.recording ?? {}) },
-        canvasPreset: { ...base.canvasPreset, ...(raw.canvasPreset ?? {}) }
+        canvasPreset: { ...base.canvasPreset, ...(raw.canvasPreset ?? {}) },
+        pipeline: { ...base.pipeline, ...(raw.pipeline ?? {}) }
       }
     } catch {
       return base

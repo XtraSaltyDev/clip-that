@@ -53,7 +53,20 @@ export default function Overlay(): React.ReactElement | null {
 
   /* ---------- bootstrap ---------- */
 
-  useEffect(() => api.capture.onOverlayInit((payload) => setInit(payload as Init)), [])
+  useEffect(
+    () =>
+      api.capture.onOverlayInit((payload) => {
+        // Pooled windows are reused across captures; every init starts from scratch.
+        setBox(null)
+        setDragging(false)
+        setWindows(null)
+        setCursor({ x: -999, y: -999 })
+        dragStart.current = null
+        moveRef.current = null
+        setInit(payload as Init)
+      }),
+    []
+  )
 
   useEffect(() => {
     if (!init) return

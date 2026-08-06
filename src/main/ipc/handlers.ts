@@ -1,4 +1,4 @@
-import { app, BrowserWindow, ipcMain, shell } from 'electron'
+import { app, BrowserWindow, ipcMain, screen, shell } from 'electron'
 import { dialog } from 'electron'
 import { IPC } from '@shared/ipc'
 import type {
@@ -12,6 +12,10 @@ import type {
   VideoExportOptions
 } from '@shared/types'
 import { logFilePath } from '../log'
+import { createPin } from '../windows/pins'
+import { quickCache } from '../windows/quick'
+import { openResultInEditor } from '../capture/service'
+import { formatFilename } from '@shared/defaults'
 import { settings } from '../store/settings'
 import { library } from '../store/library'
 import {
@@ -53,6 +57,26 @@ import { ffmpegAvailable } from '../recording/ffmpeg'
 import { checkPermissions, openScreenRecordingSettings, requestPermission } from '../permissions'
 import { registerHotkeys, hotkeyFailures } from '../hotkeys'
 import { refreshTray, syncTrayVisibility, installAppMenu } from '../tray'
+
+let cursorFeed: NodeJS.Timeout | null = null
+
+/** Stream the global cursor position to the recorder at ~30Hz for the zoom camera. */
+function startCursorFeed(): void {
+  stopCursorFeed()
+  cursorFeed = setInterval(() => {
+    const hud = getSingleton('hud')
+    if (!hud || hud.isDestroyed()) {
+      stopCursorFeed()
+      return
+    }
+    hud.webContents.send('record:cursor', screen.getCursorScreenPoint())
+  }, 33)
+}
+
+function stopCursorFeed(): void {
+  if (cursorFeed) clearInterval(cursorFeed)
+  cursorFeed = null
+}
 
 export function registerIpcHandlers(): void {
   /* ---------------- capture ---------------- */
@@ -201,6 +225,7 @@ export function registerIpcHandlers(): void {
 
   ipcMain.on('record:started', () => {
     recording.markStarted()
+    if (recording.status().options?.autoZoom) startCursorFeed()
     refreshTray()
   })
 
@@ -217,12 +242,14 @@ export function registerIpcHandlers(): void {
   })
 
   ipcMain.handle(IPC.recordStop, () => {
+    stopCursorFeed()
     recording.markStopping()
     getSingleton('hud')?.webContents.send(IPC.recordHudCommand, { command: 'stop' })
     return recording.status()
   })
 
   ipcMain.handle(IPC.recordCancel, async () => {
+    stopCursorFeed()
     getSingleton('hud')?.webContents.send(IPC.recordHudCommand, { command: 'cancel' })
     await recording.discard()
     closeHudWindow()
@@ -377,6 +404,46 @@ export function registerIpcHandlers(): void {
   )
 
   ipcMain.on(IPC.toast, (_e, toast) => broadcast(IPC.toast, toast))
+
+  /* ---------------- pins & quick access ---------------- */
+
+  ipcMain.handle(IPC.pinCreate, (_e, dataUrl: string, scaleFactor = 1) =>
+    Boolean(createPin(dataUrl, { scaleFactor }))
+  )
+
+  ipcMain.handle(IPC.quickAction, async (_e, id: string, action: string) => {
+    const entry = quickCache().get(id)
+    if (!entry) return { ok: false, error: 'capture expired' }
+    const { result, libraryId } = entry
+    const s = settings.get()
+
+    switch (action) {
+      case 'copy':
+        return { ok: copyImageToClipboard(result.dataUrl) }
+      case 'save': {
+        const saved = await saveImage({
+          dataUrl: result.dataUrl,
+          format: s.imageFormat,
+          suggestedName: result.title || formatFilename(s.filenameTemplate)
+        })
+        return saved.ok ? { ok: true } : { ok: false, error: saved.error }
+      }
+      case 'pin':
+        return { ok: Boolean(createPin(result.dataUrl, { scaleFactor: result.scaleFactor })) }
+      case 'edit':
+        openResultInEditor(result, libraryId)
+        return { ok: true }
+      default:
+        return { ok: false, error: `unknown action ${action}` }
+    }
+  })
+
+  ipcMain.handle('quick:drag', async (e, id: string) => {
+    const entry = quickCache().get(id)
+    if (!entry) return
+    const name = entry.result.title || formatFilename(settings.get().filenameTemplate)
+    await startDrag(e, entry.result.dataUrl, name)
+  })
 
   ipcMain.handle(IPC.quit, () => app.quit())
 

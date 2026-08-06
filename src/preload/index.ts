@@ -111,6 +111,8 @@ const api = {
     ): Promise<LibraryItem | null> => ipcRenderer.invoke(IPC.recordExport, opts, meta),
     onCommand: (handler: (payload: { command: string; options?: RecordingOptions }) => void) =>
       on(IPC.recordHudCommand, handler),
+    /** Global cursor position stream while auto-zoom recording is live. */
+    onCursor: (handler: (point: { x: number; y: number }) => void) => on('record:cursor', handler),
     onStatus: (handler: (status: RecordingStatus) => void) => on(IPC.recordStatus, handler),
     onProgress: (handler: (payload: { percent: number }) => void) => on(IPC.recordProgress, handler)
   },
@@ -152,6 +154,23 @@ const api = {
     resize: (width: number, height: number) => ipcRenderer.send('hud:resize', width, height),
     dock: (width: number, height: number) => ipcRenderer.send('hud:dock', width, height),
     close: () => ipcRenderer.send('hud:close')
+  },
+
+  pin: {
+    /** Pin an image as a floating always-on-top window. */
+    create: (dataUrl: string, scaleFactor = 1): Promise<boolean> =>
+      ipcRenderer.invoke(IPC.pinCreate, dataUrl, scaleFactor),
+    onInit: (handler: (payload: { dataUrl: string; width: number; height: number }) => void) =>
+      on(IPC.pinInit, handler)
+  },
+
+  quick: {
+    onInit: (handler: (payload: unknown) => void) => on(IPC.quickInit, handler),
+    action: (
+      id: string,
+      action: 'copy' | 'save' | 'pin' | 'edit'
+    ): Promise<{ ok: boolean; error?: string }> => ipcRenderer.invoke(IPC.quickAction, id, action),
+    drag: (id: string): Promise<void> => ipcRenderer.invoke('quick:drag', id)
   },
 
   ocr: {

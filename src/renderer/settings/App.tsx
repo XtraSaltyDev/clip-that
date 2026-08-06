@@ -275,17 +275,57 @@ function Capture({
 
       <Group title="After a capture">
         <Field label="What happens next">
-          <Segmented
+          <select
+            className="field"
             value={settings.afterCapture}
-            options={[
-              { value: 'editor', label: 'Open editor' },
-              { value: 'clipboard', label: 'Copy' },
-              { value: 'file', label: 'Save' },
-              { value: 'clipboardAndFile', label: 'Both' }
-            ]}
-            onChange={(afterCapture) => patch({ afterCapture })}
-          />
+            onChange={(e) => patch({ afterCapture: e.target.value as Settings['afterCapture'] })}
+          >
+            <option value="quickAccess">Show the quick access card</option>
+            <option value="editor">Open the editor</option>
+            <option value="clipboard">Copy to clipboard</option>
+            <option value="file">Save to folder</option>
+            <option value="clipboardAndFile">Copy and save</option>
+            <option value="pipeline">Run my pipeline</option>
+          </select>
         </Field>
+        {settings.afterCapture === 'pipeline' && (
+          <div className="col" style={{ gap: 10, paddingLeft: 2 }}>
+            <Toggle
+              label="Copy to clipboard"
+              checked={settings.pipeline.copy}
+              onChange={(copy) => patch({ pipeline: { ...settings.pipeline, copy } })}
+            />
+            <Toggle
+              label="Save to folder"
+              checked={settings.pipeline.save}
+              onChange={(save) => patch({ pipeline: { ...settings.pipeline, save } })}
+            />
+            <Toggle
+              label="Pin to screen"
+              checked={settings.pipeline.pin}
+              onChange={(pin) => patch({ pipeline: { ...settings.pipeline, pin } })}
+            />
+            <Toggle
+              label="Open the editor"
+              checked={settings.pipeline.edit}
+              onChange={(edit) => patch({ pipeline: { ...settings.pipeline, edit } })}
+            />
+            <Field
+              label="Then run command"
+              hint="Shell command; {file} expands to the saved image path"
+            >
+              <input
+                className="field mono"
+                style={{ minWidth: 260 }}
+                placeholder="e.g.  aws s3 cp {file} s3://shots/"
+                value={settings.pipeline.command}
+                onChange={(e) =>
+                  patch({ pipeline: { ...settings.pipeline, command: e.target.value } })
+                }
+              />
+            </Field>
+          </div>
+        )}
         <Toggle
           label="Copy to clipboard when saving"
           checked={settings.copyOnSave}

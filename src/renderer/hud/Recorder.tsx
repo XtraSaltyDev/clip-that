@@ -522,6 +522,24 @@ export default function Recorder(): React.ReactElement {
           </>
         )}
 
+        <Toggle
+          label="Auto-zoom"
+          hint="A smooth camera follows your cursor, like a produced video"
+          checked={options.autoZoom}
+          onChange={(autoZoom) => set({ autoZoom })}
+        />
+        {options.autoZoom && (
+          <Slider
+            label="Zoom level"
+            value={options.zoomLevel}
+            min={1.2}
+            max={2.5}
+            step={0.1}
+            suffix="×"
+            onChange={(zoomLevel) => set({ zoomLevel })}
+          />
+        )}
+
         <div className="divider" />
 
         <Slider

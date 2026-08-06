@@ -35,15 +35,95 @@ export function isOverlayOpen(): boolean {
 }
 
 /**
- * Freeze every display, then float a borderless window over each one so the user can
- * select against a still image. Selecting over a live screen is what makes other tools
- * lose hover states and open menus; freezing first is why this one doesn't.
+ * Pre-warmed overlay windows, one per display.
+ *
+ * Creating and loading a BrowserWindow is the slowest part of starting a capture
+ * (~300–500ms). Keeping loaded windows hidden in a pool turns "hotkey → crosshair"
+ * into: snapshot, position, show.
  */
+const pool: BrowserWindow[] = []
+const poolReady = new WeakMap<BrowserWindow, Promise<void>>()
+
+function makeOverlayWindow(): BrowserWindow {
+  const win = new BrowserWindow({
+    x: 0,
+    y: 0,
+    width: 480,
+    height: 320,
+    show: false,
+    frame: false,
+    transparent: false,
+    backgroundColor: '#000000',
+    hasShadow: false,
+    resizable: false,
+    movable: false,
+    minimizable: false,
+    maximizable: false,
+    fullscreenable: false,
+    skipTaskbar: true,
+    enableLargerThanScreen: true,
+    // A panel floats above full-screen spaces on macOS; other platforms ignore it.
+    type: IS_MAC ? 'panel' : undefined,
+    title: 'ClipThat Capture',
+    webPreferences: {
+      preload: preloadPath(),
+      sandbox: false,
+      contextIsolation: true,
+      nodeIntegration: false,
+      backgroundThrottling: false
+    }
+  })
+  win.setAlwaysOnTop(true, 'screen-saver')
+  win.setVisibleOnAllWorkspaces(true, { visibleOnFullScreen: true })
+  loadEntry(win, 'overlay')
+  poolReady.set(
+    win,
+    new Promise<void>((resolve) => win.webContents.once('did-finish-load', () => resolve()))
+  )
+  win.on('closed', () => {
+    const i = pool.indexOf(win)
+    if (i >= 0) pool.splice(i, 1)
+  })
+  return win
+}
+
+/** Called at startup and after display changes; safe to call repeatedly. */
+export function ensureOverlayPool(): void {
+  const want = screen.getAllDisplays().length
+  while (pool.length < want) pool.push(makeOverlayWindow())
+}
+
+/** True while any pooled overlay is on screen (the crosshair is up). */
+export function overlayVisible(): boolean {
+  return pool.some((w) => !w.isDestroyed() && w.isVisible())
+}
+
+export function installOverlayPool(): void {
+  ensureOverlayPool()
+  const rebuild = () => {
+    // Display geometry changed; loaded pages are fine, counts may not be.
+    ensureOverlayPool()
+  }
+  screen.on('display-added', rebuild)
+  screen.on('display-removed', rebuild)
+}
+
 export async function openOverlay(mode: OverlayMode): Promise<OverlaySelection | null> {
   if (pending) closeOverlay(null)
 
+  const t0 = Date.now()
   const snapshots = await withAppWindowsHidden(snapshotAllDisplays)
-  if (snapshots.length === 0) return null
+  const tSnap = Date.now()
+  if (snapshots.length === 0) {
+    // performCapture handles the missing-permission case; this is the transient one.
+    const { broadcast } = await import('./manager')
+    broadcast('system:toast', {
+      kind: 'error',
+      message: 'The screen could not be read just now',
+      detail: 'Usually a moment of capture-service congestion — try again.'
+    })
+    return null
+  }
 
   console.log(
     `[clipthat] overlay: ${screen.getAllDisplays().length} display(s), ` +
@@ -57,72 +137,32 @@ export async function openOverlay(mode: OverlayMode): Promise<OverlaySelection |
         .join(' | ')
   )
 
+  ensureOverlayPool()
   const windows: BrowserWindow[] = []
+  const cursorDisplay = screen.getDisplayNearestPoint(screen.getCursorScreenPoint())
+  // Snapshot is already taken; showing the overlays cannot affect it.
 
-  for (const snap of snapshots) {
-    const display = screen.getAllDisplays().find((d) => String(d.id) === snap.displayId)
-    if (!display) continue
 
-    const win = new BrowserWindow({
-      x: display.bounds.x,
-      y: display.bounds.y,
-      width: display.bounds.width,
-      height: display.bounds.height,
-      show: false,
-      frame: false,
-      transparent: false,
-      backgroundColor: '#000000',
-      hasShadow: false,
-      resizable: false,
-      movable: false,
-      minimizable: false,
-      maximizable: false,
-      fullscreenable: false,
-      skipTaskbar: true,
-      enableLargerThanScreen: true,
-      // A panel floats above full-screen spaces on macOS; other platforms ignore it.
-      type: IS_MAC ? 'panel' : undefined,
-      title: 'ClipThat Capture',
-      webPreferences: {
-        preload: preloadPath(),
-        sandbox: false,
-        contextIsolation: true,
-        nodeIntegration: false,
-        backgroundThrottling: false
-      }
-    })
+  await Promise.all(
+    snapshots.map(async (snap, i) => {
+      const display = screen.getAllDisplays().find((d) => String(d.id) === snap.displayId)
+      const win = pool[i]
+      if (!display || !win || win.isDestroyed()) return
 
-    win.setAlwaysOnTop(true, 'screen-saver')
-    win.setVisibleOnAllWorkspaces(true, { visibleOnFullScreen: true })
-    win.setBounds(display.bounds)
-
-    loadEntry(win, 'overlay')
-
-    win.webContents.once('did-finish-load', () => {
-      win.webContents.send('overlay:init', {
-        mode,
-        snapshot: snap,
-        displayCount: snapshots.length
-      })
-    })
-
-    win.once('ready-to-show', () => {
+      await poolReady.get(win)
       win.setBounds(display.bounds)
-      win.show()
-      // Only the display under the cursor takes keyboard focus, so Escape lands somewhere sane.
-      const cursorDisplay = screen.getDisplayNearestPoint(screen.getCursorScreenPoint())
-      if (cursorDisplay.id === display.id) win.focus()
+      win.webContents.send('overlay:init', { mode, snapshot: snap, displayCount: snapshots.length })
+      win.setBounds(display.bounds)
+      if (cursorDisplay.id === display.id) win.show()
+      else win.showInactive()
+      windows.push(win)
     })
-
-    win.on('closed', () => {
-      const idx = windows.indexOf(win)
-      if (idx >= 0) windows.splice(idx, 1)
-    })
-
-    windows.push(win)
-  }
+  )
 
   if (windows.length === 0) return null
+  console.log(
+    `[clipthat] capture latency: snapshot=${tSnap - t0}ms show=${Date.now() - tSnap}ms total=${Date.now() - t0}ms`
+  )
 
   return new Promise<OverlaySelection | null>((resolve) => {
     pending = { resolve, windows, snapshots }
@@ -139,10 +179,7 @@ export function closeOverlay(selection: OverlaySelection | null): void {
   closedSnapshots = selection ? current.snapshots : []
 
   for (const win of [...current.windows]) {
-    if (!win.isDestroyed()) {
-      win.setClosable(true)
-      win.close()
-    }
+    if (!win.isDestroyed()) win.hide()
   }
   current.resolve(selection)
 }

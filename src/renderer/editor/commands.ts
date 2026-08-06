@@ -232,6 +232,15 @@ export function editorCommands(actions: EditorActions): Command[] {
       run: () => void actions.exportAs(format)
     })),
     {
+      id: 'export.pin',
+      title: 'Pin to screen',
+      hint: 'float this capture above every window',
+      group: 'Export',
+      icon: 'lock',
+      keywords: 'float always on top reference',
+      run: () => void actions.pinToScreen()
+    },
+    {
       id: 'export.project',
       title: 'Export editable project (.clipthat)',
       group: 'Export',

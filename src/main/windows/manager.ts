@@ -238,9 +238,12 @@ export async function withAppWindowsHidden<T>(fn: () => Promise<T>): Promise<T> 
   const ours = BrowserWindow.getAllWindows().filter(
     (w) => !w.isDestroyed() && w.isVisible() && w !== worker
   )
+  if (ours.length === 0) return fn()
+
   for (const w of ours) w.hide()
-  // One breath for the compositor to actually drop them from the frame.
-  if (ours.length > 0) await new Promise((r) => setTimeout(r, 220))
+  // One breath for the compositor to actually drop them from the frame. Too short and
+  // the capture can still contain a half-torn-down window surface.
+  await new Promise((r) => setTimeout(r, 180))
   try {
     return await fn()
   } finally {

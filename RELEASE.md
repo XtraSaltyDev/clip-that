@@ -9,7 +9,7 @@ typecheck and the 77-test suite before bundling, so a broken extractor cannot sh
 |---|---|---|
 | Unit + regression | `npm test` | extraction, stitching maths, layout, filenames — runs anywhere, ~1s |
 | Visual | `CLIPTHAT_VISUAL_CHECK=/tmp/shots npm run dev` | every window renders; annotate → beautify → redact → save round-trips |
-| End-to-end | `CLIPTHAT_SELF_TEST=recording,scroll <app binary>` | real screen recording → MP4 and GIF with verified durations; scrolling capture against a live window. Needs Screen Recording permission; results appear as `[selftest]` lines in the log |
+| End-to-end | `CLIPTHAT_SELF_TEST=all <app binary>` | 8 checks in the packaged app: capture latency budget, pin, quick access (verifies the clipboard), pipeline (save + copy + pin + shell command), scrolling capture, and MP4/GIF/auto-zoom recording with ffprobe-verified durations. Needs Screen Recording permission; results appear as `[selftest]` lines in the log. Individual phases: `CLIPTHAT_SELF_TEST=latency,quick,pipeline` |
 | Display diagnostics | `CLIPTHAT_DIAG_DISPLAYS=1 <app binary>` | per-display capture health, for support |
 
 The log lives at `<userData>/logs/clipthat.log` (shown in Settings → About).
@@ -54,7 +54,9 @@ end-to-end checklist below on real hardware.
 
 - [ ] Region capture on every attached display; result matches the frozen frame
 - [ ] Window capture, fullscreen capture, repeat-last-region
-- [ ] Recording with microphone and webcam bubble (self-test covers screen-only)
+- [ ] Recording with microphone and webcam bubble (self-test covers screen-only + auto-zoom)
+- [ ] Quick Access card: drag-out into another app (self-test covers copy)
+- [ ] Pipeline shell command against a real destination (S3, scp, webhook)
 - [ ] System audio on Windows/Linux
 - [ ] Scrolling capture on a real browser page
 - [ ] Context panel: table copy, link open, blur-all

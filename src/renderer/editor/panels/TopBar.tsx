@@ -172,6 +172,10 @@ export default function TopBar({
               <button onClick={() => { setMenu(null); void actions.exportAs('project') }}>
                 <Icon name="layers" size={14} /> Editable project (.clipthat)
               </button>
+              <div className="menu-sep" />
+              <button onClick={() => { setMenu(null); void actions.pinToScreen() }}>
+                <Icon name="lock" size={14} /> Pin to screen
+              </button>
             </div>
           )}
         </div>

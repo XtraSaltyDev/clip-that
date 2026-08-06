@@ -20,7 +20,7 @@ import {
   showLibraryWindow,
   showSettingsWindow
 } from './windows/manager'
-import { openOverlay } from './windows/overlay'
+import { installOverlayPool, openOverlay } from './windows/overlay'
 import { captureDisplay } from './capture/backend'
 import { performCapture, routeResult } from './capture/service'
 import { recording } from './recording/session'
@@ -128,6 +128,16 @@ app.whenReady().then(async () => {
   installAppMenu()
   createTray()
   registerHotkeys()
+  // Pre-warm the capture overlays so the first hotkey press isn't the slow one.
+  installOverlayPool()
+  // ...and the capture services, so the first snapshot/recording isn't the cold one.
+  setTimeout(() => {
+    void import('electron').then(({ desktopCapturer }) =>
+      desktopCapturer
+        .getSources({ types: ['screen'], thumbnailSize: { width: 16, height: 16 } })
+        .catch(() => [])
+    )
+  }, 1500)
 
   // Screen permission and hotkey conflicts are the two things that make the app look
   // broken while behaving exactly as written, so both are reported at startup.
