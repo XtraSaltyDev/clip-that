@@ -53,6 +53,8 @@ export default function Overlay(): React.ReactElement | null {
   const previewKnownRef = useRef(new Set<string>())
   const previewInFlightRef = useRef(new Set<string>())
   const previewOrderRef = useRef<string[]>([])
+  const previewQueueRef = useRef<string[]>([])
+  const previewWorkerRef = useRef(false)
 
   const releaseSnapshot = useCallback(() => {
     const pixels = pixelsRef.current
@@ -81,6 +83,8 @@ export default function Overlay(): React.ReactElement | null {
         previewKnownRef.current.clear()
         previewInFlightRef.current.clear()
         previewOrderRef.current = []
+        previewQueueRef.current = []
+        previewWorkerRef.current = false
         setCursor({ x: -999, y: -999 })
         dragStart.current = null
         moveRef.current = null
@@ -139,6 +143,29 @@ export default function Overlay(): React.ReactElement | null {
     }
   }, [])
 
+  const queueWindowPreview = useCallback(
+    (id: string) => {
+      if (
+        previewKnownRef.current.has(id) ||
+        previewInFlightRef.current.has(id) ||
+        previewQueueRef.current.includes(id)
+      )
+        return
+      // Hovered/focused cards should take precedence over the initial fill.
+      previewQueueRef.current.unshift(id)
+      if (previewWorkerRef.current) return
+      previewWorkerRef.current = true
+      void (async () => {
+        while (previewQueueRef.current.length > 0) {
+          const next = previewQueueRef.current.shift()
+          if (next) await loadWindowPreview(next)
+        }
+        previewWorkerRef.current = false
+      })()
+    },
+    [loadWindowPreview]
+  )
+
   useEffect(() => {
     if (init?.mode !== 'window') return
     let active = true
@@ -146,13 +173,17 @@ export default function Overlay(): React.ReactElement | null {
       if (!active) return
       setWindows(items)
       previewKnownRef.current = new Set(items.filter((item) => item.thumbnail).map((item) => item.id))
-      const firstWithoutPreview = items.find((item) => !item.thumbnail)
-      if (firstWithoutPreview) void loadWindowPreview(firstWithoutPreview.id)
+      // ScreenCaptureKit is stable when `screencapture -l` requests are serial. Fill
+      // the first visible row automatically so the picker is useful immediately, then
+      // retain hover/focus loading for the rest without creating a preview storm.
+      for (const item of items.filter((item) => !item.thumbnail).slice(0, 4).reverse()) {
+        queueWindowPreview(item.id)
+      }
     })
     return () => {
       active = false
     }
-  }, [init?.mode, loadWindowPreview])
+  }, [init?.mode, queueWindowPreview])
 
   const scale = init ? init.snapshot.pixelWidth / window.innerWidth : 1
   const cssW = window.innerWidth
@@ -405,8 +436,8 @@ export default function Overlay(): React.ReactElement | null {
                 key={w.id}
                 className="ov-card"
                 onClick={() => pickWindow(w.id)}
-                onMouseEnter={() => void loadWindowPreview(w.id)}
-                onFocus={() => void loadWindowPreview(w.id)}
+                onMouseEnter={() => queueWindowPreview(w.id)}
+                onFocus={() => queueWindowPreview(w.id)}
               >
                 <div className="ov-card-shot">
                   {w.thumbnail ? <img src={w.thumbnail} alt="" /> : <Icon name="window" size={28} />}

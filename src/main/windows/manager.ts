@@ -25,6 +25,7 @@ function baseOptions(): Electron.BrowserWindowConstructorOptions {
 
 /** Windows that exist at most once. */
 const singletons = new Map<RendererEntry, BrowserWindow>()
+let hudDisplayId: number | null = null
 
 export function getSingleton(entry: RendererEntry): BrowserWindow | undefined {
   const win = singletons.get(entry)
@@ -150,7 +151,11 @@ export function showHudWindow(hash = ''): BrowserWindow {
   win.setVisibleOnAllWorkspaces(true, { visibleOnFullScreen: true })
   harden(win)
   singletons.set('hud', win)
-  win.on('closed', () => singletons.delete('hud'))
+  hudDisplayId = screen.getDisplayNearestPoint(screen.getCursorScreenPoint()).id
+  win.on('closed', () => {
+    singletons.delete('hud')
+    hudDisplayId = null
+  })
   loadEntry(win, 'hud', hash)
   win.once('ready-to-show', () => {
     if (hash === 'scroll') {
@@ -159,6 +164,7 @@ export function showHudWindow(hash = ''): BrowserWindow {
       dockHud(360, 76)
       win.showInactive()
     } else {
+      centerHud(win, 440, 600)
       win.show()
       win.focus()
     }
@@ -178,6 +184,19 @@ export function dockHud(width: number, height: number): void {
     width: Math.round(width),
     height: Math.round(height)
   })
+}
+
+function centerHud(win: BrowserWindow, width: number, height: number): void {
+  const remembered =
+    hudDisplayId === null ? undefined : screen.getAllDisplays().find((item) => item.id === hudDisplayId)
+  const display = remembered ?? screen.getDisplayNearestPoint(screen.getCursorScreenPoint())
+  const area = display.workArea
+  win.setBounds({
+    x: Math.round(area.x + (area.width - width) / 2),
+    y: Math.round(area.y + (area.height - height) / 2),
+    width: Math.round(width),
+    height: Math.round(height)
+  }, false)
 }
 
 export function closeHudWindow(): void {
@@ -229,6 +248,13 @@ export function closeWorkerWindow(): void {
 /** Resize a frameless window from its own renderer (used by the recorder HUD). */
 export function resizeWindow(win: BrowserWindow | null, width: number, height: number): void {
   if (!win || win.isDestroyed()) return
+  if (win === getSingleton('hud')) {
+    // Recorder completion changes the HUD's height substantially. Retaining the old
+    // top-left corner can leave the result panel below a short display (or an offset
+    // secondary display), so keep it centred on the display where recording began.
+    centerHud(win, width, height)
+    return
+  }
   const [x, y] = win.getPosition()
   win.setBounds({ x, y, width: Math.round(width), height: Math.round(height) }, false)
 }
@@ -241,24 +267,34 @@ export function resizeWindow(win: BrowserWindow | null, width: number, height: n
  * the instant before the snapshot, so what gets frozen is not what the user remembers
  * seeing. Removing our windows from the scene sidesteps both problems.
  */
-export async function withAppWindowsHidden<T>(fn: () => Promise<T>): Promise<T> {
+export async function hideAppWindows(): Promise<() => void> {
   const ours = BrowserWindow.getAllWindows().filter(
     (w) => !w.isDestroyed() && w.isVisible() && w !== worker
   )
-  if (ours.length === 0) return fn()
+  if (ours.length === 0) return () => {}
 
   for (const w of ours) w.hide()
   // One breath for the compositor to actually drop them from the frame. Too short and
   // the capture can still contain a half-torn-down window surface.
   await new Promise((r) => setTimeout(r, 180))
-  try {
-    return await fn()
-  } finally {
+  let restored = false
+  return () => {
+    if (restored) return
+    restored = true
     // Restore without stealing focus; during region capture these reappear underneath
     // the overlay, which floats at screen-saver level.
     for (const w of ours) {
       if (!w.isDestroyed()) w.showInactive()
     }
+  }
+}
+
+export async function withAppWindowsHidden<T>(fn: () => Promise<T>): Promise<T> {
+  const restore = await hideAppWindows()
+  try {
+    return await fn()
+  } finally {
+    restore()
   }
 }
 

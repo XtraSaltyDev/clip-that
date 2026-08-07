@@ -167,6 +167,46 @@ export async function snapshotAllDisplays(): Promise<DisplaySnapshot[]> {
 }
 
 /**
+ * Freeze the display under the pointer first, then the remaining displays in order.
+ *
+ * Region selection only needs one frozen image before it can become useful.  On macOS a
+ * full-resolution `screencapture -R` is necessarily serial, so making callers wait for
+ * every monitor turned a second monitor into a multi-second delay on the first one.
+ * `remaining` deliberately stays serial: concurrent ScreenCaptureKit requests are both
+ * slower and materially less reliable.
+ */
+export async function beginOverlaySnapshots(primaryDisplayId: string): Promise<{
+  initial: DisplaySnapshot | null
+  remaining: Promise<DisplaySnapshot[]>
+}> {
+  const displays = screen.getAllDisplays()
+  const primary = displays.find((display) => String(display.id) === primaryDisplayId)
+  if (!primary) return { initial: null, remaining: Promise.resolve([]) }
+
+  // The specialised path is for macOS, where the CLI gives us reliable native pixels.
+  // Other platforms retain their existing single compositor request.
+  if (!IS_MAC) {
+    const all = await snapshotAllDisplays()
+    return {
+      initial: all.find((snapshot) => snapshot.displayId === primaryDisplayId) ?? null,
+      remaining: Promise.resolve(all.filter((snapshot) => snapshot.displayId !== primaryDisplayId))
+    }
+  }
+
+  const initial = await captureDisplay(primaryDisplayId)
+  const remaining = (async () => {
+    const snapshots: DisplaySnapshot[] = []
+    for (const display of displays) {
+      if (String(display.id) === primaryDisplayId) continue
+      const snapshot = await captureDisplay(String(display.id))
+      if (snapshot) snapshots.push(snapshot)
+    }
+    return snapshots
+  })()
+  return { initial, remaining }
+}
+
+/**
  * Capture each display with `screencapture -R <its bounds>`.
  *
  * The full-display forms (`-D<n>`, and multiple output paths) fail from inside this app

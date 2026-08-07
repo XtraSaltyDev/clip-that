@@ -2,8 +2,8 @@ import { BrowserWindow, nativeImage, screen } from 'electron'
 import { IPC } from '@shared/ipc'
 import type { DisplaySnapshot, Rect } from '@shared/types'
 import { loadEntry, preloadPath } from './urls'
-import { snapshotAllDisplays } from '../capture/backend'
-import { withAppWindowsHidden } from './manager'
+import { beginOverlaySnapshots } from '../capture/backend'
+import { hideAppWindows } from './manager'
 
 const IS_MAC = process.platform === 'darwin'
 
@@ -158,15 +158,22 @@ export async function openOverlay(mode: OverlayMode): Promise<OverlaySelection |
 
   const t0 = Date.now()
   const cursorDisplay = screen.getDisplayNearestPoint(screen.getCursorScreenPoint())
+  // Keep our ordinary windows hidden until the final display is frozen. The cursor
+  // display can be interactive during that work, but a later display must not capture
+  // the editor or library when it is added to the overlay.
+  const restoreAppWindows = mode === 'window' ? () => {} : await hideAppWindows()
   const captured =
     mode === 'window'
-      ? [windowPickerBackdrop(cursorDisplay)]
-      : await withAppWindowsHidden(snapshotAllDisplays)
-  if (generation !== openingGeneration) return null
+      ? { initial: windowPickerBackdrop(cursorDisplay), remaining: Promise.resolve([] as DisplaySnapshot[]) }
+      : await beginOverlaySnapshots(String(cursorDisplay.id))
+  if (generation !== openingGeneration) {
+    restoreAppWindows()
+    return null
+  }
   // The window picker is a single control surface. Showing a duplicate picker on every
   // monitor also decoded every preview and backdrop once per display. Put it where the
   // pointer is; the list still contains windows from the whole desktop.
-  const snapshots = captured
+  const snapshots = captured.initial ? [captured.initial] : []
   const tSnap = Date.now()
   if (snapshots.length === 0) {
     // performCapture handles the missing-permission case; this is the transient one.
@@ -176,6 +183,7 @@ export async function openOverlay(mode: OverlayMode): Promise<OverlaySelection |
       message: 'The screen could not be read just now',
       detail: 'Usually a moment of capture-service congestion — try again.'
     })
+    restoreAppWindows()
     return null
   }
 
@@ -192,23 +200,21 @@ export async function openOverlay(mode: OverlayMode): Promise<OverlaySelection |
   )
 
   const windows: BrowserWindow[] = []
-  // Snapshot is already taken; showing the overlays cannot affect it.
-  await Promise.all(
-    snapshots.map(async (snap, i) => {
-      const display = screen.getAllDisplays().find((d) => String(d.id) === snap.displayId)
-      const win = pool[i]
-      if (!display || !win || win.isDestroyed()) return
+  const showSnapshot = async (snap: DisplaySnapshot): Promise<void> => {
+    const display = screen.getAllDisplays().find((d) => String(d.id) === snap.displayId)
+    const win = pool.find((candidate) => !candidate.isDestroyed() && !windows.includes(candidate))
+    if (!display || !win || win.isDestroyed()) return
 
-      await poolReady.get(win)
-      if (generation !== openingGeneration) return
-      win.setBounds(display.bounds)
-      win.webContents.send('overlay:init', { mode, snapshot: snap, displayCount: snapshots.length })
-      win.setBounds(display.bounds)
-      if (cursorDisplay.id === display.id) win.show()
-      else win.showInactive()
-      windows.push(win)
-    })
-  )
+    await poolReady.get(win)
+    if (generation !== openingGeneration) return
+    win.setBounds(display.bounds)
+    win.webContents.send('overlay:init', { mode, snapshot: snap, displayCount: screen.getAllDisplays().length })
+    if (cursorDisplay.id === display.id) win.show()
+    else win.showInactive()
+    windows.push(win)
+  }
+  // Snapshot is already taken; showing the overlays cannot affect it.
+  await Promise.all(snapshots.map(showSnapshot))
 
   if (generation !== openingGeneration) {
     for (const win of windows) {
@@ -218,17 +224,32 @@ export async function openOverlay(mode: OverlayMode): Promise<OverlaySelection |
       }
     }
     retireOverlayPoolAfterIdle()
+    restoreAppWindows()
     return null
   }
 
-  if (windows.length === 0) return null
+  if (windows.length === 0) {
+    restoreAppWindows()
+    return null
+  }
   console.log(
     `[clipthat] capture latency: snapshot=${tSnap - t0}ms show=${Date.now() - tSnap}ms total=${Date.now() - t0}ms`
   )
 
-  return new Promise<OverlaySelection | null>((resolve) => {
+  const selection = new Promise<OverlaySelection | null>((resolve) => {
     pending = { resolve, windows, snapshots }
   })
+  // The other displays are still captured one at a time. They join the active overlay
+  // as soon as each has an exact frozen image; this keeps multi-display selection while
+  // removing their capture time from the cursor display's time-to-crosshair.
+  void captured.remaining.then(async (remaining) => {
+    for (const snap of remaining) {
+      if (generation !== openingGeneration || !pending) return
+      pending.snapshots.push(snap)
+      await showSnapshot(snap)
+    }
+  }).finally(restoreAppWindows)
+  return selection
 }
 
 /** Called by the IPC layer when a renderer finishes or aborts a selection. */
