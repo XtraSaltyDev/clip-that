@@ -19,6 +19,8 @@ const ENTRIES = {
   layout: 'src/renderer/editor/layout.ts',
   camera: 'src/renderer/hud/zoom-camera.ts',
   qr: 'src/renderer/shared/qr.ts',
+  libraryOpenPolicy: 'src/main/library/open-policy.ts',
+  windowSources: 'src/main/capture/window-sources.ts',
   ipcValidation: 'src/main/ipc/validation.ts',
   pathGuard: 'src/main/store/path-guard.ts'
 }

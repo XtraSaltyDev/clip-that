@@ -1,5 +1,6 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react'
 import type Konva from 'konva'
+import type { LibraryItem } from '@shared/types'
 import { ToastHost, useHotkeys, useImage, useSize, useTheme, toast } from '../shared/ui'
 import { api } from '../shared/api'
 import { Icon } from '../shared/icons'
@@ -9,6 +10,7 @@ import EditorStage from './canvas/Stage'
 import Toolbar, { TOOL_KEYS } from './panels/Toolbar'
 import TopBar from './panels/TopBar'
 import Sidebar from './panels/Sidebar'
+import LibraryStrip from './panels/LibraryStrip'
 import CommandPalette from '../shared/CommandPalette'
 import { editorCommands } from './commands'
 import { orderWords, selectedText } from './canvas/LiveText'
@@ -18,6 +20,7 @@ export default function App(): React.ReactElement {
   const settings = useTheme()
   const doc = useEditor((s) => s.doc)
   const zoom = useEditor((s) => s.zoom)
+  const libraryId = useEditor((s) => s.libraryId)
   const setDoc = useEditor((s) => s.setDoc)
   const image = useImage(doc?.image)
   const stageRef = useRef<Konva.Stage | null>(null)
@@ -25,17 +28,39 @@ export default function App(): React.ReactElement {
   const actions = useEditorActions(stageRef, settings)
   const [dropping, setDropping] = useState(false)
   const [paletteOpen, setPaletteOpen] = useState(false)
+  const [openingLibraryId, setOpeningLibraryId] = useState<string | null>(null)
   // Rebuilt when the palette opens so disabled states reflect the current selection.
   const commands = useMemo(() => editorCommands(actions), [actions, paletteOpen])
 
   /* ---------- document loading ---------- */
 
   useEffect(() => {
+    let alive = true
     void api.editor.load().then((loaded) => {
-      if (loaded) setDoc(loaded, loaded.id)
+      if (alive && loaded) setDoc(loaded, loaded.id)
     })
-    return api.editor.onDocument((incoming) => setDoc(incoming, incoming.id))
-  }, [setDoc])
+    const off = api.editor.onDocument((incoming) => {
+      void (async () => {
+        const current = useEditor.getState()
+        if (current.doc && current.doc.id !== incoming.id && current.dirty) {
+          try {
+            const rendered = await actions.render()
+            if (!rendered) return
+            await actions.syncLibrary(rendered)
+            useEditor.getState().markSaved()
+          } catch (error) {
+            toast('error', 'Could not save the current Library item', (error as Error).message)
+            return
+          }
+        }
+        if (alive) setDoc(incoming, incoming.id)
+      })()
+    })
+    return () => {
+      alive = false
+      off()
+    }
+  }, [actions.render, actions.syncLibrary, setDoc])
 
   /* ---------- seed tool defaults from settings ---------- */
 
@@ -174,6 +199,32 @@ export default function App(): React.ReactElement {
     }
   }, [setDoc, settings])
 
+  const openLibraryItem = async (item: LibraryItem): Promise<void> => {
+    if (openingLibraryId || item.id === useEditor.getState().libraryId) return
+    setOpeningLibraryId(item.id)
+    try {
+      if (item.kind === 'video') {
+        await api.library.open(item.id)
+        return
+      }
+
+      const current = useEditor.getState()
+      if (current.dirty) {
+        const rendered = await actions.render()
+        if (!rendered) return
+        await actions.syncLibrary(rendered)
+        useEditor.getState().markSaved()
+      }
+
+      const opened = await api.editor.switchLibraryItem(item.id)
+      if (!opened) toast('error', 'Could not open that Library item')
+    } catch (error) {
+      toast('error', 'Could not open that Library item', (error as Error).message)
+    } finally {
+      setOpeningLibraryId(null)
+    }
+  }
+
   return (
     <div className="editor-shell">
       <TopBar actions={actions} onOpenPalette={() => setPaletteOpen(true)} />
@@ -216,6 +267,11 @@ export default function App(): React.ReactElement {
           )}
         </main>
         <Sidebar image={image} />
+        <LibraryStrip
+          activeId={libraryId}
+          openingId={openingLibraryId}
+          onOpen={(item) => void openLibraryItem(item)}
+        />
       </div>
       <CommandPalette
         open={paletteOpen}

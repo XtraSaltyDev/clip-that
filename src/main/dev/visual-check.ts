@@ -8,9 +8,10 @@
  *
  * Never loaded unless that variable is set.
  */
-import { BrowserWindow, app } from 'electron'
+import { BrowserWindow, app, screen } from 'electron'
 import { promises as fs } from 'node:fs'
 import { join } from 'node:path'
+import { IPC } from '@shared/ipc'
 import { documentFromCapture, openInEditor } from '../capture/service'
 import {
   editorWindows,
@@ -19,6 +20,8 @@ import {
   showSettingsWindow
 } from '../windows/manager'
 import { loadEntry, preloadPath } from '../windows/urls'
+import { closeOverlay, openOverlay, setOverlayEditorsVisible } from '../windows/overlay'
+import { listWindows } from '../capture/backend'
 
 const wait = (ms: number) => new Promise((r) => setTimeout(r, ms))
 
@@ -204,7 +207,8 @@ async function checkOverlay({ dir, shot }: Ctx): Promise<void> {
       pixelWidth: size.width,
       pixelHeight: size.height
     },
-    displayCount: 1
+    displayCount: 1,
+    editorVisibility: { available: true, visible: true }
   })
   overlay.showInactive()
   await wait(1400)
@@ -213,10 +217,70 @@ async function checkOverlay({ dir, shot }: Ctx): Promise<void> {
   await wait(500)
   await snap(dir, '10-overlay-loupe', overlay)
 
+  overlay.webContents.send(IPC.captureOverlayUpdate, {
+    editorVisibility: { available: true, visible: false }
+  })
+  await wait(300)
+  await snap(dir, '10b-overlay-editor-hidden', overlay)
+  overlay.webContents.send(IPC.captureOverlayUpdate, {
+    editorVisibility: { available: true, visible: true }
+  })
+  await wait(300)
+
   await drag(overlay, 340, 250, 700, 450)
   await wait(400)
   await snap(dir, '11-overlay-selection', overlay)
   overlay.destroy()
+}
+
+/** Optional physical-screen check for editor inclusion and the alternate hidden scene. */
+async function checkLiveEditorOverlay({ dir }: Ctx): Promise<void> {
+  const editor = editorWindows()[0]
+  if (!editor) throw new Error('live overlay check needs an open editor')
+  editor.show()
+  editor.focus()
+  await wait(400)
+  const editorDisplayId = screen.getDisplayMatching(editor.getBounds()).id
+
+  let editorCandidate = false
+  for (let attempt = 0; attempt < 5 && !editorCandidate; attempt++) {
+    const candidates = await listWindows(false)
+    editorCandidate = candidates.some(
+      (candidate) => candidate.title === 'ClipThat' || candidate.appName === 'ClipThat'
+    )
+    if (!editorCandidate) await wait(750)
+  }
+  if (!editorCandidate) throw new Error('visible editor was missing from the window picker')
+
+  const selection = openOverlay('region')
+  let overlay: BrowserWindow | undefined
+  for (let attempt = 0; attempt < 300; attempt++) {
+    overlay = BrowserWindow.getAllWindows().find(
+      (candidate) =>
+        candidate.isVisible() &&
+        candidate.webContents.getURL().includes('/overlay.html') &&
+        screen.getDisplayMatching(candidate.getBounds()).id === editorDisplayId
+    )
+    if (overlay) break
+    await wait(100)
+  }
+
+  try {
+    if (!overlay) throw new Error('live capture overlay did not appear')
+    await wait(500)
+    await snap(dir, '17-live-overlay-editor-visible', overlay)
+
+    const hidden = await setOverlayEditorsVisible(overlay, false)
+    if (!hidden.available || hidden.visible) throw new Error('editor did not enter the hidden state')
+    await wait(400)
+    await snap(dir, '18-live-overlay-editor-hidden', overlay)
+
+    const visible = await setOverlayEditorsVisible(overlay, true)
+    if (!visible.visible) throw new Error('editor did not return to the visible state')
+  } finally {
+    closeOverlay(null)
+    await selection
+  }
 }
 
 export async function runVisualCheck(dir: string): Promise<void> {
@@ -258,6 +322,30 @@ export async function runVisualCheck(dir: string): Promise<void> {
     libraryStore.setCreatedAtForVisualCheck(item.id, Date.now() - age)
   }
 
+  await wait(900)
+  const seededEditor = editorWindows()[0]
+  if (seededEditor) {
+    await snap(dir, '07b-editor-library-strip', seededEditor)
+    const editorCount = editorWindows().length
+    const clicked = await seededEditor.webContents.executeJavaScript(
+      `(() => {
+        const target = [...document.querySelectorAll('.editor-library-item')]
+          .find((button) => button.getAttribute('aria-label')?.endsWith('Signup flow'));
+        if (!target) return false;
+        target.click();
+        return true;
+      })()`
+    )
+    if (!clicked) throw new Error('editor Library strip did not contain the newest seed')
+    await wait(900)
+    const activeTitle = await seededEditor.webContents.executeJavaScript(
+      `document.querySelector('.title-input')?.value ?? ''`
+    )
+    if (activeTitle !== 'Signup flow') throw new Error('Library strip did not switch the editor item')
+    if (editorWindows().length !== editorCount) throw new Error('Library strip opened another editor')
+    await snap(dir, '07c-editor-library-switched', seededEditor)
+  }
+
   const library = showLibraryWindow()
   await wait(2400)
   await snap(dir, '08-library', library)
@@ -265,6 +353,9 @@ export async function runVisualCheck(dir: string): Promise<void> {
   const settings = showSettingsWindow('welcome')
   await wait(1600)
   await snap(dir, '09-settings', settings)
+  settings.webContents.send('settings:navigate', 'general')
+  await wait(500)
+  await snap(dir, '09b-settings-library-choice', settings)
 
   const hud = showHudWindow()
   await wait(1800)
@@ -284,6 +375,7 @@ export async function runVisualCheck(dir: string): Promise<void> {
   broadcast('settings:changed', settingsStore.get())
 
   await checkOverlay(ctx)
+  if (process.env['CLIPTHAT_LIVE_CAPTURE_CHECK']) await checkLiveEditorOverlay(ctx)
 
   // Content search: type a word that only appears *inside* the screenshots and
   // confirm the background indexer has made them findable.

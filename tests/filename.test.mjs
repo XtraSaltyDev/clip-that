@@ -2,7 +2,7 @@ import test from 'node:test'
 import assert from 'node:assert/strict'
 import { load } from './helpers.mjs'
 
-const { formatFilename, safeFilename } = await load('defaults')
+const { defaultSettings, formatFilename, safeFilename } = await load('defaults')
 
 const AT = new Date(2026, 7, 6, 9, 4, 5, 70) // 6 Aug 2026, 09:04:05.070
 
@@ -40,4 +40,8 @@ test('removes control characters, trailing dots, and Windows device names', () =
 
 test('caps generated names to a filesystem-friendly length', () => {
   assert.equal(safeFilename('a'.repeat(400)).length, 180)
+})
+
+test('asks before replacing an existing editor by default', () => {
+  assert.equal(defaultSettings('/tmp').libraryOpenBehavior, 'ask')
 })

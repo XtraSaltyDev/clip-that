@@ -23,6 +23,8 @@ import {
   appendScrollFrameBytes,
   documentFromCapture,
   finishScrollCapture,
+  loadLibraryDocument,
+  openInExistingEditor,
   openInEditor,
   performCapture,
   releasePendingDocument,
@@ -30,14 +32,16 @@ import {
   scrollCaptureActive,
   scrollCaptureConfig,
   startScrollFallback,
+  switchEditorToLibraryItem,
   takePendingDocument
 } from '../capture/service'
-import { closeOverlay, type OverlaySelection } from '../windows/overlay'
+import { closeOverlay, setOverlayEditorsVisible, type OverlaySelection } from '../windows/overlay'
 import { listWindows, windowPreview } from '../capture/backend'
 import { listDisplays } from '../capture/displays'
 import {
   broadcast,
   closeHudWindow,
+  editorWindows,
   getSingleton,
   showHudWindow,
   showLibraryWindow,
@@ -46,7 +50,6 @@ import {
 import {
   copyImageToClipboard,
   exportPdf,
-  loadProjectFile,
   openProjectDialog,
   openFile,
   readImageFromClipboard,
@@ -61,6 +64,11 @@ import { checkPermissions, openScreenRecordingSettings, requestPermission } from
 import { registerHotkeys, hotkeyFailures } from '../hotkeys'
 import { refreshTray, syncTrayVisibility, installAppMenu } from '../tray'
 import * as validate from './validation'
+import {
+  initialLibraryOpenAction,
+  libraryOpenActionFromResponse,
+  savedLibraryOpenBehavior
+} from '../library/open-policy'
 
 let cursorFeed: NodeJS.Timeout | null = null
 
@@ -102,6 +110,10 @@ export function registerIpcHandlers(): void {
   ipcMain.on(IPC.captureCancel, () => {
     closeOverlay(null)
     if (scrollCaptureActive()) cancelScrollCapture()
+  })
+  ipcMain.handle(IPC.captureEditorVisibility, (e, visible: unknown) => {
+    if (typeof visible !== 'boolean') throw new Error('editor visibility must be a boolean')
+    return setOverlayEditorsVisible(BrowserWindow.fromWebContents(e.sender), visible)
   })
 
   ipcMain.handle(IPC.captureClipboard, () => {
@@ -156,6 +168,9 @@ export function registerIpcHandlers(): void {
     openInEditor(validate.clipDocument(doc))
     return true
   })
+  ipcMain.handle(IPC.editorSwitchLibraryItem, (e, id: string) =>
+    switchEditorToLibraryItem(e.sender.id, validate.idValue(id))
+  )
 
   /* ---------------- export ---------------- */
 
@@ -229,16 +244,48 @@ export function registerIpcHandlers(): void {
   ipcMain.handle(IPC.libraryLoadProject, async (_e, id: string) =>
     library.loadProject(validate.idValue(id))
   )
-  ipcMain.handle(IPC.libraryOpen, async (_e, id: string) => {
+  ipcMain.handle(IPC.libraryOpen, async (e, id: string) => {
     const item = library.get(validate.idValue(id))
     if (!item) return false
     if (item.kind === 'video') {
       await shell.openPath(item.filePath)
       return true
     }
-    const doc = (await library.loadProject(id)) ?? (await loadProjectFile(item.filePath))
+    const doc = await loadLibraryDocument(item.id)
     if (!doc) return false
-    doc.id = item.id
+
+    let action = initialLibraryOpenAction(
+      settings.get().libraryOpenBehavior,
+      editorWindows().length > 0
+    )
+
+    if (action === 'ask') {
+      const parent = BrowserWindow.fromWebContents(e.sender)
+      const options: Electron.MessageBoxOptions = {
+        type: 'question',
+        title: 'Open from Library',
+        message: `Open “${item.title}” where?`,
+        detail: 'An editor is already open. You can replace its current item or use another window.',
+        buttons: ['Existing Window', 'New Window', 'Cancel'],
+        defaultId: 0,
+        cancelId: 2,
+        checkboxLabel: 'Do not ask again',
+        checkboxChecked: false,
+        noLink: true
+      }
+      const answer = parent
+        ? await dialog.showMessageBox(parent, options)
+        : await dialog.showMessageBox(options)
+      action = libraryOpenActionFromResponse(answer.response)
+      const remembered = savedLibraryOpenBehavior(action, answer.checkboxChecked)
+      if (remembered) {
+        const next = settings.set({ libraryOpenBehavior: remembered })
+        broadcast(IPC.settingsChanged, next)
+      }
+    }
+
+    if (action === 'cancel') return false
+    if (action === 'existing' && openInExistingEditor(doc)) return true
     openInEditor(doc)
     return true
   })

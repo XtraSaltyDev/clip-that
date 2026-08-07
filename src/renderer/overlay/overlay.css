@@ -7,6 +7,36 @@
   cursor: crosshair;
 }
 
+.ov-editor-control {
+  position: absolute;
+  top: 18px;
+  right: 18px;
+  z-index: 30;
+}
+.ov-editor-toggle {
+  background: #12161dee;
+  border-color: #ffffff26;
+  color: #e8edf5;
+  box-shadow: 0 8px 26px #0009;
+  backdrop-filter: blur(10px);
+  cursor: default;
+}
+.ov-editor-toggle[aria-pressed='false'] {
+  color: #b8c2d1;
+}
+.ov-editor-toggle .kbd {
+  height: 16px;
+  min-width: 16px;
+  margin-left: 2px;
+  padding: 0 4px;
+  background: #ffffff12;
+  border-color: #ffffff24;
+  color: inherit;
+}
+.ov-picker .ov-editor-toggle {
+  box-shadow: none;
+}
+
 /* The scrim dims the frozen screenshot; the hole is the live selection. */
 .ov-scrim {
   position: absolute;
@@ -277,5 +307,4 @@
   flex: none;
   border-radius: 4px;
 }
-
 

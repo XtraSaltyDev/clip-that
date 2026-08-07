@@ -1,5 +1,11 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react'
-import type { DisplaySnapshot, Rect, WindowInfo } from '@shared/types'
+import type {
+  CaptureEditorVisibility,
+  CaptureOverlayUpdate,
+  DisplaySnapshot,
+  Rect,
+  WindowInfo
+} from '@shared/types'
 import { api } from '../shared/api'
 import { Icon } from '../shared/icons'
 import './overlay.css'
@@ -10,6 +16,7 @@ interface Init {
   mode: Mode
   snapshot: DisplaySnapshot
   displayCount: number
+  editorVisibility: CaptureEditorVisibility
 }
 
 interface Box {
@@ -21,6 +28,7 @@ interface Box {
 
 const HANDLES = ['nw', 'n', 'ne', 'e', 'se', 's', 'sw', 'w'] as const
 type Handle = (typeof HANDLES)[number]
+const NO_EDITOR: CaptureEditorVisibility = { available: false, visible: true }
 
 const normalize = (a: { x: number; y: number }, b: { x: number; y: number }): Box => ({
   x: Math.min(a.x, b.x),
@@ -42,6 +50,8 @@ export default function Overlay(): React.ReactElement | null {
   const [cursor, setCursor] = useState({ x: -999, y: -999 })
   const [hex, setHex] = useState('#000000')
   const [windows, setWindows] = useState<WindowInfo[] | null>(null)
+  const [editorVisibility, setEditorVisibility] = useState<CaptureEditorVisibility>(NO_EDITOR)
+  const [editorBusy, setEditorBusy] = useState(false)
 
   const imageRef = useRef<HTMLImageElement | null>(null)
   const pixelsRef = useRef<CanvasRenderingContext2D | null>(null)
@@ -55,6 +65,7 @@ export default function Overlay(): React.ReactElement | null {
   const previewOrderRef = useRef<string[]>([])
   const previewQueueRef = useRef<string[]>([])
   const previewWorkerRef = useRef(false)
+  const windowsRequestRef = useRef(0)
 
   const releaseSnapshot = useCallback(() => {
     const pixels = pixelsRef.current
@@ -75,6 +86,7 @@ export default function Overlay(): React.ReactElement | null {
   useEffect(
     () =>
       api.capture.onOverlayInit((payload) => {
+        const next = payload as Init
         // Pooled windows are reused across captures; every init starts from scratch.
         releaseSnapshot()
         setBox(null)
@@ -86,9 +98,24 @@ export default function Overlay(): React.ReactElement | null {
         previewQueueRef.current = []
         previewWorkerRef.current = false
         setCursor({ x: -999, y: -999 })
+        setEditorVisibility(next.editorVisibility ?? NO_EDITOR)
+        setEditorBusy(false)
         dragStart.current = null
         moveRef.current = null
-        setInit(payload as Init)
+        setInit(next)
+      }),
+    [releaseSnapshot]
+  )
+
+  useEffect(
+    () =>
+      api.capture.onOverlayUpdate((payload: CaptureOverlayUpdate) => {
+        setEditorVisibility(payload.editorVisibility)
+        if (!payload.snapshot) return
+        releaseSnapshot()
+        setInit((current) =>
+          current ? { ...current, snapshot: payload.snapshot!, editorVisibility: payload.editorVisibility } : current
+        )
       }),
     [releaseSnapshot]
   )
@@ -114,6 +141,8 @@ export default function Overlay(): React.ReactElement | null {
         setInit(null)
         setWindows(null)
         setBox(null)
+        setEditorVisibility(NO_EDITOR)
+        setEditorBusy(false)
       }),
     [releaseSnapshot]
   )
@@ -166,24 +195,32 @@ export default function Overlay(): React.ReactElement | null {
     [loadWindowPreview]
   )
 
+  const refreshWindows = useCallback(async () => {
+    const request = ++windowsRequestRef.current
+    setWindows(null)
+    previewKnownRef.current.clear()
+    previewInFlightRef.current.clear()
+    previewOrderRef.current = []
+    previewQueueRef.current = []
+    const items = await api.capture.windows()
+    if (request !== windowsRequestRef.current) return
+    setWindows(items)
+    previewKnownRef.current = new Set(items.filter((item) => item.thumbnail).map((item) => item.id))
+    // ScreenCaptureKit is stable when `screencapture -l` requests are serial. Fill
+    // the first visible row automatically so the picker is useful immediately, then
+    // retain hover/focus loading for the rest without creating a preview storm.
+    for (const item of items.filter((item) => !item.thumbnail).slice(0, 4).reverse()) {
+      queueWindowPreview(item.id)
+    }
+  }, [queueWindowPreview])
+
   useEffect(() => {
     if (init?.mode !== 'window') return
-    let active = true
-    void api.capture.windows().then((items) => {
-      if (!active) return
-      setWindows(items)
-      previewKnownRef.current = new Set(items.filter((item) => item.thumbnail).map((item) => item.id))
-      // ScreenCaptureKit is stable when `screencapture -l` requests are serial. Fill
-      // the first visible row automatically so the picker is useful immediately, then
-      // retain hover/focus loading for the rest without creating a preview storm.
-      for (const item of items.filter((item) => !item.thumbnail).slice(0, 4).reverse()) {
-        queueWindowPreview(item.id)
-      }
-    })
+    void refreshWindows()
     return () => {
-      active = false
+      windowsRequestRef.current++
     }
-  }, [init?.mode, queueWindowPreview])
+  }, [init?.mode, refreshWindows])
 
   const scale = init ? init.snapshot.pixelWidth / window.innerWidth : 1
   const cssW = window.innerWidth
@@ -348,6 +385,20 @@ export default function Overlay(): React.ReactElement | null {
 
   const cancel = useCallback(() => api.capture.cancel(), [])
 
+  const toggleEditors = useCallback(async () => {
+    if (!editorVisibility.available || editorBusy) return
+    setEditorBusy(true)
+    try {
+      const next = await api.capture.setEditorsVisible(!editorVisibility.visible)
+      setEditorVisibility(next)
+      if (init?.mode === 'window') await refreshWindows()
+    } catch (error) {
+      console.error('[clipthat] editor visibility toggle failed', error)
+    } finally {
+      setEditorBusy(false)
+    }
+  }, [editorBusy, editorVisibility, init?.mode, refreshWindows])
+
   const pickWindow = (id: string) => {
     if (!init) return
     api.capture.submitSelection({
@@ -377,6 +428,17 @@ export default function Overlay(): React.ReactElement | null {
         void navigator.clipboard.writeText(hex)
         return
       }
+      if (
+        e.key.toLowerCase() === 'e' &&
+        !e.metaKey &&
+        !e.ctrlKey &&
+        !e.altKey &&
+        editorVisibility.available
+      ) {
+        e.preventDefault()
+        void toggleEditors()
+        return
+      }
       if (e.key.toLowerCase() === 'a' && (e.metaKey || e.ctrlKey)) {
         e.preventDefault()
         setBox({ x: 0, y: 0, w: cssW, h: cssH })
@@ -403,7 +465,7 @@ export default function Overlay(): React.ReactElement | null {
     }
     window.addEventListener('keydown', onKey)
     return () => window.removeEventListener('keydown', onKey)
-  }, [box, cancel, commit, cssH, cssW, hex])
+  }, [box, cancel, commit, cssH, cssW, editorVisibility.available, hex, toggleEditors])
 
   /* ---------- render ---------- */
 
@@ -412,6 +474,21 @@ export default function Overlay(): React.ReactElement | null {
   const px = (n: number) => Math.round(n * scale)
   const loupeSide = cursor.x > cssW - 190 ? cursor.x - 176 : cursor.x + 22
   const loupeTop = cursor.y > cssH - 210 ? cursor.y - 196 : cursor.y + 22
+  const editorToggle = editorVisibility.available ? (
+    <button
+      className="btn sm ov-editor-toggle"
+      type="button"
+      aria-pressed={editorVisibility.visible}
+      disabled={editorBusy}
+      title={`${editorVisibility.visible ? 'Hide' : 'Show'} editor (E)`}
+      onPointerDown={(event) => event.stopPropagation()}
+      onClick={() => void toggleEditors()}
+    >
+      <Icon name={editorVisibility.visible ? 'eye' : 'eyeOff'} size={14} />
+      {editorBusy ? 'Updating…' : editorVisibility.visible ? 'Editor visible' : 'Editor hidden'}
+      <span className="kbd">E</span>
+    </button>
+  ) : null
 
   if (init.mode === 'window') {
     return (
@@ -422,6 +499,7 @@ export default function Overlay(): React.ReactElement | null {
             <Icon name="window" size={18} />
             <h1>Pick a window</h1>
             <span className="spacer" />
+            {editorToggle}
             <button className="btn ghost icon" onClick={cancel} title="Cancel (Esc)">
               <Icon name="close" />
             </button>
@@ -469,6 +547,8 @@ export default function Overlay(): React.ReactElement | null {
         cancel()
       }}
     >
+      {editorToggle && <div className="ov-editor-control">{editorToggle}</div>}
+
       {/* Dim everything, then punch a hole for the selection. */}
       <div className="ov-scrim">
         {box && (
@@ -558,6 +638,11 @@ export default function Overlay(): React.ReactElement | null {
           <span>
             <span className="kbd">C</span> copy colour
           </span>
+          {editorVisibility.available && (
+            <span>
+              <span className="kbd">E</span> {editorVisibility.visible ? 'hide' : 'show'} editor
+            </span>
+          )}
           <span>
             <span className="kbd">Esc</span> cancel
           </span>

@@ -10,14 +10,14 @@ import type {
 import { formatFilename } from '@shared/defaults'
 import { settings } from '../store/settings'
 import { library } from '../store/library'
-import { copyImageToClipboard, saveImage } from '../export'
+import { copyImageToClipboard, loadProjectFile, saveImage } from '../export'
 import {
   broadcast,
   createEditorWindow,
   editorWindows,
   showHudWindow,
   showSettingsWindow,
-  withAppWindowsHidden
+  withNonEditorAppWindowsHidden
 } from '../windows/manager'
 import { closeOverlay, openOverlay, takeFrozenSnapshot, type OverlaySelection } from '../windows/overlay'
 import { showQuickAccess } from '../windows/quick'
@@ -187,6 +187,7 @@ interface ScrollSession {
   timer: NodeJS.Timeout | null
   inFlight: Promise<void> | null
   fallbackActive: boolean
+  restoreEditorWindows?: () => void
 }
 
 function pngBytes(dataUrl: string): Buffer | null {
@@ -275,7 +276,12 @@ function queueFallbackFrame(session: ScrollSession, delayMs: number): void {
   }, delayMs)
 }
 
-export function startScrollCapture(displayId: string, rect: Rect, dipRect?: Rect): void {
+export function startScrollCapture(
+  displayId: string,
+  rect: Rect,
+  dipRect?: Rect,
+  restoreEditorWindows?: () => void
+): void {
   cancelScrollCapture()
   scrollSession = {
     displayId,
@@ -285,7 +291,8 @@ export function startScrollCapture(displayId: string, rect: Rect, dipRect?: Rect
     retainedBytes: 0,
     timer: null,
     inFlight: null,
-    fallbackActive: false
+    fallbackActive: false,
+    restoreEditorWindows
   }
   recording.setDisplayOverride(displayId)
 }
@@ -327,17 +334,23 @@ export async function finishScrollCapture(): Promise<CaptureResult | null> {
   if (session?.inFlight) await session.inFlight
   scrollSession = null
   recording.setDisplayOverride(null)
-  if (!session || session.frames.length === 0) return null
+  try {
+    if (!session || session.frames.length === 0) return null
 
-  const stitched = stitchPngFrames(session.frames)
-  if (!stitched) return null
-  return makeResult(stitched.dataUrl, stitched.width, stitched.height, 'scrolling')
+    const stitched = stitchPngFrames(session.frames)
+    if (!stitched) return null
+    return makeResult(stitched.dataUrl, stitched.width, stitched.height, 'scrolling')
+  } finally {
+    session?.restoreEditorWindows?.()
+  }
 }
 
 export function cancelScrollCapture(): void {
+  const session = scrollSession
   stopScrollTimer()
   scrollSession = null
   recording.setDisplayOverride(null)
+  session?.restoreEditorWindows?.()
 }
 
 /* ------------------------------------------------------------------ *
@@ -377,7 +390,7 @@ export async function performCapture(req: CaptureRequest): Promise<CaptureResult
     case 'scrolling': {
       const sel = await openOverlay('scrolling')
       if (!sel) return null
-      startScrollCapture(sel.displayId, sel.rect, sel.screenRect)
+      startScrollCapture(sel.displayId, sel.rect, sel.screenRect, sel.restoreEditorWindows)
       // Start source discovery only after the user chooses scrolling capture. Doing this
       // at app launch contends with still screenshots on multi-display Macs.
       void recording.prewarmDisplaySources()
@@ -387,7 +400,7 @@ export async function performCapture(req: CaptureRequest): Promise<CaptureResult
       return null
     }
     case 'lastRegion':
-      result = await withAppWindowsHidden(captureLastRegion)
+      result = await withNonEditorAppWindowsHidden(captureLastRegion)
       if (!result) {
         const sel = await openOverlay('region')
         if (!sel) return null
@@ -396,12 +409,12 @@ export async function performCapture(req: CaptureRequest): Promise<CaptureResult
       break
     case 'display': {
       const id = req.displayId ?? String(displayUnderCursor().id)
-      const snap = await withAppWindowsHidden(() => captureDisplay(id))
+      const snap = await withNonEditorAppWindowsHidden(() => captureDisplay(id))
       if (snap) result = makeResult(snap.dataUrl, snap.pixelWidth, snap.pixelHeight, 'display')
       break
     }
     case 'fullscreen':
-      result = await withAppWindowsHidden(captureWholeDesktop)
+      result = await withNonEditorAppWindowsHidden(captureWholeDesktop)
       break
   }
 
@@ -492,13 +505,53 @@ export async function routeResult(
 
 const pendingDocs = new Map<number, ClipDocument>()
 
-/** Hand a document to a fresh editor window (or reuse an empty one). */
+function deliverDocument(win: Electron.BrowserWindow, doc: ClipDocument): void {
+  pendingDocs.set(win.webContents.id, doc)
+  if (win.webContents.isLoadingMainFrame()) {
+    win.webContents.once('did-finish-load', () => {
+      if (!win.isDestroyed()) win.webContents.send('editor:document', doc)
+    })
+    return
+  }
+  win.webContents.send('editor:document', doc)
+  win.show()
+  win.focus()
+}
+
+/** Hand a document to a fresh editor window. */
 export function openInEditor(doc: ClipDocument): void {
   const win = createEditorWindow()
-  pendingDocs.set(win.webContents.id, doc)
-  win.webContents.once('did-finish-load', () => {
-    win.webContents.send('editor:document', doc)
-  })
+  deliverDocument(win, doc)
+}
+
+/** Replace the most recently created editor's document and bring that editor forward. */
+export function openInExistingEditor(doc: ClipDocument): boolean {
+  const windows = editorWindows()
+  const win = windows.find((candidate) => candidate.isFocused()) ?? windows.at(-1)
+  if (!win) return false
+  deliverDocument(win, doc)
+  return true
+}
+
+/** Load an editable image document from the Library, including flattened-only captures. */
+export async function loadLibraryDocument(id: string): Promise<ClipDocument | null> {
+  const item = library.get(id)
+  if (!item || item.kind !== 'image') return null
+  const loaded = (await library.loadProject(id)) ?? (await loadProjectFile(item.filePath))
+  return loaded ? { ...loaded, id: item.id, title: item.title } : null
+}
+
+/** Switch only the editor that sent the request; other open editors are left untouched. */
+export async function switchEditorToLibraryItem(
+  webContentsId: number,
+  libraryId: string
+): Promise<boolean> {
+  const win = editorWindows().find((candidate) => candidate.webContents.id === webContentsId)
+  if (!win) return false
+  const doc = await loadLibraryDocument(libraryId)
+  if (!doc) return false
+  deliverDocument(win, doc)
+  return true
 }
 
 /** Renderers ask for their document on mount, which covers reloads in dev. */

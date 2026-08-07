@@ -71,6 +71,18 @@ export interface DisplaySnapshot {
   pixelHeight: number
 }
 
+/** Whether an editor that was visible when capture began is included in the scene. */
+export interface CaptureEditorVisibility {
+  available: boolean
+  visible: boolean
+}
+
+/** A live overlay update after the user toggles editor visibility. */
+export interface CaptureOverlayUpdate {
+  editorVisibility: CaptureEditorVisibility
+  snapshot?: DisplaySnapshot
+}
+
 /** Result handed to the editor after any capture. */
 export interface CaptureResult {
   id: string
@@ -367,6 +379,9 @@ export type AfterCapture =
   | 'clipboardAndFile'
   | 'pipeline'
 
+/** What opening an image from the full Library does when an editor is already open. */
+export type LibraryOpenBehavior = 'ask' | 'existing' | 'new'
+
 /** One configurable chain of things that happen to a capture, ShareX style. */
 export interface Pipeline {
   copy: boolean
@@ -392,6 +407,7 @@ export interface Hotkeys {
 export interface Settings {
   hotkeys: Hotkeys
   afterCapture: AfterCapture
+  libraryOpenBehavior: LibraryOpenBehavior
   pipeline: Pipeline
   saveDirectory: string
   filenameTemplate: string

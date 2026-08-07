@@ -70,6 +70,7 @@ export function defaultSettings(picturesDir: string): Settings {
     },
     // The card, not the editor: most captures just need to be somewhere else fast.
     afterCapture: 'quickAccess',
+    libraryOpenBehavior: 'ask',
     pipeline: { copy: true, save: true, pin: false, edit: false, command: '' },
     saveDirectory: picturesDir,
     filenameTemplate: 'ClipThat {yyyy}-{MM}-{dd} at {HH}.{mm}.{ss}',

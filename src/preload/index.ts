@@ -1,6 +1,8 @@
 import { contextBridge, ipcRenderer } from 'electron'
 import { IPC } from '@shared/ipc'
 import type {
+  CaptureEditorVisibility,
+  CaptureOverlayUpdate,
   CaptureRequest,
   CaptureResult,
   ClipDocument,
@@ -44,7 +46,11 @@ const api = {
     /* overlay-only */
     submitSelection: (selection: unknown) => ipcRenderer.send(IPC.captureRegionResult, selection),
     cancel: () => ipcRenderer.send(IPC.captureCancel),
+    setEditorsVisible: (visible: boolean): Promise<CaptureEditorVisibility> =>
+      ipcRenderer.invoke(IPC.captureEditorVisibility, visible),
     onOverlayInit: (handler: (payload: unknown) => void) => on('overlay:init', handler),
+    onOverlayUpdate: (handler: (payload: CaptureOverlayUpdate) => void) =>
+      on(IPC.captureOverlayUpdate, handler),
     onOverlayRelease: (handler: () => void) => on(IPC.captureOverlayRelease, handler),
     onScrollFrameCount: (handler: (count: number) => void) => on('scroll:frame-count', handler)
   },
@@ -53,6 +59,8 @@ const api = {
     /** Pull the document this window was opened with. */
     load: (): Promise<ClipDocument | null> => ipcRenderer.invoke(IPC.editorLoad),
     onDocument: (handler: (doc: ClipDocument) => void) => on(IPC.editorDocument, handler),
+    switchLibraryItem: (id: string): Promise<boolean> =>
+      ipcRenderer.invoke(IPC.editorSwitchLibraryItem, id),
     open: (doc: ClipDocument): Promise<boolean> => ipcRenderer.invoke(IPC.editorOpen, doc),
     close: () => ipcRenderer.send(IPC.editorClose)
   },

@@ -1,9 +1,9 @@
 import { BrowserWindow, nativeImage, screen } from 'electron'
 import { IPC } from '@shared/ipc'
-import type { DisplaySnapshot, Rect } from '@shared/types'
+import type { CaptureEditorVisibility, CaptureOverlayUpdate, DisplaySnapshot, Rect } from '@shared/types'
 import { loadEntry, preloadPath } from './urls'
-import { beginOverlaySnapshots } from '../capture/backend'
-import { hideAppWindows } from './manager'
+import { beginOverlaySnapshots, snapshotAllDisplays } from '../capture/backend'
+import { broadcast, editorWindows, hideAppWindows } from './manager'
 
 const IS_MAC = process.platform === 'darwin'
 
@@ -18,12 +18,21 @@ export interface OverlaySelection {
   mode: OverlayMode
   /** Set when the user picked a window from the picker instead of dragging. */
   windowId?: string
+  /** Main-process-only handoff used to keep editors hidden through scrolling capture. */
+  restoreEditorWindows?: () => void
 }
 
 interface Pending {
   resolve: (value: OverlaySelection | null) => void
+  mode: OverlayMode
   windows: BrowserWindow[]
+  windowsByDisplay: Map<string, BrowserWindow>
   snapshots: DisplaySnapshot[]
+  visibleSnapshots: DisplaySnapshot[]
+  hiddenSnapshots: DisplaySnapshot[] | null
+  editors: BrowserWindow[]
+  editorsVisible: boolean
+  snapshotsReady: Promise<void>
 }
 
 let pending: Pending | null = null
@@ -31,6 +40,48 @@ let openingGeneration = 0
 
 /** Snapshots from the overlay that just closed, held for the crop that follows. */
 let closedSnapshots: DisplaySnapshot[] = []
+
+const wait = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms))
+
+function editorVisibility(current: Pending): CaptureEditorVisibility {
+  return { available: current.editors.length > 0, visible: current.editorsVisible }
+}
+
+function showEditors(editors: readonly BrowserWindow[]): void {
+  for (const win of editors) {
+    if (!win.isDestroyed() && !win.isVisible()) win.showInactive()
+  }
+}
+
+function editorRestore(editors: readonly BrowserWindow[]): () => void {
+  let restored = false
+  return () => {
+    if (restored) return
+    restored = true
+    showEditors(editors)
+  }
+}
+
+function publishOverlayUpdate(current: Pending): void {
+  const state = editorVisibility(current)
+  for (const [displayId, win] of current.windowsByDisplay) {
+    if (win.isDestroyed()) continue
+    const snapshot = current.snapshots.find((item) => item.displayId === displayId)
+    const update: CaptureOverlayUpdate = {
+      editorVisibility: state,
+      ...(snapshot ? { snapshot } : {})
+    }
+    win.webContents.send(IPC.captureOverlayUpdate, update)
+  }
+}
+
+function completeSnapshotSet(
+  reference: readonly DisplaySnapshot[],
+  candidate: readonly DisplaySnapshot[]
+): boolean {
+  const ids = new Set(candidate.map((item) => item.displayId))
+  return candidate.length === reference.length && reference.every((item) => ids.has(item.displayId))
+}
 
 function windowPickerBackdrop(display: Electron.Display): DisplaySnapshot {
   // Window mode never crops the display snapshot; it only needs a neutral backdrop behind
@@ -52,6 +103,92 @@ function windowPickerBackdrop(display: Electron.Display): DisplaySnapshot {
 
 export function isOverlayOpen(): boolean {
   return pending !== null
+}
+
+/**
+ * Swap an active overlay between the exact opening scene and an editor-free scene.
+ * Only an active overlay renderer may call this; other app windows cannot hide editors.
+ */
+export async function setOverlayEditorsVisible(
+  sender: BrowserWindow | null,
+  visible: boolean
+): Promise<CaptureEditorVisibility> {
+  const current = pending
+  if (!current || !sender || !current.windows.includes(sender)) {
+    return { available: false, visible: true }
+  }
+  if (current.editors.length === 0 || current.editorsVisible === visible) {
+    return editorVisibility(current)
+  }
+
+  await current.snapshotsReady.catch(() => {})
+  if (pending !== current) return { available: false, visible: true }
+
+  if (current.mode === 'window') {
+    if (visible) showEditors(current.editors)
+    else {
+      for (const win of current.editors) if (!win.isDestroyed()) win.hide()
+    }
+    current.editorsVisible = visible
+    publishOverlayUpdate(current)
+    // Give the compositor time to add/remove the editor before the picker enumerates
+    // sources again. This mirrors the delay used before still screenshots.
+    await wait(180)
+    return editorVisibility(current)
+  }
+
+  if (visible) {
+    showEditors(current.editors)
+    current.editorsVisible = true
+    current.snapshots = [...current.visibleSnapshots]
+    publishOverlayUpdate(current)
+    return editorVisibility(current)
+  }
+
+  const focusedOverlay = BrowserWindow.getFocusedWindow()
+  const restoreAppWindows = await hideAppWindows()
+  let hiddenSnapshots: DisplaySnapshot[]
+  try {
+    hiddenSnapshots = current.hiddenSnapshots ?? (await snapshotAllDisplays())
+  } catch (error) {
+    restoreAppWindows()
+    broadcast('system:toast', {
+      kind: 'error',
+      message: 'The editor could not be hidden from this capture',
+      detail: (error as Error).message
+    })
+    if (focusedOverlay && !focusedOverlay.isDestroyed()) focusedOverlay.focus()
+    return editorVisibility(current)
+  }
+
+  if (pending !== current) {
+    restoreAppWindows()
+    return { available: false, visible: true }
+  }
+
+  if (!completeSnapshotSet(current.visibleSnapshots, hiddenSnapshots)) {
+    restoreAppWindows()
+    broadcast('system:toast', {
+      kind: 'error',
+      message: 'The editor could not be hidden from every display',
+      detail: 'The original capture scene is still selected.'
+    })
+    if (focusedOverlay && !focusedOverlay.isDestroyed()) focusedOverlay.focus()
+    return editorVisibility(current)
+  }
+
+  current.hiddenSnapshots = [...hiddenSnapshots]
+  current.editorsVisible = false
+  current.snapshots = [...hiddenSnapshots]
+  // Restore the overlays and any other app chrome that was visible, but retain the
+  // editors until the user shows them again or finishes this capture.
+  restoreAppWindows(current.editors)
+  publishOverlayUpdate(current)
+  if (focusedOverlay && current.windows.includes(focusedOverlay) && !focusedOverlay.isDestroyed()) {
+    focusedOverlay.show()
+    focusedOverlay.focus()
+  }
+  return editorVisibility(current)
 }
 
 /**
@@ -158,10 +295,17 @@ export async function openOverlay(mode: OverlayMode): Promise<OverlaySelection |
 
   const t0 = Date.now()
   const cursorDisplay = screen.getDisplayNearestPoint(screen.getCursorScreenPoint())
+  const captureEditors = editorWindows().filter((win) => win.isVisible())
+  const openingEditorVisibility: CaptureEditorVisibility = {
+    available: captureEditors.length > 0,
+    visible: true
+  }
   // Keep our ordinary windows hidden until the final display is frozen. The cursor
   // display can be interactive during that work, but a later display must not capture
-  // the editor or library when it is added to the overlay.
-  const restoreAppWindows = mode === 'window' ? () => {} : await hideAppWindows()
+  // the library or capture controls when it is added to the overlay. Editors are the
+  // exception: they remain exactly where the user placed them and are valid subjects.
+  const restoreAppWindows =
+    mode === 'window' ? () => {} : await hideAppWindows({ exclude: captureEditors })
   const captured =
     mode === 'window'
       ? { initial: windowPickerBackdrop(cursorDisplay), remaining: Promise.resolve([] as DisplaySnapshot[]) }
@@ -177,7 +321,6 @@ export async function openOverlay(mode: OverlayMode): Promise<OverlaySelection |
   const tSnap = Date.now()
   if (snapshots.length === 0) {
     // performCapture handles the missing-permission case; this is the transient one.
-    const { broadcast } = await import('./manager')
     broadcast('system:toast', {
       kind: 'error',
       message: 'The screen could not be read just now',
@@ -200,6 +343,7 @@ export async function openOverlay(mode: OverlayMode): Promise<OverlaySelection |
   )
 
   const windows: BrowserWindow[] = []
+  const windowsByDisplay = new Map<string, BrowserWindow>()
   const showSnapshot = async (snap: DisplaySnapshot): Promise<void> => {
     const display = screen.getAllDisplays().find((d) => String(d.id) === snap.displayId)
     const win = pool.find((candidate) => !candidate.isDestroyed() && !windows.includes(candidate))
@@ -208,10 +352,16 @@ export async function openOverlay(mode: OverlayMode): Promise<OverlaySelection |
     await poolReady.get(win)
     if (generation !== openingGeneration) return
     win.setBounds(display.bounds)
-    win.webContents.send('overlay:init', { mode, snapshot: snap, displayCount: screen.getAllDisplays().length })
+    win.webContents.send('overlay:init', {
+      mode,
+      snapshot: snap,
+      displayCount: screen.getAllDisplays().length,
+      editorVisibility: openingEditorVisibility
+    })
     if (cursorDisplay.id === display.id) win.show()
     else win.showInactive()
     windows.push(win)
+    windowsByDisplay.set(snap.displayId, win)
   }
   // Snapshot is already taken; showing the overlays cannot affect it.
   await Promise.all(snapshots.map(showSnapshot))
@@ -236,19 +386,40 @@ export async function openOverlay(mode: OverlayMode): Promise<OverlaySelection |
     `[clipthat] capture latency: snapshot=${tSnap - t0}ms show=${Date.now() - tSnap}ms total=${Date.now() - t0}ms`
   )
 
+  let resolveSelection!: (value: OverlaySelection | null) => void
   const selection = new Promise<OverlaySelection | null>((resolve) => {
-    pending = { resolve, windows, snapshots }
+    resolveSelection = resolve
   })
+  const current: Pending = {
+    resolve: resolveSelection,
+    mode,
+    windows,
+    windowsByDisplay,
+    snapshots: [...snapshots],
+    visibleSnapshots: [...snapshots],
+    hiddenSnapshots: null,
+    editors: captureEditors,
+    editorsVisible: true,
+    snapshotsReady: Promise.resolve()
+  }
+  pending = current
   // The other displays are still captured one at a time. They join the active overlay
   // as soon as each has an exact frozen image; this keeps multi-display selection while
   // removing their capture time from the cursor display's time-to-crosshair.
-  void captured.remaining.then(async (remaining) => {
-    for (const snap of remaining) {
-      if (generation !== openingGeneration || !pending) return
-      pending.snapshots.push(snap)
-      await showSnapshot(snap)
-    }
-  }).finally(restoreAppWindows)
+  current.snapshotsReady = captured.remaining
+    .then(async (remaining) => {
+      for (const snap of remaining) {
+        if (generation !== openingGeneration || pending !== current) return
+        current.snapshots.push(snap)
+        current.visibleSnapshots.push(snap)
+        await showSnapshot(snap)
+      }
+    })
+    .catch((error) => {
+      console.warn(`[clipthat] overlay: remaining display capture failed — ${(error as Error).message}`)
+    })
+    .finally(restoreAppWindows)
+  void current.snapshotsReady
   return selection
 }
 
@@ -268,6 +439,17 @@ export function closeOverlay(selection: OverlaySelection | null): void {
     selection?.mode === 'region'
       ? current.snapshots.filter((s) => s.displayId === selection.displayId)
       : []
+
+  if (!current.editorsVisible) {
+    const restore = editorRestore(current.editors)
+    if (selection && current.mode === 'scrolling' && selection.mode === 'scrolling') {
+      // Scrolling capture reads the live display after the overlay closes, so keep the
+      // editor hidden until that session finishes or is cancelled.
+      selection.restoreEditorWindows = restore
+    } else {
+      restore()
+    }
+  }
 
   for (const win of [...current.windows]) {
     if (!win.isDestroyed()) {

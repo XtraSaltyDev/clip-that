@@ -5,7 +5,9 @@ import { join } from 'node:path'
 import { randomUUID } from 'node:crypto'
 import { desktopCapturer, nativeImage, screen } from 'electron'
 import type { DisplaySnapshot, WindowInfo } from '@shared/types'
+import { editorWindows } from '../windows/manager'
 import { displayPixelSize, findDisplay } from './displays'
+import { shouldIncludeWindowSource } from './window-sources'
 
 const IS_MAC = process.platform === 'darwin'
 
@@ -336,6 +338,9 @@ export async function captureDisplay(displayId: string): Promise<DisplaySnapshot
  */
 export async function listWindows(withPreview = true): Promise<WindowInfo[]> {
   const t0 = Date.now()
+  const visibleEditorTitles = editorWindows()
+    .filter((win) => win.isVisible())
+    .map((win) => win.getTitle())
   // On macOS, asking ScreenCaptureKit to materialize every preview can hang the entire
   // enumeration. Return metadata immediately and let the picker request native previews
   // one at a time. Windows and Linux keep the efficient batched compositor path.
@@ -350,7 +355,7 @@ export async function listWindows(withPreview = true): Promise<WindowInfo[]> {
     fetchWindowIcons: batchPreviews
   })
   const windows = sources
-    .filter((s) => s.name && !s.name.startsWith('ClipThat'))
+    .filter((s) => shouldIncludeWindowSource(s.name, visibleEditorTitles))
     .map((s) => {
       // Electron reports "AppName — Document" on macOS and just the title elsewhere.
       const [head, ...rest] = s.name.split(' — ')

@@ -228,6 +228,27 @@ function General({
         </Field>
       </Group>
 
+      <Group title="Library">
+        <Field
+          label="When an editor is already open"
+          hint="Controls what happens when you open an image from the full Library"
+        >
+          <select
+            className="field"
+            value={settings.libraryOpenBehavior}
+            onChange={(e) =>
+              patch({
+                libraryOpenBehavior: e.target.value as Settings['libraryOpenBehavior']
+              })
+            }
+          >
+            <option value="ask">Ask every time</option>
+            <option value="existing">Use the existing window</option>
+            <option value="new">Open a new window</option>
+          </select>
+        </Field>
+      </Group>
+
       <Group title="System">
         <Toggle
           label="Show in menu bar"

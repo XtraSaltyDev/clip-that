@@ -259,17 +259,26 @@ export function resizeWindow(win: BrowserWindow | null, width: number, height: n
   win.setBounds({ x, y, width: Math.round(width), height: Math.round(height) }, false)
 }
 
+export interface HideAppWindowsOptions {
+  /** Visible app windows that should remain in the captured scene. */
+  exclude?: readonly BrowserWindow[]
+}
+
+export type RestoreAppWindows = (keepHidden?: readonly BrowserWindow[]) => void
+
 /**
- * Hide every visible ClipThat window while `fn` runs, then put them back.
+ * Hide visible ClipThat windows while a screen snapshot is taken, then put them back.
  *
- * A screenshot tool must not appear in its own screenshots — and worse, the act of
- * triggering a capture (clicking a button, closing the tray menu) reorders windows in
- * the instant before the snapshot, so what gets frozen is not what the user remembers
- * seeing. Removing our windows from the scene sidesteps both problems.
+ * Editors may be excluded so they remain ordinary capture subjects. The returned
+ * restore function can also leave selected windows hidden, which lets the capture
+ * overlay take an alternate editor-free snapshot without flashing the editor back.
  */
-export async function hideAppWindows(): Promise<() => void> {
+export async function hideAppWindows(
+  options: HideAppWindowsOptions = {}
+): Promise<RestoreAppWindows> {
+  const excluded = new Set(options.exclude ?? [])
   const ours = BrowserWindow.getAllWindows().filter(
-    (w) => !w.isDestroyed() && w.isVisible() && w !== worker
+    (w) => !w.isDestroyed() && w.isVisible() && w !== worker && !excluded.has(w)
   )
   if (ours.length === 0) return () => {}
 
@@ -278,24 +287,33 @@ export async function hideAppWindows(): Promise<() => void> {
   // the capture can still contain a half-torn-down window surface.
   await new Promise((r) => setTimeout(r, 180))
   let restored = false
-  return () => {
+  return (keepHidden = []) => {
     if (restored) return
     restored = true
+    const retained = new Set(keepHidden)
     // Restore without stealing focus; during region capture these reappear underneath
     // the overlay, which floats at screen-saver level.
     for (const w of ours) {
-      if (!w.isDestroyed()) w.showInactive()
+      if (!w.isDestroyed() && !retained.has(w)) w.showInactive()
     }
   }
 }
 
-export async function withAppWindowsHidden<T>(fn: () => Promise<T>): Promise<T> {
-  const restore = await hideAppWindows()
+export async function withAppWindowsHidden<T>(
+  fn: () => Promise<T>,
+  options: HideAppWindowsOptions = {}
+): Promise<T> {
+  const restore = await hideAppWindows(options)
   try {
     return await fn()
   } finally {
     restore()
   }
+}
+
+/** Keep visible editors in direct display/fullscreen captures while hiding app chrome. */
+export function withNonEditorAppWindowsHidden<T>(fn: () => Promise<T>): Promise<T> {
+  return withAppWindowsHidden(fn, { exclude: editorWindows() })
 }
 
 export function broadcast(channel: string, ...args: unknown[]): void {

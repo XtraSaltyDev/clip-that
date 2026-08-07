@@ -153,9 +153,163 @@ body.mac .topbar {
 /* ---------- body ---------- */
 
 .editor-body {
-  display: flex;
+  display: grid;
+  grid-template-columns: 50px minmax(0, 1fr) 288px;
+  grid-template-rows: minmax(0, 1fr) 108px;
   flex: 1;
   min-height: 0;
+}
+
+/* ---------- Library filmstrip ---------- */
+
+.editor-library-strip {
+  display: flex;
+  grid-column: 1 / 3;
+  grid-row: 2;
+  height: 108px;
+  min-height: 108px;
+  background: var(--bg-1);
+  border-top: 1px solid var(--line);
+  flex: none;
+  overflow: hidden;
+}
+.editor-library-heading {
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  gap: 5px;
+  width: 118px;
+  padding: 0 12px;
+  border-right: 1px solid var(--line);
+  flex: none;
+}
+.editor-library-open {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  min-width: 0;
+  color: var(--ink-0);
+  font-size: 12px;
+  font-weight: 600;
+  text-align: left;
+}
+.editor-library-open:hover {
+  color: var(--accent);
+}
+.editor-library-count {
+  min-width: 20px;
+  padding: 1px 5px;
+  border-radius: 99px;
+  background: var(--bg-3);
+  color: var(--ink-2);
+  font-size: 10px;
+  line-height: 16px;
+  text-align: center;
+}
+.editor-library-order {
+  color: var(--ink-2);
+  font-size: 10px;
+}
+.editor-library-items {
+  display: flex;
+  align-items: stretch;
+  gap: 7px;
+  flex: 1;
+  min-width: 0;
+  padding: 8px 10px 7px;
+  overflow-x: auto;
+  overflow-y: hidden;
+  scrollbar-color: var(--line-strong) transparent;
+  scrollbar-width: thin;
+}
+.editor-library-items::-webkit-scrollbar {
+  height: 6px;
+}
+.editor-library-items::-webkit-scrollbar-thumb {
+  border-radius: 99px;
+  background: var(--line-strong);
+}
+.editor-library-empty {
+  display: flex;
+  align-items: center;
+  padding: 0 10px;
+  color: var(--ink-2);
+  font-size: 12px;
+  white-space: nowrap;
+}
+.editor-library-item {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  width: 92px;
+  min-width: 92px;
+  padding: 4px;
+  border: 1px solid transparent;
+  border-radius: 9px;
+  color: var(--ink-1);
+  text-align: left;
+  transition: border-color 100ms ease, background 100ms ease, color 100ms ease;
+}
+.editor-library-item:hover {
+  background: var(--bg-3);
+  color: var(--ink-0);
+}
+.editor-library-item.active {
+  border-color: var(--accent);
+  background: color-mix(in srgb, var(--accent) 13%, var(--bg-2));
+  color: var(--ink-0);
+}
+.editor-library-item:disabled {
+  cursor: wait;
+}
+.editor-library-thumb {
+  position: relative;
+  display: grid;
+  place-items: center;
+  width: 82px;
+  height: 54px;
+  overflow: hidden;
+  border-radius: 6px;
+  background: var(--bg-0);
+  border: 1px solid var(--line);
+  color: var(--ink-2);
+}
+.editor-library-thumb img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+.editor-library-video {
+  position: absolute;
+  right: 4px;
+  bottom: 4px;
+  display: grid;
+  place-items: center;
+  width: 18px;
+  height: 18px;
+  border-radius: 50%;
+  background: #080b10cc;
+  color: #fff;
+  box-shadow: 0 1px 5px #0008;
+}
+.editor-library-loading {
+  position: absolute;
+  inset: 0;
+  background: color-mix(in srgb, var(--accent) 30%, transparent);
+  animation: library-opening 600ms ease-in-out infinite alternate;
+}
+@keyframes library-opening {
+  to {
+    opacity: 0.25;
+  }
+}
+.editor-library-title {
+  display: block;
+  overflow: hidden;
+  font-size: 10px;
+  line-height: 14px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .toolrail {
@@ -169,6 +323,8 @@ body.mac .topbar {
   align-items: center;
   flex: none;
   overflow-y: auto;
+  grid-column: 1;
+  grid-row: 1;
 }
 .toolrail-sep {
   width: 22px;
@@ -207,6 +363,8 @@ body.mac .topbar {
     var(--bg-0);
   display: grid;
   place-items: center;
+  grid-column: 2;
+  grid-row: 1;
 }
 .viewport-inner {
   padding: 32px;
@@ -328,6 +486,8 @@ body.mac .topbar {
   background: var(--bg-1);
   border-left: 1px solid var(--line);
   min-height: 0;
+  grid-column: 3;
+  grid-row: 1 / 3;
 }
 .sidebar-tabs {
   display: flex;

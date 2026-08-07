@@ -5,6 +5,8 @@ export const IPC = {
   captureRegionResult: 'capture:region-result',
   captureCancel: 'capture:cancel',
   captureOverlayRelease: 'capture:overlay-release',
+  captureOverlayUpdate: 'capture:overlay-update',
+  captureEditorVisibility: 'capture:editor-visibility',
   captureWindows: 'capture:windows',
   captureWindowPreview: 'capture:window-preview',
   captureDisplays: 'capture:displays',
@@ -18,6 +20,7 @@ export const IPC = {
   editorOpen: 'editor:open',
   editorLoad: 'editor:load',
   editorDocument: 'editor:document',
+  editorSwitchLibraryItem: 'editor:switch-library-item',
   editorClose: 'editor:close',
 
   // export

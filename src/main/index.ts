@@ -20,8 +20,7 @@ import {
   showLibraryWindow,
   showSettingsWindow
 } from './windows/manager'
-import { installOverlayPool, openOverlay } from './windows/overlay'
-import { captureDisplay } from './capture/backend'
+import { installOverlayPool, openOverlay, takeFrozenSnapshot } from './windows/overlay'
 import { performCapture, routeResult } from './capture/service'
 import { recording } from './recording/session'
 import { indexBacklog, indexCapture, requestOcr } from './ocr'
@@ -71,7 +70,7 @@ async function grabTextFlow(): Promise<void> {
   const selection = await openOverlay('region')
   if (!selection) return
 
-  const snap = await captureDisplay(selection.displayId)
+  const snap = takeFrozenSnapshot(selection.displayId)
   if (!snap) return
 
   const text = await requestOcr(snap.dataUrl, selection.rect)
