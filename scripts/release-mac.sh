@@ -43,20 +43,20 @@ fi
 
 echo "Building, Developer ID signing, and notarizing ClipThat $VERSION for macOS"
 npm run build
-npx electron-builder --mac --publish never -c.forceCodeSigning=true
+npx electron-builder --mac --arm64 --publish never -c.forceCodeSigning=true
 
-shopt -s nullglob
-dmgs=(dist/ClipThat-"$VERSION"-*.dmg)
-if [ "${#dmgs[@]}" -ne 2 ]; then
-  echo "Expected two architecture-specific DMGs for $VERSION; found ${#dmgs[@]}." >&2
-  exit 1
-fi
-
-for dmg in "${dmgs[@]}"; do
-  echo "Notarizing delivery image: $dmg"
-  xcrun notarytool submit "$dmg" "${notary_args[@]}" --wait
-  xcrun stapler staple "$dmg"
+dmg="dist/ClipThat-$VERSION-arm64.dmg"
+zip="dist/ClipThat-$VERSION-arm64-mac.zip"
+for artifact in "$dmg" "$zip"; do
+  if [ ! -f "$artifact" ]; then
+    echo "Missing macOS release artifact: $artifact" >&2
+    exit 1
+  fi
 done
+
+echo "Notarizing delivery image: $dmg"
+xcrun notarytool submit "$dmg" "${notary_args[@]}" --wait
+xcrun stapler staple "$dmg"
 
 bash scripts/verify-mac-release.sh
 
@@ -64,9 +64,7 @@ bash scripts/verify-mac-release.sh
   cd dist
   shasum -a 256 \
     "ClipThat-$VERSION-arm64.dmg" \
-    "ClipThat-$VERSION-x64.dmg" \
-    "ClipThat-$VERSION-arm64-mac.zip" \
-    "ClipThat-$VERSION-mac.zip"
+    "ClipThat-$VERSION-arm64-mac.zip"
 ) > "dist/ClipThat-$VERSION-SHA256SUMS.txt"
 
 echo "Wrote dist/ClipThat-$VERSION-SHA256SUMS.txt"

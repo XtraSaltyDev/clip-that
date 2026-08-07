@@ -58,5 +58,6 @@ jobs:
           name: clipthat-windows
           path: |
             dist/ClipThat-*.exe
+            dist/ClipThat-*.zip
             dist/ClipThat-*-SHA256SUMS.txt
           if-no-files-found: error

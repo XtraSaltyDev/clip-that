@@ -62,9 +62,10 @@ if ($LASTEXITCODE -ne 0) { throw "electron-builder failed with exit code $LASTEX
 
 $artifacts = @(
     "dist/ClipThat-$version-x64-setup.exe",
-    "dist/ClipThat-$version-x64-portable.exe"
+    "dist/ClipThat-$version-x64-portable.exe",
+    "dist/ClipThat-$version-x64.zip"
 )
-foreach ($artifact in $artifacts) {
+foreach ($artifact in $artifacts | Where-Object { [IO.Path]::GetExtension($_) -eq '.exe' }) {
     if (-not (Test-Path $artifact)) { throw "Missing Windows release artifact: $artifact" }
     $signature = Get-AuthenticodeSignature $artifact
     if ($signature.Status -ne 'Valid') {
@@ -75,6 +76,37 @@ foreach ($artifact in $artifacts) {
     }
 }
 
+$zipArtifact = "dist/ClipThat-$version-x64.zip"
+if (-not (Test-Path $zipArtifact)) { throw "Missing Windows release artifact: $zipArtifact" }
+$extractDir = Join-Path ([IO.Path]::GetTempPath()) ("clipthat-release-" + [guid]::NewGuid())
+try {
+    Expand-Archive -Path $zipArtifact -DestinationPath $extractDir
+    $packedExecutable = Get-ChildItem -Path $extractDir -Filter 'ClipThat.exe' -File -Recurse |
+        Select-Object -First 1
+    if ($null -eq $packedExecutable) {
+        throw "$zipArtifact does not contain ClipThat.exe"
+    }
+    $packedSignature = Get-AuthenticodeSignature $packedExecutable.FullName
+    if ($packedSignature.Status -ne 'Valid') {
+        throw "ClipThat.exe inside $zipArtifact has Authenticode status $($packedSignature.Status), not Valid"
+    }
+    if ($null -eq $packedSignature.TimeStamperCertificate) {
+        throw "ClipThat.exe inside $zipArtifact is signed but has no trusted timestamp"
+    }
+    $packedFfmpeg = Get-ChildItem -Path $extractDir -Filter 'ffmpeg.exe' -File -Recurse |
+        Where-Object { $_.FullName -match '@ffmpeg-installer[\\/]win32-x64' } |
+        Select-Object -First 1
+    if ($null -eq $packedFfmpeg) {
+        throw "$zipArtifact does not contain the Windows x64 FFmpeg binary"
+    }
+    & $packedFfmpeg.FullName -version | Select-Object -First 1
+    if ($LASTEXITCODE -ne 0) {
+        throw "FFmpeg inside $zipArtifact did not run successfully"
+    }
+} finally {
+    if (Test-Path $extractDir) { Remove-Item -Path $extractDir -Recurse -Force }
+}
+
 $checksums = foreach ($artifact in $artifacts) {
     $hash = Get-FileHash -Algorithm SHA256 $artifact
     "$($hash.Hash.ToLowerInvariant())  $([IO.Path]::GetFileName($artifact))"
@@ -82,5 +114,5 @@ $checksums = foreach ($artifact in $artifacts) {
 $checksumPath = "dist/ClipThat-$version-windows-SHA256SUMS.txt"
 Set-Content -Path $checksumPath -Value $checksums -Encoding ascii
 
-Write-Host "Verified ClipThat $version: signed and timestamped Windows x64 installer and portable build."
+Write-Host "Verified ClipThat $version: signed and timestamped Windows x64 installer, portable build, and ZIP."
 Write-Host "Wrote $checksumPath"

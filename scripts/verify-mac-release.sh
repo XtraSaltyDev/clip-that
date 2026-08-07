@@ -9,9 +9,9 @@ cd "$(dirname "$0")/.."
 VERSION=$(node -p "require('./package.json').version")
 EXPECTED_TEAM_ID=${APPLE_TEAM_ID:-ZHK3C6Y5R8}
 
-apps=(dist/mac-arm64/ClipThat.app dist/mac/ClipThat.app)
-dmgs=(dist/ClipThat-"$VERSION"-arm64.dmg dist/ClipThat-"$VERSION"-x64.dmg)
-zips=(dist/ClipThat-"$VERSION"-arm64-mac.zip dist/ClipThat-"$VERSION"-mac.zip)
+apps=(dist/mac-arm64/ClipThat.app)
+dmgs=(dist/ClipThat-"$VERSION"-arm64.dmg)
+zips=(dist/ClipThat-"$VERSION"-arm64-mac.zip)
 
 for artifact in "${dmgs[@]}" "${zips[@]}"; do
   if [ ! -f "$artifact" ]; then
@@ -61,10 +61,10 @@ verify_delivery_app() {
   fi
 }
 
-for index in 0 1; do
+for index in 0; do
   dmg=${dmgs[$index]}
   zip=${zips[$index]}
-  expected_arch=$([ "$index" -eq 0 ] && echo arm64 || echo x86_64)
+  expected_arch=arm64
 
   mount_dir=$(mktemp -d "${TMPDIR:-/tmp}/clipthat-dmg.XXXXXX")
   hdiutil attach "$dmg" -nobrowse -readonly -mountpoint "$mount_dir" >/dev/null
@@ -78,4 +78,4 @@ for index in 0 1; do
   rm -rf "$zip_dir"
 done
 
-echo "Verified ClipThat $VERSION: Developer ID signature, hardened runtime, notarization, stapling, and both macOS architectures."
+echo "Verified ClipThat $VERSION: Developer ID signature, hardened runtime, notarization, stapling, and Apple-silicon delivery artifacts."

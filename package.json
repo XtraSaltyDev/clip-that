@@ -1,6 +1,6 @@
 {
   "name": "clipthat",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "description": "ClipThat — modern cross-platform screen capture, annotation and recording",
   "main": "./out/main/index.js",
   "author": "ClipThat",

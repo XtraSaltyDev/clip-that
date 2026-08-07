@@ -27,9 +27,9 @@ mac:
   category: public.app-category.productivity
   target:
     - target: dmg
-      arch: [arm64, x64]
+      arch: [arm64]
     - target: zip
-      arch: [arm64, x64]
+      arch: [arm64]
   darkModeSupport: true
   hardenedRuntime: true
   notarize: true
@@ -53,6 +53,7 @@ dmg:
       path: /Applications
 
 win:
+  artifactName: ${productName}-${version}-${arch}.${ext}
   target:
     - target: nsis
       # The bundled recorder encoder currently has an x64 Windows build. Windows 11 on
@@ -60,6 +61,8 @@ win:
       # silently lose MP4/GIF export, so it is intentionally not advertised yet.
       arch: [x64]
     - target: portable
+      arch: [x64]
+    - target: zip
       arch: [x64]
 
 nsis:

@@ -27,13 +27,15 @@ npm run install:mac      # build → sign → /Applications, keeps the TCC grant
 
   ```bash
   xcrun notarytool store-credentials clipthat --apple-id <id> --team-id <team>
-  APPLE_KEYCHAIN_PROFILE=clipthat npm run release:mac
+  APPLE_KEYCHAIN_PROFILE=vllm-studio-notarize npm run release:mac
   ```
 
   `release:mac` refuses to proceed without a Developer ID Application identity and
-  notarization credentials. It notarizes and staples both app bundles and both DMGs,
-  then checks the signature, hardened runtime, version, Gatekeeper result, and ticket.
-  Apple ID and App Store Connect API-key credentials are supported for CI too.
+  notarization credentials. It builds the Apple-silicon DMG and ZIP, notarizes and staples
+  the app and DMG, then checks the signature, hardened runtime, version, Gatekeeper result,
+  architecture, and ticket. Apple ID and App Store Connect API-key credentials are
+  supported for CI too. Intel macOS is not emitted because the currently bundled FFmpeg
+  dependency is Apple-silicon-only in a build produced on this runner.
 - If a machine's permission state gets wedged (capture returns nothing while the toggle
   shows on): `RESET_TCC=1 npm run install:mac`, then re-grant. `killall replayd` clears a
   wedged capture daemon.
@@ -41,16 +43,17 @@ npm run install:mac      # build → sign → /Applications, keeps the TCC grant
 ## Windows / Linux
 
 ```powershell
-npm run release:win      # signed x64 NSIS installer + portable build
+npm run release:win      # signed x64 NSIS installer + portable EXE + ZIP
 ```
 
 The Windows release command accepts either Azure Artifact Signing or a normal OV/EV
 code-signing certificate. It refuses to emit an unsigned release and verifies both the
-Authenticode signature and trusted timestamp. Configure the variables documented by the
-error printed by `scripts/release-win.ps1`. The manual GitHub Actions release workflow
-supports both credential routes without storing certificates or passwords in the repo.
+Authenticode signature and trusted timestamp, including `ClipThat.exe` inside the ZIP.
+Configure the variables documented by the error printed by `scripts/release-win.ps1`.
+The manual GitHub Actions release workflow supports both credential routes without
+storing certificates or passwords in the repo.
 
-Windows ARM64 is deliberately not advertised in 0.1.0: the recorder's bundled FFmpeg
+Windows ARM64 is deliberately not advertised in 0.1.1: the recorder's bundled FFmpeg
 does not provide a native ARM64 binary. The x64 package is the candidate to test under
 Windows 11 ARM emulation; do not label it supported until that runtime check passes.
 
