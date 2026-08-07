@@ -89,7 +89,7 @@ Windows release automation is intentionally not part of the macOS workflow. Run 
 validate `release:win` separately when Windows signing credentials and test hardware are
 available.
 
-Windows ARM64 is deliberately not advertised in 0.1.1: the recorder's bundled FFmpeg
+Windows ARM64 is deliberately not advertised: the recorder's bundled FFmpeg
 does not provide a native ARM64 binary. The x64 package is the candidate to test under
 Windows 11 ARM emulation; do not label it supported until that runtime check passes.
 
