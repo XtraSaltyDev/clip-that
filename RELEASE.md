@@ -1,7 +1,7 @@
 # Releasing ClipThat
 
 The build is reproducible from a clean checkout: `npm ci && npm run build` runs the
-typecheck and the 77-test suite before bundling, so a broken extractor cannot ship.
+typecheck and complete test suite before bundling, so a broken extractor cannot ship.
 
 ## Verification levels
 
@@ -9,7 +9,7 @@ typecheck and the 77-test suite before bundling, so a broken extractor cannot sh
 |---|---|---|
 | Unit + regression | `npm test` | extraction, stitching maths, layout, filenames — runs anywhere, ~1s |
 | Visual | `CLIPTHAT_VISUAL_CHECK=/tmp/shots npm run dev` | every window renders; annotate → beautify → redact → save round-trips |
-| End-to-end | `CLIPTHAT_SELF_TEST=all <app binary>` | 8 checks in the packaged app: capture latency budget, pin, quick access (verifies the clipboard), pipeline (save + copy + pin + shell command), scrolling capture, and MP4/GIF/auto-zoom recording with ffprobe-verified durations. Needs Screen Recording permission; results appear as `[selftest]` lines in the log. Individual phases: `CLIPTHAT_SELF_TEST=latency,quick,pipeline` |
+| End-to-end | `CLIPTHAT_SELF_TEST=all <app binary>` | Packaged-app checks for capture latency, retained memory, pin, quick access (including the clipboard), pipeline, scrolling capture, MP4/GIF/auto-zoom recording, and window-picker behavior. Needs Screen Recording permission; results appear as `[selftest]` lines in the log. Individual phases: `CLIPTHAT_SELF_TEST=latency,quick,pipeline` |
 | Display diagnostics | `CLIPTHAT_DIAG_DISPLAYS=1 <app binary>` | per-display capture health, for support |
 
 The log lives at `<userData>/logs/clipthat.log` (shown in Settings → About).
@@ -23,29 +23,42 @@ npm run install:mac      # build → sign → /Applications, keeps the TCC grant
 - **Signing is not optional.** Screen Recording permission is keyed to the code identity;
   an ad-hoc signed build loses the grant on every rebuild while System Settings still
   shows it as on. The script auto-detects a `Developer ID Application` certificate.
-- **Notarization** (required for distribution outside this machine):
+- **Production release** (signing, notarization, stapling, and verification):
 
   ```bash
   xcrun notarytool store-credentials clipthat --apple-id <id> --team-id <team>
-  npx electron-builder --mac   # produces dmg + zip
-  xcrun notarytool submit dist/ClipThat-*.dmg --keychain-profile clipthat --wait
-  xcrun stapler staple dist/ClipThat-*.dmg
+  APPLE_KEYCHAIN_PROFILE=clipthat npm run release:mac
   ```
 
-  (Or wire `notarize: { teamId }` plus `APPLE_ID`/`APPLE_APP_SPECIFIC_PASSWORD` env vars
-  into `electron-builder.yml` to do it in one step.)
+  `release:mac` refuses to proceed without a Developer ID Application identity and
+  notarization credentials. It notarizes and staples both app bundles and both DMGs,
+  then checks the signature, hardened runtime, version, Gatekeeper result, and ticket.
+  Apple ID and App Store Connect API-key credentials are supported for CI too.
 - If a machine's permission state gets wedged (capture returns nothing while the toggle
   shows on): `RESET_TCC=1 npm run install:mac`, then re-grant. `killall replayd` clears a
   wedged capture daemon.
 
 ## Windows / Linux
 
-```bash
-npm run build:win        # nsis installer + portable  (needs a code-signing cert to avoid SmartScreen)
-npm run build:linux      # AppImage, deb, rpm
+```powershell
+npm run release:win      # signed x64 NSIS installer + portable build
 ```
 
-**Neither platform has been runtime-tested.** The capture paths are written and typed
+The Windows release command accepts either Azure Artifact Signing or a normal OV/EV
+code-signing certificate. It refuses to emit an unsigned release and verifies both the
+Authenticode signature and trusted timestamp. Configure the variables documented by the
+error printed by `scripts/release-win.ps1`. The manual GitHub Actions release workflow
+supports both credential routes without storing certificates or passwords in the repo.
+
+Windows ARM64 is deliberately not advertised in 0.1.0: the recorder's bundled FFmpeg
+does not provide a native ARM64 binary. The x64 package is the candidate to test under
+Windows 11 ARM emulation; do not label it supported until that runtime check passes.
+
+```bash
+npm run build:linux      # AppImage, deb, rpm (unsigned development artifacts)
+```
+
+**Windows and Linux have not been runtime-tested in this checkout.** The capture paths are written and typed
 (`desktopCapturer` on both; portal picker on Wayland; loopback system audio), and CI
 builds them, but before calling a Windows or Linux build releasable someone must run the
 end-to-end checklist below on real hardware.
@@ -66,7 +79,7 @@ end-to-end checklist below on real hardware.
 
 ## Versioning
 
-Bump `version` in `package.json`; the artifact names and the About panel follow it.
+Bump `version` in `package.json` and `package-lock.json`; the artifact names and the About panel follow it.
 No auto-update is wired: `publish: null`. When distribution channels exist, the standard
 route is electron-builder's GitHub provider plus `electron-updater` — it was removed as
 an unused dependency, so re-adding it is deliberate work, not flipping a flag.

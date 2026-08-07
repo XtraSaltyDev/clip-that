@@ -18,7 +18,9 @@ const ENTRIES = {
   stitch: 'src/main/capture/stitch-core.ts',
   layout: 'src/renderer/editor/layout.ts',
   camera: 'src/renderer/hud/zoom-camera.ts',
-  qr: 'src/renderer/shared/qr.ts'
+  qr: 'src/renderer/shared/qr.ts',
+  ipcValidation: 'src/main/ipc/validation.ts',
+  pathGuard: 'src/main/store/path-guard.ts'
 }
 
 rmSync(outdir, { recursive: true, force: true })

@@ -10,10 +10,13 @@ import {
 
 export interface CaptureHandles {
   stream: MediaStream
+  /** The OS-owned screen/window track; ending it must stop the recording session too. */
+  sourceTrack: MediaStreamTrack
   recorder: MediaRecorder
   chunks: Blob[]
   width: number
   height: number
+  setPaused: (paused: boolean) => void
   stop: () => Promise<Blob>
   dispose: () => void
 }
@@ -92,10 +95,18 @@ async function getDisplayStream(options: RecordingOptions): Promise<MediaStream>
 
   const bounded = (ms: number) =>
     new Promise<MediaStream>((resolve, reject) => {
-      const timer = setTimeout(() => reject(new Error('display capture timed out')), ms)
+      let expired = false
+      const timer = setTimeout(() => {
+        expired = true
+        reject(new Error('display capture timed out'))
+      }, ms)
       attempt().then(
         (stream) => {
           clearTimeout(timer)
+          if (expired) {
+            stream.getTracks().forEach((track) => track.stop())
+            return
+          }
           resolve(stream)
         },
         (err) => {
@@ -141,6 +152,7 @@ export async function startCapture(options: RecordingOptions, region?: Rect): Pr
   let displayVideo: HTMLVideoElement | null = null
   let webcamVideo: HTMLVideoElement | null = null
   let offCursor: (() => void) | null = null
+  let compositingPaused = false
 
   if (needsCanvas) {
     displayVideo = playInline(new MediaStream([displayTrack]))
@@ -182,8 +194,16 @@ export async function startCapture(options: RecordingOptions, region?: Rect): Pr
       }
     }
 
-    const draw = () => {
+    const frameInterval = 1000 / Math.max(1, options.fps)
+    let nextDrawAt = 0
+    const draw = (now: number) => {
       raf = requestAnimationFrame(draw)
+      // requestAnimationFrame follows the monitor refresh rate, which may be 60–144 Hz.
+      // The output track cannot use frames above the selected recording FPS, so painting
+      // those frames only burns CPU/GPU. Keep the camera and canvas on the output cadence.
+      if (compositingPaused || now < nextDrawAt) return
+      nextDrawAt = nextDrawAt === 0 ? now + frameInterval : nextDrawAt + frameInterval
+      if (nextDrawAt < now) nextDrawAt = now + frameInterval
       if (!displayVideo || displayVideo.readyState < 2) return
 
       if (cropped) {
@@ -241,7 +261,7 @@ export async function startCapture(options: RecordingOptions, region?: Rect): Pr
         ctx.stroke()
       }
     }
-    draw()
+    raf = requestAnimationFrame(draw)
 
     videoTrack = canvas.captureStream(options.fps).getVideoTracks()[0]
   }
@@ -282,6 +302,20 @@ export async function startCapture(options: RecordingOptions, region?: Rect): Pr
     if (e.data.size > 0) chunks.push(e.data)
   }
 
+  const setPaused = (paused: boolean) => {
+    compositingPaused = paused
+    displayTrack.enabled = !paused
+    mic?.getTracks().forEach((track) => { track.enabled = !paused })
+    webcam?.getTracks().forEach((track) => { track.enabled = !paused })
+    if (paused) {
+      displayVideo?.pause()
+      webcamVideo?.pause()
+    } else {
+      void displayVideo?.play()
+      void webcamVideo?.play()
+    }
+  }
+
   const dispose = () => {
     offCursor?.()
     if (raf) cancelAnimationFrame(raf)
@@ -314,7 +348,17 @@ export async function startCapture(options: RecordingOptions, region?: Rect): Pr
 
   recorder.start(1000)
 
-  return { stream, recorder, chunks, width: outWidth, height: outHeight, stop, dispose }
+  return {
+    stream,
+    sourceTrack: displayTrack,
+    recorder,
+    chunks,
+    width: outWidth,
+    height: outHeight,
+    setPaused,
+    stop,
+    dispose
+  }
 }
 
 /** Grab a still from a recorded blob for the library thumbnail. */

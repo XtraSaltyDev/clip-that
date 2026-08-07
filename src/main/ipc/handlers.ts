@@ -20,6 +20,7 @@ import { settings } from '../store/settings'
 import { library } from '../store/library'
 import {
   cancelScrollCapture,
+  appendScrollFrameBytes,
   documentFromCapture,
   finishScrollCapture,
   openInEditor,
@@ -27,10 +28,12 @@ import {
   releasePendingDocument,
   routeResult,
   scrollCaptureActive,
+  scrollCaptureConfig,
+  startScrollFallback,
   takePendingDocument
 } from '../capture/service'
 import { closeOverlay, type OverlaySelection } from '../windows/overlay'
-import { listWindows } from '../capture/backend'
+import { listWindows, windowPreview } from '../capture/backend'
 import { listDisplays } from '../capture/displays'
 import {
   broadcast,
@@ -57,6 +60,7 @@ import { ffmpegAvailable } from '../recording/ffmpeg'
 import { checkPermissions, openScreenRecordingSettings, requestPermission } from '../permissions'
 import { registerHotkeys, hotkeyFailures } from '../hotkeys'
 import { refreshTray, syncTrayVisibility, installAppMenu } from '../tray'
+import * as validate from './validation'
 
 let cursorFeed: NodeJS.Timeout | null = null
 
@@ -81,10 +85,15 @@ function stopCursorFeed(): void {
 export function registerIpcHandlers(): void {
   /* ---------------- capture ---------------- */
 
-  ipcMain.handle(IPC.captureStart, async (_e, req: CaptureRequest) => performCapture(req))
+  ipcMain.handle(IPC.captureStart, async (_e, req: CaptureRequest) =>
+    performCapture(validate.captureRequest(req))
+  )
 
   ipcMain.handle(IPC.captureDisplays, () => listDisplays())
   ipcMain.handle(IPC.captureWindows, () => listWindows())
+  ipcMain.handle(IPC.captureWindowPreview, (_e, windowId: string) =>
+    windowPreview(validate.idValue(windowId, 'window id'))
+  )
 
   // Overlay renderers report their result here.
   ipcMain.on(IPC.captureRegionResult, (_e, selection: OverlaySelection) => {
@@ -112,6 +121,22 @@ export function registerIpcHandlers(): void {
     return result
   })
 
+  ipcMain.handle(IPC.captureScrollConfig, (e) => {
+    const hud = getSingleton('hud')
+    if (!hud || hud.webContents.id !== e.sender.id) return null
+    return scrollCaptureConfig()
+  })
+  ipcMain.on(IPC.captureScrollFrame, (e, bytes: Uint8Array) => {
+    const hud = getSingleton('hud')
+    if (!hud || hud.webContents.id !== e.sender.id) return
+    appendScrollFrameBytes(bytes)
+  })
+  ipcMain.on(IPC.captureScrollFallback, (e, reason: string) => {
+    const hud = getSingleton('hud')
+    if (!hud || hud.webContents.id !== e.sender.id) return
+    startScrollFallback(typeof reason === 'string' ? reason.slice(0, 240) : 'live stream unavailable')
+  })
+
   ipcMain.handle(IPC.captureScrollStitch, async () => {
     const result = await finishScrollCapture()
     closeHudWindow()
@@ -128,30 +153,44 @@ export function registerIpcHandlers(): void {
     BrowserWindow.fromWebContents(e.sender)?.close()
   })
   ipcMain.handle(IPC.editorOpen, (_e, doc: ClipDocument) => {
-    openInEditor(doc)
+    openInEditor(validate.clipDocument(doc))
     return true
   })
 
   /* ---------------- export ---------------- */
 
-  ipcMain.handle(IPC.saveImage, async (_e, req: SaveImageRequest) => saveImage(req))
-  ipcMain.handle(IPC.copyImage, (_e, dataUrl: string) => copyImageToClipboard(dataUrl))
-  ipcMain.handle(IPC.exportPdf, async (_e, dataUrl: string, name?: string) => exportPdf(dataUrl, name))
+  ipcMain.handle(IPC.saveImage, async (_e, req: SaveImageRequest) =>
+    saveImage(validate.saveImageRequest(req))
+  )
+  ipcMain.handle(IPC.copyImage, (_e, dataUrl: string) =>
+    copyImageToClipboard(validate.imageDataUrl(dataUrl))
+  )
+  ipcMain.handle(IPC.exportPdf, async (_e, dataUrl: string, name?: string) =>
+    exportPdf(validate.imageDataUrl(dataUrl), name === undefined ? undefined : validate.idValue(name, 'PDF name'))
+  )
   ipcMain.handle(IPC.saveProject, async (_e, doc: ClipDocument, saveAs = true) =>
-    saveProject(doc, saveAs)
+    saveProject(validate.clipDocument(doc), Boolean(saveAs))
   )
   ipcMain.handle(IPC.openProject, async () => openProjectDialog())
   ipcMain.handle(IPC.startDrag, async (e, dataUrl: string, name: string) => {
-    await startDrag(e, dataUrl, name)
+    await startDrag(e, validate.imageDataUrl(dataUrl), validate.idValue(name, 'drag name'))
   })
   ipcMain.handle(IPC.revealFile, (_e, filePath: string) => {
-    revealFile(filePath)
+    const path = validate.pathValue(filePath)
+    if (!library.ownsPath(path)) throw new TypeError('file is not in the library')
+    revealFile(path)
   })
-  ipcMain.handle(IPC.openFile, async (_e, filePath: string) => openFile(filePath))
+  ipcMain.handle(IPC.openFile, async (_e, filePath: string) => {
+    const path = validate.pathValue(filePath)
+    if (!library.ownsPath(path)) throw new TypeError('file is not in the library')
+    return openFile(path)
+  })
 
   /* ---------------- library ---------------- */
 
-  ipcMain.handle(IPC.libraryList, (_e, query: LibraryQuery) => library.list(query))
+  ipcMain.handle(IPC.libraryList, (_e, query: LibraryQuery) =>
+    library.list(validate.libraryQuery(query))
+  )
   ipcMain.handle(IPC.libraryTags, () => library.allTags())
   ipcMain.handle(
     IPC.libraryAdd,
@@ -167,28 +206,31 @@ export function registerIpcHandlers(): void {
         replaceId?: string
       }
     ) => {
-      if (payload.replaceId) {
+      const safePayload = validate.libraryAddPayload(payload)
+      if (safePayload.replaceId) {
         const updated = await library.replaceImage(
-          payload.replaceId,
-          payload.dataUrl,
-          payload.project,
-          payload.ocrText
+          safePayload.replaceId,
+          safePayload.dataUrl,
+          safePayload.project,
+          safePayload.ocrText
         )
         if (updated) return updated
       }
-      return library.addImage(payload)
+      return library.addImage(safePayload)
     }
   )
   ipcMain.handle(IPC.libraryUpdate, (_e, id: string, patch: Partial<LibraryItem>) =>
-    library.update(id, patch)
+    library.update(validate.idValue(id), validate.libraryPatch(patch))
   )
   ipcMain.handle(IPC.libraryDelete, async (_e, ids: string[]) => {
-    await library.remove(ids)
+    await library.remove(validate.idList(ids))
     return true
   })
-  ipcMain.handle(IPC.libraryLoadProject, async (_e, id: string) => library.loadProject(id))
+  ipcMain.handle(IPC.libraryLoadProject, async (_e, id: string) =>
+    library.loadProject(validate.idValue(id))
+  )
   ipcMain.handle(IPC.libraryOpen, async (_e, id: string) => {
-    const item = library.get(id)
+    const item = library.get(validate.idValue(id))
     if (!item) return false
     if (item.kind === 'video') {
       await shell.openPath(item.filePath)
@@ -203,23 +245,29 @@ export function registerIpcHandlers(): void {
 
   /* ---------------- recording ---------------- */
 
-  ipcMain.handle(IPC.recordSources, async () => ({
-    displays: listDisplays(),
-    // Enumerating windows needs screen-recording permission on macOS. Failing here must not
-    // take the whole picker down — screen recording still works from the display list.
-    windows: await listWindows(false).catch(() => []),
-    systemAudioSupported: recording.systemAudioSupported(),
-    ffmpeg: await ffmpegAvailable()
-  }))
+  ipcMain.handle(IPC.recordSources, async () => {
+    // The setup screen gives this lookup time to finish before Start is pressed, without
+    // competing with unrelated screenshot work at application launch.
+    await recording.prewarmDisplaySources()
+    return {
+      displays: listDisplays(),
+      // Enumerating windows needs screen-recording permission on macOS. Failing here must not
+      // take the whole picker down — screen recording still works from the display list.
+      windows: await listWindows(false).catch(() => []),
+      systemAudioSupported: recording.systemAudioSupported(),
+      ffmpeg: await ffmpegAvailable()
+    }
+  })
 
   ipcMain.handle(IPC.recordConfigure, (_e, options: RecordingOptions) =>
-    recording.configure(options)
+    recording.configure(validate.recordingOptions(options))
   )
 
   ipcMain.handle(IPC.recordStart, (_e, options: RecordingOptions) => {
-    recording.beginCountdown(options)
+    const safeOptions = validate.recordingOptions(options)
+    recording.beginCountdown(safeOptions)
     const hud = showHudWindow()
-    hud.webContents.send(IPC.recordHudCommand, { command: 'start', options })
+    hud.webContents.send(IPC.recordHudCommand, { command: 'start', options: safeOptions })
     return recording.status()
   })
 
@@ -257,7 +305,9 @@ export function registerIpcHandlers(): void {
     return recording.status()
   })
 
-  ipcMain.handle(IPC.recordSaveBlob, async (_e, bytes: Uint8Array) => recording.saveRaw(bytes))
+  ipcMain.handle(IPC.recordSaveBlob, async (_e, bytes: Uint8Array) =>
+    recording.saveRaw(validate.recordingBytes(bytes))
+  )
 
   ipcMain.handle(
     IPC.recordExport,
@@ -267,10 +317,14 @@ export function registerIpcHandlers(): void {
       meta: { width: number; height: number; durationMs: number; posterDataUrl?: string }
     ) => {
       try {
-        const item = await recording.export(opts, meta, (percent) => {
+        const item = await recording.export(
+          validate.videoExportOptions(opts),
+          validate.recordingMeta(meta),
+          (percent) => {
           e.sender.send(IPC.recordProgress, { percent })
           broadcast(IPC.recordProgress, { percent })
-        })
+          }
+        )
         closeHudWindow()
         refreshTray()
         if (item) {
@@ -283,6 +337,7 @@ export function registerIpcHandlers(): void {
         }
         return item
       } catch (err) {
+        await recording.discard()
         closeHudWindow()
         refreshTray()
         broadcast(IPC.toast, {
@@ -408,7 +463,7 @@ export function registerIpcHandlers(): void {
   /* ---------------- pins & quick access ---------------- */
 
   ipcMain.handle(IPC.pinCreate, (_e, dataUrl: string, scaleFactor = 1) =>
-    Boolean(createPin(dataUrl, { scaleFactor }))
+    Boolean(createPin(validate.imageDataUrl(dataUrl), { scaleFactor: validate.scaleFactorValue(scaleFactor) }))
   )
 
   ipcMain.handle(IPC.quickAction, async (_e, id: string, action: string) => {

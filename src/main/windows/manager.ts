@@ -211,12 +211,19 @@ export function getWorkerWindow(): Promise<BrowserWindow> {
   })
   worker = win
   win.on('closed', () => {
-    worker = null
+    if (worker === win) worker = null
   })
   loadEntry(win, 'hud', 'worker')
   return new Promise((resolve) => {
     win.webContents.once('did-finish-load', () => resolve(win))
   })
+}
+
+/** Release Tesseract's hidden Chromium/WASM process after an idle spell. */
+export function closeWorkerWindow(): void {
+  const current = worker
+  worker = null
+  if (current && !current.isDestroyed()) current.close()
 }
 
 /** Resize a frameless window from its own renderer (used by the recorder HUD). */
@@ -277,4 +284,3 @@ export function hasVisibleWindows(): boolean {
     (w) => !w.isDestroyed() && w.isVisible() && w !== hud && w !== worker
   )
 }
-

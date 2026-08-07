@@ -102,11 +102,12 @@ export async function snapshotAllDisplays(): Promise<DisplaySnapshot[]> {
    * (missing display, empty thumbnail), so falling through is always safe. The CLI
    * gets one retry because its failures are transient.
    */
+  const cliShots = new Map<string, CliShot>()
   const images = new Map<string, Electron.NativeImage>()
   const absorb = (from: Map<string, Electron.NativeImage>) => {
     for (const [id, img] of from) if (!images.has(id)) images.set(id, img)
   }
-  const complete = () => images.size >= displays.length
+  const complete = () => new Set([...cliShots.keys(), ...images.keys()]).size >= displays.length
 
   /*
    * One path at a time, never overlapping. A timeout that abandons a desktopCapturer
@@ -120,7 +121,7 @@ export async function snapshotAllDisplays(): Promise<DisplaySnapshot[]> {
   const path: string[] = []
   if (IS_MAC) {
     path.push('cli')
-    absorb(await grabScreensViaCli())
+    for (const [id, shot] of await grabScreensViaCli()) cliShots.set(id, shot)
   }
   if (!complete()) {
     path.push('dc')
@@ -128,11 +129,24 @@ export async function snapshotAllDisplays(): Promise<DisplaySnapshot[]> {
   }
 
   console.log(
-    `[clipthat] snapshot: ${images.size}/${displays.length} via ${path.join('→')} in ${Date.now() - t0}ms`
+    `[clipthat] snapshot: ${new Set([...cliShots.keys(), ...images.keys()]).size}/${displays.length} ` +
+      `via ${path.join('→')} in ${Date.now() - t0}ms`
   )
 
   const results: DisplaySnapshot[] = []
   for (const d of displays) {
+    const cliShot = cliShots.get(String(d.id))
+    if (cliShot) {
+      results.push({
+        displayId: String(d.id),
+        dataUrl: cliShot.dataUrl,
+        bounds: { ...d.bounds },
+        scaleFactor: d.scaleFactor,
+        pixelWidth: cliShot.width,
+        pixelHeight: cliShot.height
+      })
+      continue
+    }
     const image = images.get(String(d.id))
     if (!image) {
       console.warn(`[clipthat] no snapshot for display ${d.id} — it will have no overlay`)
@@ -153,15 +167,6 @@ export async function snapshotAllDisplays(): Promise<DisplaySnapshot[]> {
 }
 
 /**
- * One `screencapture -x -D<n>` call per display, each independent: a display that fails
- * is logged and skipped, never allowed to take the others down with it.
- *
- * `-D` is 1-based over CGGetActiveDisplayList, which does not have to match Electron's
- * ordering — so shots are matched back to displays by exact pixel size first, position
- * second. Ambiguity is only possible with identical same-size monitors, where the
- * positional fallback is as good as any other rule.
- */
-/**
  * Capture each display with `screencapture -R <its bounds>`.
  *
  * The full-display forms (`-D<n>`, and multiple output paths) fail from inside this app
@@ -171,21 +176,27 @@ export async function snapshotAllDisplays(): Promise<DisplaySnapshot[]> {
  * display at a negative origin is captured correctly, and Retina displays come back at
  * native pixel size.
  */
-async function cliShotAll(): Promise<Map<string, Electron.NativeImage>> {
+interface CliShot {
+  dataUrl: string
+  width: number
+  height: number
+}
+
+async function cliShotAll(): Promise<Map<string, CliShot>> {
   const displays = screen.getAllDisplays()
-  const byDisplay = new Map<string, Electron.NativeImage>()
+  const byDisplay = new Map<string, CliShot>()
 
   // Sequential, measured: running the region shots concurrently doubled total latency
   // (1.7s → 3.4s). They contend for the one capture service rather than overlapping,
   // and two processes competing is slower than two taking turns.
   for (const d of displays) {
     const shot = await captureRegionCli(d.bounds)
-    if (shot) byDisplay.set(String(d.id), nativeImage.createFromDataURL(shot.dataUrl))
+    if (shot) byDisplay.set(String(d.id), shot)
   }
   return byDisplay
 }
 
-async function grabScreensViaCli(): Promise<Map<string, Electron.NativeImage>> {
+async function grabScreensViaCli(): Promise<Map<string, CliShot>> {
   const displays = screen.getAllDisplays()
   const byDisplay = await cliShotAll()
   console.log(`[clipthat] cli snapshots: ${byDisplay.size}/${displays.length} displays`)
@@ -193,11 +204,11 @@ async function grabScreensViaCli(): Promise<Map<string, Electron.NativeImage>> {
 }
 
 /** One display via its bounds — a single region shot, no full-desktop pass. */
-async function cliShotForDisplay(displayId: string): Promise<Electron.NativeImage | null> {
+async function cliShotForDisplay(displayId: string): Promise<CliShot | null> {
   const d = findDisplay(displayId)
   if (!d) return null
   const shot = await captureRegionCli(d.bounds)
-  if (shot) return nativeImage.createFromDataURL(shot.dataUrl)
+  if (shot) return shot
   return (await grabScreensViaCli()).get(displayId) ?? null
 }
 
@@ -216,10 +227,17 @@ export async function captureRegionCli(
   try {
     const spec = `${Math.round(rect.x)},${Math.round(rect.y)},${Math.round(rect.width)},${Math.round(rect.height)}`
     await run('screencapture', ['-x', '-o', '-t', 'png', `-R${spec}`, file])
-    const img = nativeImage.createFromBuffer(await fs.readFile(file))
+    const png = await fs.readFile(file)
+    const img = nativeImage.createFromBuffer(png)
     if (img.isEmpty()) return null
     const size = img.getSize()
-    return { dataUrl: img.toDataURL(), width: size.width, height: size.height }
+    // `screencapture` already gave us a PNG. Base64-wrap those exact bytes instead of
+    // asking NativeImage to decode and PNG-encode the same pixels again.
+    return {
+      dataUrl: `data:image/png;base64,${png.toString('base64')}`,
+      width: size.width,
+      height: size.height
+    }
   } catch (err) {
     console.warn(`[clipthat] screencapture -R failed: ${(err as Error).message}`)
     return null
@@ -236,16 +254,15 @@ export async function captureDisplay(displayId: string): Promise<DisplaySnapshot
   // Same reasoning as snapshotAllDisplays: on this platform the CLI is the reliable
   // path and desktopCapturer is the one that intermittently lies.
   if (IS_MAC) {
-    const img = await cliShotForDisplay(displayId)
-    if (!img) return null
-    const size = img.getSize()
+    const shot = await cliShotForDisplay(displayId)
+    if (!shot) return null
     return {
       displayId,
-      dataUrl: img.toDataURL(),
+      dataUrl: shot.dataUrl,
       bounds: { ...d.bounds },
       scaleFactor: d.scaleFactor,
-      pixelWidth: size.width,
-      pixelHeight: size.height
+      pixelWidth: shot.width,
+      pixelHeight: shot.height
     }
   }
 
@@ -278,12 +295,21 @@ export async function captureDisplay(displayId: string): Promise<DisplaySnapshot
  * and everything else doesn't.
  */
 export async function listWindows(withPreview = true): Promise<WindowInfo[]> {
+  const t0 = Date.now()
+  // On macOS, asking ScreenCaptureKit to materialize every preview can hang the entire
+  // enumeration. Return metadata immediately and let the picker request native previews
+  // one at a time. Windows and Linux keep the efficient batched compositor path.
+  const batchPreviews = withPreview && !IS_MAC
   const sources = await desktopCapturer.getSources({
     types: ['window'],
-    thumbnailSize: withPreview ? { width: 480, height: 320 } : { width: 0, height: 0 },
-    fetchWindowIcons: withPreview
+    // Cards render at roughly 220x124. This remains Retina-sharp without asking the
+    // compositor to allocate 480x320 for every open window.
+    thumbnailSize: batchPreviews ? { width: 440, height: 248 } : { width: 0, height: 0 },
+    // Electron only implements app icons on Windows and Linux. Asking for them on macOS
+    // adds work to an already fragile ScreenCaptureKit enumeration and yields no icon.
+    fetchWindowIcons: batchPreviews
   })
-  return sources
+  const windows = sources
     .filter((s) => s.name && !s.name.startsWith('ClipThat'))
     .map((s) => {
       // Electron reports "AppName — Document" on macOS and just the title elsewhere.
@@ -294,10 +320,50 @@ export async function listWindows(withPreview = true): Promise<WindowInfo[]> {
         title: rest.length ? rest.join(' — ') : s.name,
         appName: rest.length ? head : s.name,
         thumbnail:
-          withPreview && !s.thumbnail.isEmpty() ? s.thumbnail.toDataURL() : undefined,
+          batchPreviews && !s.thumbnail.isEmpty() ? s.thumbnail.toDataURL() : undefined,
         icon
       }
     })
+  console.log(
+    `[clipthat] windows: ${windows.length} source(s), previews=${batchPreviews ? 'batch' : 'lazy'} in ${Date.now() - t0}ms`
+  )
+  return windows
+}
+
+/** Load one picker preview without allocating thumbnails for every open window. */
+export async function windowPreview(windowId: string): Promise<string | undefined> {
+  if (IS_MAC) {
+    const cgWindowId = windowId.split(':')[1]
+    if (!cgWindowId || !/^\d+$/.test(cgWindowId)) return undefined
+    const file = await tempPng()
+    try {
+      await run('screencapture', ['-x', '-o', '-t', 'png', `-l${cgWindowId}`, file])
+      let image = nativeImage.createFromBuffer(await fs.readFile(file))
+      if (image.isEmpty()) return undefined
+      const size = image.getSize()
+      const scale = Math.min(1, 440 / size.width, 248 / size.height)
+      if (scale < 1) {
+        image = image.resize({
+          width: Math.max(1, Math.round(size.width * scale)),
+          height: Math.max(1, Math.round(size.height * scale)),
+          quality: 'good'
+        })
+      }
+      return image.toDataURL()
+    } catch {
+      return undefined
+    } finally {
+      await fs.rm(file, { force: true }).catch(() => {})
+    }
+  }
+
+  const sources = await desktopCapturer.getSources({
+    types: ['window'],
+    thumbnailSize: { width: 440, height: 248 },
+    fetchWindowIcons: false
+  })
+  const source = sources.find((item) => item.id === windowId)
+  return source && !source.thumbnail.isEmpty() ? source.thumbnail.toDataURL() : undefined
 }
 
 /**

@@ -6,11 +6,13 @@ import type {
   ClipDocument,
   DisplayInfo,
   LibraryItem,
+  LibraryItemPatch,
   LibraryQuery,
   RecordingOptions,
   RecordingStatus,
   SaveImageRequest,
   SaveResult,
+  ScrollCaptureConfig,
   Settings,
   Toast,
   VideoExportOptions,
@@ -30,13 +32,20 @@ const api = {
       ipcRenderer.invoke(IPC.captureStart, req),
     displays: (): Promise<DisplayInfo[]> => ipcRenderer.invoke(IPC.captureDisplays),
     windows: (): Promise<WindowInfo[]> => ipcRenderer.invoke(IPC.captureWindows),
+    windowPreview: (windowId: string): Promise<string | undefined> =>
+      ipcRenderer.invoke(IPC.captureWindowPreview, windowId),
     fromClipboard: (): Promise<CaptureResult | null> => ipcRenderer.invoke(IPC.captureClipboard),
+    scrollConfig: (): Promise<ScrollCaptureConfig | null> =>
+      ipcRenderer.invoke(IPC.captureScrollConfig),
+    submitScrollFrame: (bytes: Uint8Array) => ipcRenderer.send(IPC.captureScrollFrame, bytes),
+    useScrollFallback: (reason: string) => ipcRenderer.send(IPC.captureScrollFallback, reason),
     finishScrolling: (): Promise<CaptureResult | null> =>
       ipcRenderer.invoke(IPC.captureScrollStitch),
     /* overlay-only */
     submitSelection: (selection: unknown) => ipcRenderer.send(IPC.captureRegionResult, selection),
     cancel: () => ipcRenderer.send(IPC.captureCancel),
     onOverlayInit: (handler: (payload: unknown) => void) => on('overlay:init', handler),
+    onOverlayRelease: (handler: () => void) => on(IPC.captureOverlayRelease, handler),
     onScrollFrameCount: (handler: (count: number) => void) => on('scroll:frame-count', handler)
   },
 
@@ -76,7 +85,7 @@ const api = {
       ocrText?: string
       replaceId?: string
     }): Promise<LibraryItem> => ipcRenderer.invoke(IPC.libraryAdd, payload),
-    update: (id: string, patch: Partial<LibraryItem>): Promise<LibraryItem | undefined> =>
+    update: (id: string, patch: LibraryItemPatch): Promise<LibraryItem | undefined> =>
       ipcRenderer.invoke(IPC.libraryUpdate, id, patch),
     remove: (ids: string[]): Promise<boolean> => ipcRenderer.invoke(IPC.libraryDelete, ids),
     open: (id: string): Promise<boolean> => ipcRenderer.invoke(IPC.libraryOpen, id),

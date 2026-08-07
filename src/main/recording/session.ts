@@ -15,7 +15,6 @@ import { settings } from '../store/settings'
 import { library } from '../store/library'
 import { recordingsDir, tempDir } from '../store/paths'
 import { toGif, toMp4, toWebm } from './ffmpeg'
-import { displayPixelSize, findDisplay } from '../capture/displays'
 
 const IS_WIN = process.platform === 'win32'
 const IS_LINUX = process.platform === 'linux'
@@ -27,6 +26,10 @@ class RecordingSession extends EventEmitter {
   private accumulatedMs = 0
   private ticker: NodeJS.Timeout | null = null
   private rawPath: string | null = null
+  private displayOverride: string | null = null
+  private screenSources: Electron.DesktopCapturerSource[] = []
+  private screenSourcesAt = 0
+  private screenSourcesPending: Promise<Electron.DesktopCapturerSource[]> | null = null
 
   status(): RecordingStatus {
     return {
@@ -54,43 +57,102 @@ class RecordingSession extends EventEmitter {
     electronSession.defaultSession.setDisplayMediaRequestHandler(
       (_request, callback) => {
         void (async () => {
+          let responded = false
+          const respond = (result: Parameters<typeof callback>[0]) => {
+            if (responded) return
+            responded = true
+            try {
+              callback(result)
+            } catch (err) {
+              // Chromium can cancel a renderer request while source discovery is still
+              // running. Its one-shot callback then throws; that is cancellation, not a
+              // second response or an application-level unhandled rejection.
+              console.warn(`[clipthat] display source request expired — ${(err as Error).message}`)
+            }
+          }
+
+          const override = this.displayOverride
           const opts = this.options
-          if (!opts) {
-            callback({})
+          if (!override && !opts) {
+            respond({})
             return
           }
 
           try {
-            if (opts.target === 'window' && opts.windowId) {
+            if (!override && opts?.target === 'window' && opts.windowId) {
               const sources = await desktopCapturer.getSources({
                 types: ['window'],
                 thumbnailSize: { width: 0, height: 0 }
               })
               const source = sources.find((s) => s.id === opts.windowId)
               if (source) {
-                callback({ video: source, audio: this.audioChoice(opts) })
+                respond({ video: source, audio: this.audioChoice(opts) })
                 return
               }
             }
 
-            const displayId = opts.displayId
-            const display = displayId ? findDisplay(displayId) : undefined
-            const size = display ? displayPixelSize(display) : { width: 1920, height: 1080 }
-            const sources = await desktopCapturer.getSources({
-              types: ['screen'],
-              thumbnailSize: { width: Math.min(320, size.width), height: 180 }
-            })
-            const source =
-              sources.find((s) => s.display_id === displayId) ?? sources[0]
-            callback(source ? { video: source, audio: this.audioChoice(opts) } : {})
-          } catch {
-            callback({})
+            const displayId = override ?? opts?.displayId
+            const sources = await this.getScreenSources()
+            let source = this.sourceForDisplay(sources, displayId)
+            if (displayId && !source) {
+              // The display layout changed while the five-minute cache was alive.
+              source = this.sourceForDisplay(await this.getScreenSources(true), displayId)
+            }
+            respond(
+              source
+                ? { video: source, audio: override || !opts ? undefined : this.audioChoice(opts) }
+                : {}
+            )
+          } catch (err) {
+            console.warn(`[clipthat] display source discovery failed — ${(err as Error).message}`)
+            respond({})
           }
         })()
       },
       // Without this the handler is treated as a one-shot on some platforms.
       { useSystemPicker: false }
     )
+  }
+
+  private sourceForDisplay(
+    sources: Electron.DesktopCapturerSource[],
+    displayId?: string
+  ): Electron.DesktopCapturerSource | undefined {
+    if (!displayId) return sources[0]
+    return sources.find((source) => {
+      if (source.display_id === displayId) return true
+      const match = /^screen:(\d+):/.exec(source.id)
+      return match?.[1] === displayId
+    })
+  }
+
+  private getScreenSources(force = false): Promise<Electron.DesktopCapturerSource[]> {
+    const fresh = Date.now() - this.screenSourcesAt < 5 * 60_000
+    if (!force && fresh && this.screenSources.length > 0) return Promise.resolve(this.screenSources)
+    if (!force && this.screenSourcesPending) return this.screenSourcesPending
+
+    const pending = desktopCapturer
+      .getSources({ types: ['screen'], thumbnailSize: { width: 320, height: 180 } })
+      .then((sources) => {
+        this.screenSources = sources
+        this.screenSourcesAt = Date.now()
+        return sources
+      })
+      .finally(() => {
+        if (this.screenSourcesPending === pending) this.screenSourcesPending = null
+      })
+    this.screenSourcesPending = pending
+    return pending
+  }
+
+  /** Warm and retain display source handles so the first live capture does no enumeration. */
+  async prewarmDisplaySources(): Promise<void> {
+    await this.getScreenSources().then(() => undefined, () => undefined)
+  }
+
+  /** Temporarily route getDisplayMedia to the display selected for scrolling capture. */
+  setDisplayOverride(displayId: string | null): void {
+    this.displayOverride = displayId
   }
 
   /**
@@ -114,12 +176,14 @@ class RecordingSession extends EventEmitter {
   }
 
   beginCountdown(options: RecordingOptions): void {
+    if (this.state !== 'idle') throw new Error('A recording is already active')
     this.configure(options)
     this.accumulatedMs = 0
     this.setState('countdown')
   }
 
   markStarted(): void {
+    if (this.state !== 'countdown') return
     this.startedAt = Date.now()
     this.accumulatedMs = 0
     this.setState('recording')
@@ -139,6 +203,7 @@ class RecordingSession extends EventEmitter {
   }
 
   markStopping(): void {
+    if (this.state !== 'recording' && this.state !== 'paused') return
     if (this.state === 'recording') this.accumulatedMs += Date.now() - this.startedAt
     if (this.ticker) {
       clearInterval(this.ticker)
@@ -159,6 +224,7 @@ class RecordingSession extends EventEmitter {
 
   /** Persist the raw WebM the renderer's MediaRecorder produced. */
   async saveRaw(bytes: Uint8Array): Promise<string> {
+    if (this.state !== 'encoding') throw new Error('No recording is ready to save')
     const path = join(tempDir(), `recording-${randomUUID()}.webm`)
     await fs.writeFile(path, Buffer.from(bytes))
     this.rawPath = path
@@ -175,6 +241,7 @@ class RecordingSession extends EventEmitter {
     meta: { width: number; height: number; durationMs: number; posterDataUrl?: string },
     onProgress?: (percent: number) => void
   ): Promise<LibraryItem | null> {
+    if (this.state !== 'encoding') throw new Error('No recording is ready to export')
     const input = this.rawPath
     if (!input) return null
 

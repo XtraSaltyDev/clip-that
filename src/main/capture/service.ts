@@ -1,6 +1,12 @@
 import { nativeImage, screen, shell } from 'electron'
 import { randomUUID } from 'node:crypto'
-import type { CaptureRequest, CaptureResult, ClipDocument, Rect } from '@shared/types'
+import type {
+  CaptureRequest,
+  CaptureResult,
+  ClipDocument,
+  Rect,
+  ScrollCaptureConfig
+} from '@shared/types'
 import { formatFilename } from '@shared/defaults'
 import { settings } from '../store/settings'
 import { library } from '../store/library'
@@ -17,8 +23,9 @@ import { closeOverlay, openOverlay, takeFrozenSnapshot, type OverlaySelection } 
 import { showQuickAccess } from '../windows/quick'
 import { runPipeline } from '../pipeline'
 import { captureDisplay, captureRegionCli, captureWindow, snapshotAllDisplays } from './backend'
-import { displayUnderCursor, findDisplay } from './displays'
-import { stitchFrames } from './stitch'
+import { displayPixelSize, displayUnderCursor, findDisplay } from './displays'
+import { stitchPngFrames } from './stitch'
+import { recording } from '../recording/session'
 
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms))
 
@@ -174,9 +181,37 @@ interface ScrollSession {
   rect: Rect
   /** Same region in global desktop DIPs (drives the fast -R path on macOS). */
   dipRect?: Rect
-  frames: string[]
+  /** Compressed PNG bytes. Base64 strings cost roughly 33% more before JS string overhead. */
+  frames: Buffer[]
+  retainedBytes: number
   timer: NodeJS.Timeout | null
-  busy: boolean
+  inFlight: Promise<void> | null
+  fallbackActive: boolean
+}
+
+function pngBytes(dataUrl: string): Buffer | null {
+  const comma = dataUrl.indexOf(',')
+  if (comma < 0 || !dataUrl.slice(0, comma).includes(';base64')) return null
+  return Buffer.from(dataUrl.slice(comma + 1), 'base64')
+}
+
+function appendScrollFrame(session: ScrollSession, dataUrl: string): boolean {
+  const png = pngBytes(dataUrl)
+  return png ? appendScrollPng(session, png) : false
+}
+
+function appendScrollPng(session: ScrollSession, png: Buffer): boolean {
+  if (session !== scrollSession || png.length < 8 || png.length > 64 * 1024 * 1024) return false
+  if (!png.subarray(0, 8).equals(Buffer.from([137, 80, 78, 71, 13, 10, 26, 10]))) return false
+  const last = session.frames[session.frames.length - 1]
+  if (last?.equals(png)) return false
+  // Bound a forgotten capture session instead of allowing it to consume the machine.
+  if (session.frames.length >= 300) return false
+  if (session.retainedBytes + png.length > 512 * 1024 * 1024) return false
+  session.frames.push(png)
+  session.retainedBytes += png.length
+  broadcast('scroll:frame-count', session.frames.length)
+  return true
 }
 
 let scrollSession: ScrollSession | null = null
@@ -189,10 +224,7 @@ export function scrollFrameCount(): number {
   return scrollSession?.frames.length ?? 0
 }
 
-async function grabScrollFrame(): Promise<void> {
-  const session = scrollSession
-  if (!session || session.busy) return
-  session.busy = true
+async function grabScrollFrame(session: ScrollSession): Promise<void> {
   try {
     if (process.platform === 'darwin' && session.dipRect) {
       const shot = await captureRegionCli(session.dipRect)
@@ -200,11 +232,7 @@ async function grabScrollFrame(): Promise<void> {
         console.warn('[clipthat] scroll: region shot failed')
         return
       }
-      const last = session.frames[session.frames.length - 1]
-      if (last !== shot.dataUrl) {
-        session.frames.push(shot.dataUrl)
-        broadcast('scroll:frame-count', session.frames.length)
-      }
+      appendScrollFrame(session, shot.dataUrl)
       return
     }
 
@@ -220,24 +248,72 @@ async function grabScrollFrame(): Promise<void> {
       )
       return
     }
-    const last = session.frames[session.frames.length - 1]
     // Identical frames mean the user hasn't scrolled yet; don't grow the pile.
-    if (last !== cropped.dataUrl) {
-      session.frames.push(cropped.dataUrl)
-      broadcast('scroll:frame-count', session.frames.length)
-    }
+    appendScrollFrame(session, cropped.dataUrl)
   } catch (err) {
     console.warn(`[clipthat] scroll: frame grab threw — ${(err as Error).message}`)
-  } finally {
-    session.busy = false
   }
 }
 
+function scheduleFallbackFrame(session: ScrollSession): Promise<void> {
+  if (session !== scrollSession) return Promise.resolve()
+  if (session.inFlight) return session.inFlight
+  const pending = grabScrollFrame(session).finally(() => {
+    if (session === scrollSession) session.inFlight = null
+  })
+  session.inFlight = pending
+  return pending
+}
+
+function queueFallbackFrame(session: ScrollSession, delayMs: number): void {
+  if (session !== scrollSession || !session.fallbackActive) return
+  session.timer = setTimeout(() => {
+    session.timer = null
+    void scheduleFallbackFrame(session).finally(() => {
+      if (session === scrollSession && session.fallbackActive) queueFallbackFrame(session, 400)
+    })
+  }, delayMs)
+}
+
 export function startScrollCapture(displayId: string, rect: Rect, dipRect?: Rect): void {
-  stopScrollTimer()
-  scrollSession = { displayId, rect, dipRect, frames: [], timer: null, busy: false }
-  void grabScrollFrame()
-  scrollSession.timer = setInterval(() => void grabScrollFrame(), 400)
+  cancelScrollCapture()
+  scrollSession = {
+    displayId,
+    rect,
+    dipRect,
+    frames: [],
+    retainedBytes: 0,
+    timer: null,
+    inFlight: null,
+    fallbackActive: false
+  }
+  recording.setDisplayOverride(displayId)
+}
+
+export function scrollCaptureConfig(): ScrollCaptureConfig | null {
+  const session = scrollSession
+  const display = session ? findDisplay(session.displayId) : undefined
+  if (!session || !display) return null
+  const pixels = displayPixelSize(display)
+  return { rect: { ...session.rect }, displayWidth: pixels.width, displayHeight: pixels.height, intervalMs: 400 }
+}
+
+/** Accept a cropped PNG from the isolated HUD renderer. */
+export function appendScrollFrameBytes(bytes: Uint8Array): boolean {
+  const session = scrollSession
+  if (!session || !(bytes instanceof Uint8Array)) return false
+  return appendScrollPng(session, Buffer.from(bytes))
+}
+
+/** Reliable but slow path for systems where a live ScreenCaptureKit stream cannot start. */
+export function startScrollFallback(reason = 'live stream unavailable'): void {
+  const session = scrollSession
+  if (!session || session.fallbackActive) return
+  session.fallbackActive = true
+  console.warn(`[clipthat] scroll: using still-frame fallback — ${reason}`)
+  // Let the failed stream release ScreenCaptureKit before asking the CLI for the same
+  // display. Recursive timeouts also prevent fast failures from becoming a retry storm.
+  queueFallbackFrame(session, 1200)
 }
 
 function stopScrollTimer(): void {
@@ -248,10 +324,12 @@ function stopScrollTimer(): void {
 export async function finishScrollCapture(): Promise<CaptureResult | null> {
   const session = scrollSession
   stopScrollTimer()
+  if (session?.inFlight) await session.inFlight
   scrollSession = null
+  recording.setDisplayOverride(null)
   if (!session || session.frames.length === 0) return null
 
-  const stitched = stitchFrames(session.frames)
+  const stitched = stitchPngFrames(session.frames)
   if (!stitched) return null
   return makeResult(stitched.dataUrl, stitched.width, stitched.height, 'scrolling')
 }
@@ -259,6 +337,7 @@ export async function finishScrollCapture(): Promise<CaptureResult | null> {
 export function cancelScrollCapture(): void {
   stopScrollTimer()
   scrollSession = null
+  recording.setDisplayOverride(null)
 }
 
 /* ------------------------------------------------------------------ *
@@ -299,6 +378,9 @@ export async function performCapture(req: CaptureRequest): Promise<CaptureResult
       const sel = await openOverlay('scrolling')
       if (!sel) return null
       startScrollCapture(sel.displayId, sel.rect, sel.screenRect)
+      // Start source discovery only after the user chooses scrolling capture. Doing this
+      // at app launch contends with still screenshots on multi-display Macs.
+      void recording.prewarmDisplaySources()
       // The floating controller drives the rest: the user scrolls, then hits Done,
       // which lands on `finishScrollCapture` via IPC.
       showHudWindow('scroll')
@@ -383,8 +465,7 @@ export async function routeResult(
         dataUrl: result.dataUrl,
         title: result.title || formatFilename(s.filenameTemplate),
         width: result.width,
-        height: result.height,
-        existingPath: saved.filePath
+        height: result.height
       })
       broadcast('system:toast', {
         kind: 'success',

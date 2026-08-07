@@ -28,6 +28,7 @@ export function quickWindow(): BrowserWindow | null {
 export function closeQuickAccess(): void {
   if (card && !card.isDestroyed()) card.close()
   card = null
+  cache.clear()
 }
 
 function makeThumb(result: CaptureResult): string {
@@ -51,12 +52,10 @@ function makeThumb(result: CaptureResult): string {
  * content — the previous one is already safe in the library.
  */
 export function showQuickAccess(result: CaptureResult, libraryId?: string): BrowserWindow {
-  // Keep the cache from growing without bound across a long session.
+  // The card only exposes its current capture. Keeping older full-resolution PNG data
+  // made up to twelve inaccessible captures survive in the main process.
+  cache.clear()
   cache.set(result.id, { result, libraryId })
-  if (cache.size > 12) {
-    const oldest = cache.keys().next().value
-    if (oldest) cache.delete(oldest)
-  }
 
   const payload = {
     id: result.id,
@@ -107,7 +106,10 @@ export function showQuickAccess(result: CaptureResult, libraryId?: string): Brow
 
   card = win
   win.on('closed', () => {
-    if (card === win) card = null
+    if (card === win) {
+      card = null
+      cache.clear()
+    }
   })
   return win
 }

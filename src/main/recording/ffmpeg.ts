@@ -87,6 +87,77 @@ const GIF_COLORS: Record<VideoExportOptions['quality'], string> = {
   high: '256'
 }
 
+const VIDEOTOOLBOX_QUALITY: Record<VideoExportOptions['quality'], string> = {
+  low: '35',
+  medium: '50',
+  high: '65'
+}
+
+let encodersPromise: Promise<Set<string>> | null = null
+const failedHardwareEncoders = new Set<string>()
+
+function availableEncoders(): Promise<Set<string>> {
+  if (encodersPromise) return encodersPromise
+  const bin = ffmpegPath()
+  if (!bin) return Promise.resolve(new Set())
+  encodersPromise = new Promise((resolve) => {
+    const child = spawn(bin, ['-hide_banner', '-encoders'], { windowsHide: true })
+    let output = ''
+    child.stdout.on('data', (chunk: Buffer) => { output += chunk.toString() })
+    child.stderr.on('data', (chunk: Buffer) => { output += chunk.toString() })
+    child.on('error', () => resolve(new Set()))
+    child.on('close', () => {
+      const names = new Set<string>()
+      for (const match of output.matchAll(/^\s*V\S*\s+(\S+)/gm)) names.add(match[1])
+      resolve(names)
+    })
+  })
+  return encodersPromise
+}
+
+interface HardwareEncoder {
+  name: string
+  args: string[]
+}
+
+function hardwareH264Candidates(quality: VideoExportOptions['quality']): HardwareEncoder[] {
+  if (process.platform === 'darwin') {
+    return [{
+      name: 'h264_videotoolbox',
+      args: [
+        '-c:v', 'h264_videotoolbox',
+        '-q:v', VIDEOTOOLBOX_QUALITY[quality],
+        '-allow_sw', '0',
+        '-profile:v', 'high'
+      ]
+    }]
+  }
+  if (process.platform === 'win32') {
+    const qp = CRF[quality]
+    // The bundled Windows FFmpeg advertises all three vendor encoders. A candidate can
+    // still fail when its matching GPU is absent, so failures are remembered and the next
+    // encoder (ultimately libx264) is tried without changing the user's export settings.
+    return [
+      {
+        name: 'h264_nvenc',
+        args: ['-c:v', 'h264_nvenc', '-preset', 'medium', '-rc', 'vbr_hq', '-cq', qp, '-b:v', '0']
+      },
+      {
+        name: 'h264_qsv',
+        args: ['-c:v', 'h264_qsv', '-preset', 'veryfast', '-global_quality', qp]
+      },
+      {
+        name: 'h264_amf',
+        args: [
+          '-c:v', 'h264_amf', '-quality', 'quality', '-rc', 'cqp',
+          '-qp_i', qp, '-qp_p', qp, '-qp_b', qp
+        ]
+      }
+    ]
+  }
+  return []
+}
+
 function trimArgs(opts: VideoExportOptions): string[] {
   const args: string[] = []
   if (opts.startMs && opts.startMs > 0) args.push('-ss', (opts.startMs / 1000).toFixed(3))
@@ -114,19 +185,15 @@ export async function toMp4(
   const scale = scaleFilter(opts.maxWidth)
   if (scale) filters.unshift(scale)
 
-  const args = [
+  const beforeCodec = [
     '-y',
     ...trimArgs(opts),
     '-i',
     input,
     '-vf',
     filters.join(','),
-    '-c:v',
-    'libx264',
-    '-preset',
-    'veryfast',
-    '-crf',
-    CRF[opts.quality],
+  ]
+  const afterCodec = [
     '-movflags',
     '+faststart',
     '-c:a',
@@ -136,7 +203,31 @@ export async function toMp4(
     ...(opts.fps ? ['-r', String(opts.fps)] : []),
     output
   ]
-  await runFfmpeg(args, totalMs, onProgress)
+
+  const available = await availableEncoders()
+  for (const encoder of hardwareH264Candidates(opts.quality)) {
+    if (!available.has(encoder.name) || failedHardwareEncoders.has(encoder.name)) continue
+    try {
+      await runFfmpeg([...beforeCodec, ...encoder.args, ...afterCodec], totalMs, onProgress)
+      console.log(`[ffmpeg] MP4 encoded with ${encoder.name}`)
+      return output
+    } catch (err) {
+      failedHardwareEncoders.add(encoder.name)
+      console.warn(`[ffmpeg] ${encoder.name} unavailable; falling back`, (err as Error).message)
+    }
+  }
+
+  await runFfmpeg(
+    [
+      ...beforeCodec,
+      '-c:v', 'libx264',
+      '-preset', 'veryfast',
+      '-crf', CRF[opts.quality],
+      ...afterCodec
+    ],
+    totalMs,
+    onProgress
+  )
   return output
 }
 

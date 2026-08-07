@@ -2,36 +2,62 @@ import { ipcMain } from 'electron'
 import { promises as fs } from 'node:fs'
 import { extname } from 'node:path'
 import type { Rect } from '@shared/types'
-import { getWorkerWindow } from './windows/manager'
+import { closeWorkerWindow, getWorkerWindow } from './windows/manager'
 import { library } from './store/library'
 import { settings } from './store/settings'
 
 let sequence = 0
+let activeRequests = 0
+let idleTimer: NodeJS.Timeout | null = null
+
+// Batch indexing arrives 400ms apart, so it continues to share one warm Tesseract model.
+// A user who is finished capturing should not pay for that 100+ MiB worker indefinitely.
+const OCR_IDLE_MS = 30_000
+
+function beginOcrRequest(): void {
+  activeRequests += 1
+  if (idleTimer) clearTimeout(idleTimer)
+  idleTimer = null
+}
+
+function finishOcrRequest(): void {
+  activeRequests = Math.max(0, activeRequests - 1)
+  if (activeRequests > 0) return
+  idleTimer = setTimeout(() => {
+    idleTimer = null
+    if (activeRequests === 0) closeWorkerWindow()
+  }, OCR_IDLE_MS)
+}
 
 /**
  * Run OCR in the hidden worker renderer. The main process has no DOM and no WASM host,
  * so every text-recognition request in the app funnels through here.
  */
 export async function requestOcr(dataUrl: string, rect?: Rect, timeoutMs = 90_000): Promise<string> {
-  const worker = await getWorkerWindow()
-  const id = `ocr-${++sequence}`
+  beginOcrRequest()
+  try {
+    const worker = await getWorkerWindow()
+    const id = `ocr-${++sequence}`
 
-  return new Promise<string>((resolve) => {
-    const timer = setTimeout(() => {
-      ipcMain.removeListener('ocr:result', onResult)
-      resolve('')
-    }, timeoutMs)
+    return await new Promise<string>((resolve) => {
+      const timer = setTimeout(() => {
+        ipcMain.removeListener('ocr:result', onResult)
+        resolve('')
+      }, timeoutMs)
 
-    const onResult = (_e: unknown, payload: { id: string; text: string }) => {
-      if (payload.id !== id) return
-      clearTimeout(timer)
-      ipcMain.removeListener('ocr:result', onResult)
-      resolve(payload.text)
-    }
+      const onResult = (_e: unknown, payload: { id: string; text: string }) => {
+        if (payload.id !== id) return
+        clearTimeout(timer)
+        ipcMain.removeListener('ocr:result', onResult)
+        resolve(payload.text)
+      }
 
-    ipcMain.on('ocr:result', onResult)
-    worker.webContents.send('ocr:request', { id, dataUrl, rect })
-  })
+      ipcMain.on('ocr:result', onResult)
+      worker.webContents.send('ocr:request', { id, dataUrl, rect })
+    })
+  } finally {
+    finishOcrRequest()
+  }
 }
 
 /* ------------------------------------------------------------------ *

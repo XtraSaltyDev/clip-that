@@ -255,7 +255,7 @@ export async function runVisualCheck(dir: string): Promise<void> {
       width: shot.getSize().width,
       height: shot.getSize().height
     })
-    libraryStore.update(item.id, { createdAt: Date.now() - age })
+    libraryStore.setCreatedAtForVisualCheck(item.id, Date.now() - age)
   }
 
   const library = showLibraryWindow()

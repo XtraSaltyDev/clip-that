@@ -2,7 +2,7 @@ import { BrowserWindow, clipboard, dialog, nativeImage, shell } from 'electron'
 import { promises as fs } from 'node:fs'
 import { join, extname, basename } from 'node:path'
 import type { ClipDocument, SaveImageRequest, SaveResult } from '@shared/types'
-import { formatFilename } from '@shared/defaults'
+import { formatFilename, safeFilename } from '@shared/defaults'
 import { settings } from './store/settings'
 import { tempDir } from './store/paths'
 
@@ -39,7 +39,7 @@ function bufferFor(dataUrl: string, format: 'png' | 'jpg' | 'webp'): Buffer {
 export async function saveImage(req: SaveImageRequest): Promise<SaveResult> {
   const s = settings.get()
   const format = req.format ?? s.imageFormat
-  const name = req.suggestedName?.trim() || formatFilename(s.filenameTemplate)
+  const name = safeFilename(req.suggestedName?.trim() || formatFilename(s.filenameTemplate))
 
   let target: string
   if (req.saveAs) {
@@ -86,7 +86,7 @@ export function readImageFromClipboard(): { dataUrl: string; width: number; heig
 
 export async function saveProject(doc: ClipDocument, saveAs = true): Promise<SaveResult> {
   const s = settings.get()
-  const name = doc.title || formatFilename(s.filenameTemplate)
+  const name = safeFilename(doc.title || formatFilename(s.filenameTemplate))
   let target: string
   if (saveAs) {
     const res = await dialog.showSaveDialog({
@@ -156,7 +156,10 @@ export async function exportPdf(dataUrl: string, suggestedName?: string): Promis
   const s = settings.get()
   const res = await dialog.showSaveDialog({
     title: 'Export PDF',
-    defaultPath: join(s.saveDirectory, `${suggestedName || formatFilename(s.filenameTemplate)}.pdf`),
+    defaultPath: join(
+      s.saveDirectory,
+      `${safeFilename(suggestedName || formatFilename(s.filenameTemplate))}.pdf`
+    ),
     filters: [{ name: 'PDF document', extensions: ['pdf'] }]
   })
   if (res.canceled || !res.filePath) return { ok: false, canceled: true }
@@ -200,7 +203,7 @@ export async function startDrag(
   name: string
 ): Promise<void> {
   const image = nativeImage.createFromDataURL(dataUrl)
-  const file = join(tempDir(), `${name.replace(/[\\/:*?"<>|]/g, '-') || 'ClipThat'}.png`)
+  const file = join(tempDir(), `${safeFilename(name)}.png`)
   await fs.writeFile(file, image.toPNG())
   const size = image.getSize()
   const scale = Math.min(1, 160 / Math.max(size.width, size.height, 1))

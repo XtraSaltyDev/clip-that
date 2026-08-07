@@ -1,6 +1,6 @@
 {
   "name": "clipthat",
-  "version": "1.0.0",
+  "version": "0.1.0",
   "description": "ClipThat — modern cross-platform screen capture, annotation and recording",
   "main": "./out/main/index.js",
   "author": "ClipThat",
@@ -14,6 +14,9 @@
     "postinstall": "electron-builder install-app-deps",
     "build:mac": "npm run build && electron-builder --mac",
     "build:win": "npm run build && electron-builder --win",
+    "release:mac": "bash scripts/release-mac.sh",
+    "release:verify:mac": "bash scripts/verify-mac-release.sh",
+    "release:win": "powershell -NoProfile -ExecutionPolicy Bypass -File scripts/release-win.ps1",
     "build:linux": "npm run build && electron-builder --linux",
     "build:all": "npm run build && electron-builder -mwl",
     "visual-check": "CLIPTHAT_VISUAL_CHECK=${DIR:-/tmp/clipthat-shots} electron-vite dev",
@@ -30,10 +33,10 @@
     "@types/node": "^22.10.2",
     "@types/react": "^18.3.17",
     "@types/react-dom": "^18.3.5",
-    "@vitejs/plugin-react": "^4.3.4",
-    "electron": "^33.3.1",
-    "electron-builder": "^25.1.8",
-    "electron-vite": "^2.3.0",
+    "@vitejs/plugin-react": "^5.2.0",
+    "electron": "^43.3.0",
+    "electron-builder": "^26.15.7",
+    "electron-vite": "^5.0.0",
     "konva": "^9.3.16",
     "pngjs": "^7.0.0",
     "qrcode": "^1.5.4",
@@ -42,7 +45,7 @@
     "react-konva": "^18.2.10",
     "tesseract.js": "^5.1.1",
     "typescript": "^5.7.2",
-    "vite": "^5.4.11",
+    "vite": "^7.3.6",
     "zustand": "^5.0.2"
   }
 }

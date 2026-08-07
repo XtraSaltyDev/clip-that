@@ -86,6 +86,14 @@ export interface CaptureResult {
   title?: string
 }
 
+/** Geometry the scrolling HUD needs to crop the selected region from a live display stream. */
+export interface ScrollCaptureConfig {
+  rect: Rect
+  displayWidth: number
+  displayHeight: number
+  intervalMs: number
+}
+
 /* ------------------------------------------------------------------ *
  * Editor document model — non-destructive scene graph
  * ------------------------------------------------------------------ */
@@ -281,6 +289,14 @@ export interface LibraryItem {
   ocrText?: string
   durationMs?: number
   byteSize: number
+}
+
+/** The only library fields a renderer is allowed to edit. Paths and identity stay main-owned. */
+export interface LibraryItemPatch {
+  title?: string
+  tags?: string[]
+  favorite?: boolean
+  ocrText?: string
 }
 
 export interface LibraryQuery {

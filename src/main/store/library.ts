@@ -1,10 +1,11 @@
 import { EventEmitter } from 'node:events'
 import { promises as fs, readFileSync, writeFileSync, renameSync } from 'node:fs'
-import { basename, join } from 'node:path'
+import { basename, join, resolve } from 'node:path'
 import { randomUUID } from 'node:crypto'
 import { nativeImage } from 'electron'
-import type { ClipDocument, LibraryItem, LibraryQuery } from '@shared/types'
+import type { ClipDocument, LibraryItem, LibraryItemPatch, LibraryQuery } from '@shared/types'
 import { capturesDir, libraryIndexFile, projectsDir, recordingsDir, thumbsDir } from './paths'
+import { isPathInside, isRealPathInside } from './path-guard'
 
 const THUMB_MAX = 480
 
@@ -192,12 +193,36 @@ class LibraryStore extends EventEmitter {
     return item
   }
 
-  update(id: string, patch: Partial<LibraryItem>): LibraryItem | undefined {
+  update(id: string, patch: LibraryItemPatch): LibraryItem | undefined {
     const item = this.get(id)
     if (!item) return undefined
-    Object.assign(item, patch, { id, updatedAt: Date.now() })
+    if (patch.title !== undefined) item.title = patch.title.trim().slice(0, 240) || item.title
+    if (patch.tags !== undefined) {
+      item.tags = [...new Set(patch.tags.map((tag) => tag.trim()).filter(Boolean))].slice(0, 50)
+    }
+    if (patch.favorite !== undefined) item.favorite = patch.favorite
+    if (patch.ocrText !== undefined) item.ocrText = patch.ocrText.slice(0, 2_000_000)
+    item.updatedAt = Date.now()
     this.persist()
     return item
+  }
+
+  /** Deterministic timeline seeding for the development-only visual harness. */
+  setCreatedAtForVisualCheck(id: string, createdAt: number): void {
+    const item = this.get(id)
+    if (!item) return
+    item.createdAt = createdAt
+    this.persist()
+  }
+
+  /** Exact allowlist for renderer requests that reveal or open a library-owned record. */
+  ownsPath(filePath: string): boolean {
+    const target = resolve(filePath)
+    return this.load().some((item) =>
+      [item.filePath, item.projectPath, item.thumbnail]
+        .filter((path): path is string => Boolean(path))
+        .some((path) => resolve(path) === target)
+    )
   }
 
   async remove(ids: string[]): Promise<void> {
@@ -208,8 +233,12 @@ class LibraryStore extends EventEmitter {
 
     await Promise.all(
       removed.flatMap((i) => [
-        fs.rm(i.filePath, { force: true }).catch(() => {}),
-        i.projectPath ? fs.rm(i.projectPath, { force: true }).catch(() => {}) : Promise.resolve(),
+        isPathInside(capturesDir(), i.filePath) || isPathInside(recordingsDir(), i.filePath)
+          ? fs.rm(i.filePath, { force: true }).catch(() => {})
+          : Promise.resolve(),
+        i.projectPath && isPathInside(projectsDir(), i.projectPath)
+          ? fs.rm(i.projectPath, { force: true }).catch(() => {})
+          : Promise.resolve(),
         i.thumbnail
           ? fs.rm(join(thumbsDir(), basename(i.thumbnail)), { force: true }).catch(() => {})
           : Promise.resolve()
@@ -222,6 +251,7 @@ class LibraryStore extends EventEmitter {
     const item = this.get(id)
     if (!item?.projectPath) return null
     try {
+      if (!(await isRealPathInside(projectsDir(), item.projectPath))) return null
       return JSON.parse(await fs.readFile(item.projectPath, 'utf8')) as ClipDocument
     } catch {
       return null

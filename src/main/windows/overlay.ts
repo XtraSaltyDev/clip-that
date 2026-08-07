@@ -1,4 +1,5 @@
-import { BrowserWindow, screen } from 'electron'
+import { BrowserWindow, nativeImage, screen } from 'electron'
+import { IPC } from '@shared/ipc'
 import type { DisplaySnapshot, Rect } from '@shared/types'
 import { loadEntry, preloadPath } from './urls'
 import { snapshotAllDisplays } from '../capture/backend'
@@ -26,9 +27,28 @@ interface Pending {
 }
 
 let pending: Pending | null = null
+let openingGeneration = 0
 
 /** Snapshots from the overlay that just closed, held for the crop that follows. */
 let closedSnapshots: DisplaySnapshot[] = []
+
+function windowPickerBackdrop(display: Electron.Display): DisplaySnapshot {
+  // Window mode never crops the display snapshot; it only needs a neutral backdrop behind
+  // the preview grid. Avoiding a full desktop capture also prevents back-to-back screen and
+  // window enumeration requests from congesting macOS's capture service.
+  const pixel = nativeImage.createFromBitmap(Buffer.from([5, 7, 11, 255]), {
+    width: 1,
+    height: 1
+  })
+  return {
+    displayId: String(display.id),
+    dataUrl: pixel.toDataURL(),
+    bounds: { ...display.bounds },
+    scaleFactor: 1,
+    pixelWidth: 1,
+    pixelHeight: 1
+  }
+}
 
 export function isOverlayOpen(): boolean {
   return pending !== null
@@ -43,6 +63,23 @@ export function isOverlayOpen(): boolean {
  */
 const pool: BrowserWindow[] = []
 const poolReady = new WeakMap<BrowserWindow, Promise<void>>()
+let poolRetireTimer: NodeJS.Timeout | null = null
+
+function cancelPoolRetirement(): void {
+  if (poolRetireTimer) clearTimeout(poolRetireTimer)
+  poolRetireTimer = null
+}
+
+function retireOverlayPoolAfterIdle(): void {
+  cancelPoolRetirement()
+  poolRetireTimer = setTimeout(() => {
+    poolRetireTimer = null
+    // Destroying the hidden compositor surfaces is the only reliable way to make
+    // Chromium return their GPU allocations. A future capture recreates these windows
+    // while the OS snapshot is being taken, so their load time is normally hidden.
+    for (const win of [...pool]) if (!win.isDestroyed()) win.destroy()
+  }, 10_000)
+}
 
 function makeOverlayWindow(): BrowserWindow {
   const win = new BrowserWindow({
@@ -110,9 +147,26 @@ export function installOverlayPool(): void {
 
 export async function openOverlay(mode: OverlayMode): Promise<OverlaySelection | null> {
   if (pending) closeOverlay(null)
+  const generation = ++openingGeneration
+  cancelPoolRetirement()
+  // A new capture can never consume an older capture's frozen pixels.
+  closedSnapshots = []
+
+  // Start renderer creation before screen capture so a retired pool reloads in parallel
+  // with the slower OS snapshot path.
+  ensureOverlayPool()
 
   const t0 = Date.now()
-  const snapshots = await withAppWindowsHidden(snapshotAllDisplays)
+  const cursorDisplay = screen.getDisplayNearestPoint(screen.getCursorScreenPoint())
+  const captured =
+    mode === 'window'
+      ? [windowPickerBackdrop(cursorDisplay)]
+      : await withAppWindowsHidden(snapshotAllDisplays)
+  if (generation !== openingGeneration) return null
+  // The window picker is a single control surface. Showing a duplicate picker on every
+  // monitor also decoded every preview and backdrop once per display. Put it where the
+  // pointer is; the list still contains windows from the whole desktop.
+  const snapshots = captured
   const tSnap = Date.now()
   if (snapshots.length === 0) {
     // performCapture handles the missing-permission case; this is the transient one.
@@ -137,12 +191,8 @@ export async function openOverlay(mode: OverlayMode): Promise<OverlaySelection |
         .join(' | ')
   )
 
-  ensureOverlayPool()
   const windows: BrowserWindow[] = []
-  const cursorDisplay = screen.getDisplayNearestPoint(screen.getCursorScreenPoint())
   // Snapshot is already taken; showing the overlays cannot affect it.
-
-
   await Promise.all(
     snapshots.map(async (snap, i) => {
       const display = screen.getAllDisplays().find((d) => String(d.id) === snap.displayId)
@@ -150,6 +200,7 @@ export async function openOverlay(mode: OverlayMode): Promise<OverlaySelection |
       if (!display || !win || win.isDestroyed()) return
 
       await poolReady.get(win)
+      if (generation !== openingGeneration) return
       win.setBounds(display.bounds)
       win.webContents.send('overlay:init', { mode, snapshot: snap, displayCount: snapshots.length })
       win.setBounds(display.bounds)
@@ -158,6 +209,17 @@ export async function openOverlay(mode: OverlayMode): Promise<OverlaySelection |
       windows.push(win)
     })
   )
+
+  if (generation !== openingGeneration) {
+    for (const win of windows) {
+      if (!win.isDestroyed()) {
+        win.webContents.send(IPC.captureOverlayRelease)
+        win.hide()
+      }
+    }
+    retireOverlayPoolAfterIdle()
+    return null
+  }
 
   if (windows.length === 0) return null
   console.log(
@@ -171,16 +233,30 @@ export async function openOverlay(mode: OverlayMode): Promise<OverlaySelection |
 
 /** Called by the IPC layer when a renderer finishes or aborts a selection. */
 export function closeOverlay(selection: OverlaySelection | null): void {
+  // Also cancels a snapshot that has started but has not shown its windows yet.
+  openingGeneration++
   const current = pending
   pending = null
-  if (!current) return
+  if (!current) {
+    retireOverlayPoolAfterIdle()
+    return
+  }
   // The selection is in the coordinate space of these exact images; whoever crops
   // next must use them, not a fresh photograph of a screen that has since changed.
-  closedSnapshots = selection ? current.snapshots : []
+  closedSnapshots =
+    selection?.mode === 'region'
+      ? current.snapshots.filter((s) => s.displayId === selection.displayId)
+      : []
 
   for (const win of [...current.windows]) {
-    if (!win.isDestroyed()) win.hide()
+    if (!win.isDestroyed()) {
+      // Hidden pooled renderers used to keep the full PNG, decoded Image, readback canvas
+      // and compositor texture until the next capture. Tell them to drop all of it now.
+      win.webContents.send(IPC.captureOverlayRelease)
+      win.hide()
+    }
   }
+  retireOverlayPoolAfterIdle()
   current.resolve(selection)
 }
 

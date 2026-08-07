@@ -92,6 +92,20 @@ export function defaultSettings(picturesDir: string): Settings {
   }
 }
 
+/** Make a user-facing title safe as one file name on macOS, Windows, and Linux. */
+export function safeFilename(value: string, fallback = 'ClipThat'): string {
+  const cleaned = value
+    .replace(/[\u0000-\u001f\u007f\\/:*?"<>|]/g, '-')
+    .replace(/[. ]+$/g, '')
+    .trim()
+    .slice(0, 180)
+  const readable = /[\p{L}\p{N}]/u.test(cleaned) ? cleaned : fallback
+  // Windows reserves these device names even when they have an extension.
+  return /^(?:con|prn|aux|nul|com[1-9]|lpt[1-9])(?:\.|$)/i.test(readable)
+    ? `ClipThat-${readable}`
+    : readable
+}
+
 /** Expands `{yyyy}` style tokens in the filename template. */
 export function formatFilename(template: string, date = new Date()): string {
   const pad = (n: number, w = 2) => String(n).padStart(w, '0')
@@ -106,8 +120,5 @@ export function formatFilename(template: string, date = new Date()): string {
     ms: pad(date.getMilliseconds(), 3)
   }
   const named = template.replace(/\{(\w+)\}/g, (m, key: string) => map[key] ?? m)
-  // Strip characters that are illegal in filenames on any of the three platforms.
-  const safe = named.replace(/[\\/:*?"<>|]/g, '-').trim()
-  // A name of "---" is legal but useless; fall back unless something readable survived.
-  return /[\p{L}\p{N}]/u.test(safe) ? safe : 'ClipThat'
+  return safeFilename(named)
 }

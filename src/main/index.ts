@@ -1,6 +1,6 @@
 import { app, BrowserWindow, clipboard, ipcMain, protocol, net } from 'electron'
+import { promises as fs } from 'node:fs'
 import { pathToFileURL } from 'node:url'
-import { normalize, sep } from 'node:path'
 import { IPC } from '@shared/ipc'
 import { installFileLogger, flushLog, logFilePath } from './log'
 import { settings } from './store/settings'
@@ -26,6 +26,7 @@ import { performCapture, routeResult } from './capture/service'
 import { recording } from './recording/session'
 import { indexBacklog, indexCapture, requestOcr } from './ocr'
 import { library } from './store/library'
+import { isRealPathInside } from './store/path-guard'
 
 const IS_MAC = process.platform === 'darwin'
 
@@ -44,17 +45,17 @@ protocol.registerSchemesAsPrivileged([
 ])
 
 function registerLibraryProtocol(): void {
-  protocol.handle('clipthat', (request) => {
+  protocol.handle('clipthat', async (request) => {
     try {
       const url = new URL(request.url)
       // clipthat://file/<absolute path, URI-encoded>
       const raw = decodeURIComponent(url.pathname.replace(/^\//, ''))
-      const resolved = normalize(raw)
-      const root = normalize(libraryDir())
-      // Only ever hand back files that live inside our own library directory.
-      if (!resolved.startsWith(root.endsWith(sep) ? root : root + sep)) {
+      const root = libraryDir()
+      // Resolve symlinks too: a path that only appears to live in the library is not enough.
+      if (!(await isRealPathInside(root, raw))) {
         return new Response('forbidden', { status: 403 })
       }
+      const resolved = await fs.realpath(raw)
       return net.fetch(pathToFileURL(resolved).toString())
     } catch {
       return new Response('bad request', { status: 400 })
@@ -117,7 +118,13 @@ app.whenReady().then(async () => {
     resizeWindow(BrowserWindow.fromWebContents(e.sender), width, height)
   })
   ipcMain.on('hud:dock', (_e, width: number, height: number) => dockHud(width, height))
-  ipcMain.on('hud:close', () => closeHudWindow())
+  ipcMain.on('hud:close', () => {
+    if (recording.status().state === 'idle') {
+      closeHudWindow()
+      return
+    }
+    void recording.discard().finally(closeHudWindow)
+  })
 
   const s = settings.get()
   if (IS_MAC && !s.showInDock) app.dock?.hide()
@@ -130,15 +137,6 @@ app.whenReady().then(async () => {
   registerHotkeys()
   // Pre-warm the capture overlays so the first hotkey press isn't the slow one.
   installOverlayPool()
-  // ...and the capture services, so the first snapshot/recording isn't the cold one.
-  setTimeout(() => {
-    void import('electron').then(({ desktopCapturer }) =>
-      desktopCapturer
-        .getSources({ types: ['screen'], thumbnailSize: { width: 16, height: 16 } })
-        .catch(() => [])
-    )
-  }, 1500)
-
   // Screen permission and hotkey conflicts are the two things that make the app look
   // broken while behaving exactly as written, so both are reported at startup.
   void checkPermissions().then((report) => {

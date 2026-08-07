@@ -4,9 +4,14 @@ export const IPC = {
   captureStart: 'capture:start',
   captureRegionResult: 'capture:region-result',
   captureCancel: 'capture:cancel',
+  captureOverlayRelease: 'capture:overlay-release',
   captureWindows: 'capture:windows',
+  captureWindowPreview: 'capture:window-preview',
   captureDisplays: 'capture:displays',
   captureClipboard: 'capture:clipboard',
+  captureScrollConfig: 'capture:scroll-config',
+  captureScrollFrame: 'capture:scroll-frame',
+  captureScrollFallback: 'capture:scroll-fallback',
   captureScrollStitch: 'capture:scroll-stitch',
 
   // editor

@@ -120,12 +120,29 @@ export default function Recorder(): React.ReactElement {
     const handles = capture.current
     if (!handles) return
     capture.current = null
-    const recorded = await handles.stop()
-    setBlob(recorded)
-    const url = URL.createObjectURL(recorded)
-    setBlobUrl(url)
-    setPhase('review')
+    await api.recording.stop()
+    try {
+      const recorded = await handles.stop()
+      setBlob(recorded)
+      const url = URL.createObjectURL(recorded)
+      setBlobUrl(url)
+      setPhase('review')
+    } catch (err) {
+      await api.recording.cancel()
+      setError((err as Error).message || 'Could not finish the recording')
+      setPhase('setup')
+    }
   }, [])
+
+  // The OS can end capture from its sharing indicator or when the source disappears.
+  // Treat that exactly like the Stop button so the main-process session cannot get stuck.
+  useEffect(() => {
+    const handles = capture.current
+    if (phase !== 'recording' || !handles) return
+    const onEnded = () => void finishRecording()
+    handles.sourceTrack.addEventListener('ended', onEnded, { once: true })
+    return () => handles.sourceTrack.removeEventListener('ended', onEnded)
+  }, [finishRecording, phase])
 
   const cancelRecording = useCallback(async () => {
     capture.current?.dispose()
@@ -139,10 +156,12 @@ export default function Recorder(): React.ReactElement {
     if (!recorder) return
     if (recorder.state === 'recording') {
       recorder.pause()
+      capture.current?.setPaused(true)
       pausedAt.current = Date.now()
       setPaused(true)
       void api.recording.pause()
     } else if (recorder.state === 'paused') {
+      capture.current?.setPaused(false)
       recorder.resume()
       pausedFor.current += Date.now() - pausedAt.current
       setPaused(false)
@@ -218,8 +237,9 @@ export default function Recorder(): React.ReactElement {
     }
   }, [blob, duration, format, quality, trim])
 
-  const discard = useCallback(() => {
+  const discard = useCallback(async () => {
     if (blobUrl) URL.revokeObjectURL(blobUrl)
+    await api.recording.cancel()
     api.hud.close()
   }, [blobUrl])
 
@@ -282,7 +302,7 @@ export default function Recorder(): React.ReactElement {
           <Icon name="video" size={16} />
           <h1>Review recording</h1>
           <span className="spacer" />
-          <button className="btn ghost icon no-drag" onClick={discard}>
+          <button className="btn ghost icon no-drag" onClick={() => void discard()}>
             <Icon name="close" />
           </button>
         </header>

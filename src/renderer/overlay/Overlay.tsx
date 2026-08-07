@@ -50,6 +50,23 @@ export default function Overlay(): React.ReactElement | null {
     null
   )
   const loupeRef = useRef<HTMLCanvasElement | null>(null)
+  const previewKnownRef = useRef(new Set<string>())
+  const previewInFlightRef = useRef(new Set<string>())
+  const previewOrderRef = useRef<string[]>([])
+
+  const releaseSnapshot = useCallback(() => {
+    const pixels = pixelsRef.current
+    if (pixels) {
+      // Zeroing the backing store asks Chromium to release the CPU bitmap and GPU texture.
+      pixels.canvas.width = 0
+      pixels.canvas.height = 0
+    }
+    pixelsRef.current = null
+    if (imageRef.current) imageRef.current.src = ''
+    imageRef.current = null
+    const loupe = loupeRef.current
+    if (loupe) loupe.getContext('2d')?.clearRect(0, 0, loupe.width, loupe.height)
+  }, [])
 
   /* ---------- bootstrap ---------- */
 
@@ -57,15 +74,19 @@ export default function Overlay(): React.ReactElement | null {
     () =>
       api.capture.onOverlayInit((payload) => {
         // Pooled windows are reused across captures; every init starts from scratch.
+        releaseSnapshot()
         setBox(null)
         setDragging(false)
         setWindows(null)
+        previewKnownRef.current.clear()
+        previewInFlightRef.current.clear()
+        previewOrderRef.current = []
         setCursor({ x: -999, y: -999 })
         dragStart.current = null
         moveRef.current = null
         setInit(payload as Init)
       }),
-    []
+    [releaseSnapshot]
   )
 
   useEffect(() => {
@@ -73,24 +94,65 @@ export default function Overlay(): React.ReactElement | null {
     const img = new Image()
     img.onload = () => {
       imageRef.current = img
-      // A full-resolution offscreen copy is what makes the loupe and the
-      // eyedropper read true pixels instead of the scaled-down screen version.
-      const canvas = document.createElement('canvas')
-      canvas.width = img.naturalWidth
-      canvas.height = img.naturalHeight
-      const ctx = canvas.getContext('2d', { willReadFrequently: true })
-      if (ctx) {
-        ctx.drawImage(img, 0, 0)
-        pixelsRef.current = ctx
-      }
     }
     img.src = init.snapshot.dataUrl
+    return () => {
+      img.onload = null
+      if (imageRef.current === img) imageRef.current = null
+      img.src = ''
+    }
   }, [init])
+
+  useEffect(
+    () =>
+      api.capture.onOverlayRelease(() => {
+        releaseSnapshot()
+        setInit(null)
+        setWindows(null)
+        setBox(null)
+      }),
+    [releaseSnapshot]
+  )
+
+  const loadWindowPreview = useCallback(async (id: string) => {
+    if (previewKnownRef.current.has(id) || previewInFlightRef.current.has(id)) return
+    previewInFlightRef.current.add(id)
+    try {
+      const thumbnail = await api.capture.windowPreview(id)
+      if (!thumbnail) return
+      previewKnownRef.current.add(id)
+      previewOrderRef.current = previewOrderRef.current.filter((item) => item !== id)
+      previewOrderRef.current.push(id)
+      const evict = previewOrderRef.current.length > 12 ? previewOrderRef.current.shift() : undefined
+      if (evict) previewKnownRef.current.delete(evict)
+      setWindows((current) =>
+        current?.map((win) =>
+          win.id === id
+            ? { ...win, thumbnail }
+            : win.id === evict
+              ? { ...win, thumbnail: undefined }
+              : win
+        ) ?? null
+      )
+    } finally {
+      previewInFlightRef.current.delete(id)
+    }
+  }, [])
 
   useEffect(() => {
     if (init?.mode !== 'window') return
-    void api.capture.windows().then(setWindows)
-  }, [init?.mode])
+    let active = true
+    void api.capture.windows().then((items) => {
+      if (!active) return
+      setWindows(items)
+      previewKnownRef.current = new Set(items.filter((item) => item.thumbnail).map((item) => item.id))
+      const firstWithoutPreview = items.find((item) => !item.thumbnail)
+      if (firstWithoutPreview) void loadWindowPreview(firstWithoutPreview.id)
+    })
+    return () => {
+      active = false
+    }
+  }, [init?.mode, loadWindowPreview])
 
   const scale = init ? init.snapshot.pixelWidth / window.innerWidth : 1
   const cssW = window.innerWidth
@@ -100,7 +162,20 @@ export default function Overlay(): React.ReactElement | null {
 
   const sampleAt = useCallback(
     (x: number, y: number): string => {
-      const ctx = pixelsRef.current
+      let ctx = pixelsRef.current
+      // Only the display the pointer actually visits needs a readback canvas. Previously
+      // every monitor allocated a full-resolution copy before the user moved the mouse.
+      if (!ctx && imageRef.current) {
+        const image = imageRef.current
+        const canvas = document.createElement('canvas')
+        canvas.width = image.naturalWidth
+        canvas.height = image.naturalHeight
+        ctx = canvas.getContext('2d', { willReadFrequently: true })
+        if (ctx) {
+          ctx.drawImage(image, 0, 0)
+          pixelsRef.current = ctx
+        }
+      }
       if (!ctx) return '#000000'
       const px = Math.round(x * scale)
       const py = Math.round(y * scale)
@@ -326,7 +401,13 @@ export default function Overlay(): React.ReactElement | null {
           )}
           <div className="ov-grid">
             {windows?.map((w) => (
-              <button key={w.id} className="ov-card" onClick={() => pickWindow(w.id)}>
+              <button
+                key={w.id}
+                className="ov-card"
+                onClick={() => pickWindow(w.id)}
+                onMouseEnter={() => void loadWindowPreview(w.id)}
+                onFocus={() => void loadWindowPreview(w.id)}
+              >
                 <div className="ov-card-shot">
                   {w.thumbnail ? <img src={w.thumbnail} alt="" /> : <Icon name="window" size={28} />}
                 </div>
