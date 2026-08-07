@@ -22,6 +22,7 @@ import {
 import { closeOverlay, openOverlay, takeFrozenSnapshot, type OverlaySelection } from '../windows/overlay'
 import { showQuickAccess } from '../windows/quick'
 import { runPipeline } from '../pipeline'
+import { checkPermissions } from '../permissions'
 import { captureDisplay, captureRegionCli, captureWindow, snapshotAllDisplays } from './backend'
 import { displayPixelSize, displayUnderCursor, findDisplay } from './displays'
 import { stitchPngFrames } from './stitch'
@@ -363,7 +364,6 @@ export function cancelScrollCapture(): void {
  */
 async function warnIfNoScreenAccess(): Promise<void> {
   if (process.platform !== 'darwin') return
-  const { checkPermissions } = await import('../permissions')
   const report = await checkPermissions()
   if (report.screenVerified) return
   broadcast('system:toast', {

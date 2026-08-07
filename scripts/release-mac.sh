@@ -9,9 +9,12 @@ cd "$(dirname "$0")/.."
 
 VERSION=$(node -p "require('./package.json').version")
 
-if ! security find-identity -v -p codesigning 2>/dev/null \
+if [ -n "${CSC_LINK:-}" ]; then
+  : "${CSC_KEY_PASSWORD:?CSC_KEY_PASSWORD is required when CSC_LINK is set}"
+elif ! security find-identity -v -p codesigning 2>/dev/null \
   | grep -q 'Developer ID Application:'; then
   echo "No valid Developer ID Application identity is available in the keychain." >&2
+  echo "Install one locally or set CSC_LINK and CSC_KEY_PASSWORD in CI." >&2
   exit 1
 fi
 

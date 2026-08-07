@@ -39,9 +39,41 @@ npm run install:mac      # build → sign → /Applications, keeps the TCC grant
 - The finished local release set is `dist/ClipThat-<version>-arm64.dmg`,
   `dist/ClipThat-<version>-arm64-mac.zip`, and the matching SHA-256 file. The command uses
   `--publish never`; creating these files does not publish a release.
+- To create a draft GitHub release from a verified local build without using any hosted
+  macOS minutes:
+
+  ```bash
+  APPLE_KEYCHAIN_PROFILE=vllm-studio-notarize npm run release:mac
+  npm run release:publish:mac
+  ```
+
+  Pass `-- --publish` to the second command only when the release should become visible
+  immediately. The default is a draft that can be inspected in GitHub first.
 - If a machine's permission state gets wedged (capture returns nothing while the toggle
   shows on): `RESET_TCC=1 npm run install:mac`, then re-grant. `killall replayd` clears a
   wedged capture daemon.
+
+### GitHub macOS release
+
+The **macOS Release** workflow is manual-only. Enter the exact version currently in
+`package.json`; a small Linux preflight rejects a mismatch or an existing tag before an
+expensive macOS runner starts. The macOS job then builds, Developer ID signs, notarizes,
+staples, verifies, and uploads the DMG, ZIP, and checksums to a draft GitHub release.
+
+Configure these repository secrets before the first hosted release:
+
+| Secret | Value |
+|---|---|
+| `MACOS_CSC_LINK` | Base64-encoded Developer ID Application `.p12` certificate |
+| `MACOS_CSC_KEY_PASSWORD` | Password used when exporting that `.p12` |
+| `APPLE_ID` | Apple Developer account email used for notarization |
+| `APPLE_APP_SPECIFIC_PASSWORD` | App-specific password for that Apple ID |
+| `APPLE_TEAM_ID` | Apple Developer team identifier |
+
+Routine CI deliberately does not package desktop applications. It runs one capped Linux
+job after a push to `main`, skips documentation-only pushes, cancels superseded runs, and
+runs the typecheck, tests, and production bundle. Pull requests do not trigger a second
+duplicate run; use the manual CI button when a branch needs validation before merging.
 
 ## Windows / Linux
 
@@ -53,8 +85,9 @@ The Windows release command accepts either Azure Artifact Signing or a normal OV
 code-signing certificate. It refuses to emit an unsigned release and verifies both the
 Authenticode signature and trusted timestamp, including `ClipThat.exe` inside the ZIP.
 Configure the variables documented by the error printed by `scripts/release-win.ps1`.
-The manual GitHub Actions release workflow supports both credential routes without
-storing certificates or passwords in the repo.
+Windows release automation is intentionally not part of the macOS workflow. Run and
+validate `release:win` separately when Windows signing credentials and test hardware are
+available.
 
 Windows ARM64 is deliberately not advertised in 0.1.1: the recorder's bundled FFmpeg
 does not provide a native ARM64 binary. The x64 package is the candidate to test under
