@@ -174,7 +174,7 @@ node build/gen-icons.mjs   # regenerate the icon set from source, no image deps
 ```
 
 ```bash
-npm test               # 77 unit + regression tests, no Electron needed
+npm test               # 102 unit + regression tests, no Electron needed
 npm run fixture <png>  # regenerate an OCR fixture from a screenshot
 ```
 
@@ -206,6 +206,9 @@ CLIPTHAT_SELF_TEST=all /Applications/ClipThat.app/Contents/MacOS/ClipThat
 On macOS, `npm run install:mac` builds, signs (Developer ID if present), installs to
 /Applications and preserves the Screen Recording grant. See RELEASE.md for the full
 release flow and manual checklist.
+
+To remove expanded package trees, old-version delivery files, and other generated build
+output while retaining the current release packages, run `npm run clean:artifacts`.
 
 ## Known limits
 

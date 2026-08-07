@@ -25,6 +25,7 @@ cd "$(dirname "$0")/.."
 BUNDLE_ID="dev.clipthat.app"
 APP_NAME="ClipThat.app"
 TARGET="/Applications/$APP_NAME"
+BUILT="dist/mac-arm64/$APP_NAME"
 IDENTITY="${SIGN_IDENTITY:--}"   # "-" means ad-hoc
 
 say() { printf '\033[1m▸ %s\033[0m\n' "$1"; }
@@ -44,17 +45,16 @@ if [ -n "$DEV_ID" ] && [ "$IDENTITY" = "-" ]; then
   say "Packaging and signing as: $DEV_ID"
   # electron-builder signs the nested helpers and frameworks in the right order and
   # applies the entitlements; `codesign --deep` after the fact does neither properly.
-  CSC_NAME="$DEV_ID" npx electron-builder --mac --dir >/dev/null
+  CSC_NAME="$DEV_ID" npx electron-builder --mac --arm64 --dir >/dev/null
 else
   say "Packaging (ad-hoc — no Developer ID found)"
-  npx electron-builder --mac --dir -c.mac.identity=null >/dev/null
-  BUILT_TMP=$(find dist -maxdepth 2 -name "$APP_NAME" -type d | head -1)
-  codesign --force --deep --sign "$IDENTITY" --identifier "$BUNDLE_ID" "$BUILT_TMP"
+  npx electron-builder --mac --arm64 --dir -c.mac.identity=null >/dev/null
+  [ -d "$BUILT" ] || { echo "no packaged app found at $BUILT"; exit 1; }
+  codesign --force --deep --sign "$IDENTITY" --identifier "$BUNDLE_ID" "$BUILT"
   echo "  ad-hoc: the Screen Recording grant will NOT survive the next rebuild."
 fi
 
-BUILT=$(find dist -maxdepth 2 -name "$APP_NAME" -type d | head -1)
-[ -n "$BUILT" ] || { echo "no packaged app found in dist/"; exit 1; }
+[ -d "$BUILT" ] || { echo "no packaged app found at $BUILT"; exit 1; }
 
 say "Verifying signature"
 codesign --verify --strict --verbose=1 "$BUILT" 2>&1 | sed 's/^/  /'

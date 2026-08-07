@@ -26,7 +26,7 @@ npm run install:mac      # build → sign → /Applications, keeps the TCC grant
 - **Production release** (signing, notarization, stapling, and verification):
 
   ```bash
-  xcrun notarytool store-credentials clipthat --apple-id <id> --team-id <team>
+  xcrun notarytool store-credentials vllm-studio-notarize --apple-id <id> --team-id <team>
   APPLE_KEYCHAIN_PROFILE=vllm-studio-notarize npm run release:mac
   ```
 
@@ -36,6 +36,9 @@ npm run install:mac      # build → sign → /Applications, keeps the TCC grant
   architecture, and ticket. Apple ID and App Store Connect API-key credentials are
   supported for CI too. Intel macOS is not emitted because the currently bundled FFmpeg
   dependency is Apple-silicon-only in a build produced on this runner.
+- The finished local release set is `dist/ClipThat-<version>-arm64.dmg`,
+  `dist/ClipThat-<version>-arm64-mac.zip`, and the matching SHA-256 file. The command uses
+  `--publish never`; creating these files does not publish a release.
 - If a machine's permission state gets wedged (capture returns nothing while the toggle
   shows on): `RESET_TCC=1 npm run install:mac`, then re-grant. `killall replayd` clears a
   wedged capture daemon.
@@ -86,3 +89,15 @@ Bump `version` in `package.json` and `package-lock.json`; the artifact names and
 No auto-update is wired: `publish: null`. When distribution channels exist, the standard
 route is electron-builder's GitHub provider plus `electron-updater` — it was removed as
 an unused dependency, so re-adding it is deliberate work, not flipping a flag.
+
+## Cleaning generated artifacts
+
+```bash
+npm run clean:artifacts
+```
+
+This removes `out/`, test caches, expanded packaging directories, builder scratch data,
+block maps, and delivery files from older versions. It keeps the current version's DMG,
+ZIP, installer/archive files, and checksum manifests. It never removes `node_modules`,
+source files, the installed application, or application data. Use
+`node scripts/clean-artifacts.mjs --dry-run` to preview the exact paths first.

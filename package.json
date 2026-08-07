@@ -5,11 +5,20 @@
   "main": "./out/main/index.js",
   "author": "ClipThat",
   "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/XtraSaltyDev/clip-that.git"
+  },
+  "bugs": {
+    "url": "https://github.com/XtraSaltyDev/clip-that/issues"
+  },
+  "homepage": "https://github.com/XtraSaltyDev/clip-that#readme",
   "private": true,
   "scripts": {
     "dev": "electron-vite dev",
     "start": "electron-vite preview",
     "build": "npm run typecheck && npm run test && electron-vite build",
+    "clean:artifacts": "node scripts/clean-artifacts.mjs",
     "typecheck": "tsc --noEmit -p tsconfig.json",
     "postinstall": "electron-builder install-app-deps",
     "build:mac": "npm run build && electron-builder --mac",
