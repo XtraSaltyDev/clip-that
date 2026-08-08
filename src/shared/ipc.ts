@@ -53,6 +53,7 @@ export const IPC = {
   libraryIssue: 'library:issue',
   libraryLoadProject: 'library:load-project',
   libraryExportVideo: 'library:export-video',
+  libraryCancelVideoExport: 'library:cancel-video-export',
 
   // recording
   recordConfigure: 'record:configure',
@@ -98,6 +99,9 @@ export const IPC = {
   exportDiagnostics: 'system:export-diagnostics',
   updateCheck: 'system:update-check',
   updateDownload: 'system:update-download',
+  updateManualDownload: 'system:update-manual-download',
+  updateInstall: 'system:update-install',
+  updateStatus: 'system:update-status',
   windowControl: 'system:window-control',
   toast: 'system:toast',
   quit: 'system:quit',

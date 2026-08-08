@@ -70,7 +70,13 @@ import { checkPermissions, openScreenRecordingSettings, requestPermission } from
 import { registerHotkeys, hotkeyFailures } from '../hotkeys'
 import { refreshTray, syncTrayVisibility, installAppMenu } from '../tray'
 import { exportDiagnostics } from '../diagnostics/export'
-import { checkForAppUpdate, openAppUpdateDownload } from '../update/service'
+import {
+  checkForAppUpdate,
+  downloadAppUpdate,
+  installAppUpdate,
+  onAppUpdateStatus,
+  openManualAppUpdateDownload
+} from '../update/service'
 import * as validate from './validation'
 import { rendererRole, secureHandle, secureOn } from './sender'
 import {
@@ -80,6 +86,7 @@ import {
 } from '../library/open-policy'
 
 let cursorFeed: NodeJS.Timeout | null = null
+const videoExportControllers = new Map<number, AbortController>()
 
 /** Stream the global cursor position to the recorder at ~30Hz for the zoom camera. */
 function startCursorFeed(): void {
@@ -100,6 +107,7 @@ function stopCursorFeed(): void {
 }
 
 export function registerIpcHandlers(): void {
+  onAppUpdateStatus((status) => broadcast(IPC.updateStatus, status))
   /* ---------------- capture ---------------- */
 
   secureHandle(IPC.captureStart, ['editor', 'library', 'settings'], async (_e, req: CaptureRequest) =>
@@ -326,17 +334,31 @@ export function registerIpcHandlers(): void {
       const poster = posterDataUrl === undefined
         ? undefined
         : validate.imageDataUrl(posterDataUrl, 'video poster')
-      const item = await exportLibraryVideo(
-        validate.idValue(id, 'recording id'),
-        validate.videoExportOptions(opts),
-        poster,
-        ({ percent }) => e.sender.send(IPC.recordProgress, { percent })
-      )
-      broadcast(IPC.libraryChanged)
-      refreshTray()
-      return item
+      if (videoExportControllers.has(e.sender.id)) throw new Error('A video export is already running')
+      const controller = new AbortController()
+      videoExportControllers.set(e.sender.id, controller)
+      try {
+        const item = await exportLibraryVideo(
+          validate.idValue(id, 'recording id'),
+          validate.videoExportOptions(opts),
+          poster,
+          ({ percent }) => e.sender.send(IPC.recordProgress, { percent }),
+          controller.signal
+        )
+        broadcast(IPC.libraryChanged)
+        refreshTray()
+        return item
+      } finally {
+        videoExportControllers.delete(e.sender.id)
+      }
     }
   )
+  secureHandle(IPC.libraryCancelVideoExport, ['editor'], (e) => {
+    const controller = videoExportControllers.get(e.sender.id)
+    if (!controller) return false
+    controller.abort()
+    return true
+  })
 
   /* ---------------- recording ---------------- */
 
@@ -561,7 +583,19 @@ export function registerIpcHandlers(): void {
   secureHandle(IPC.updateCheck, ['library', 'settings'], (_e, unsafeForce: unknown = false) =>
     checkForAppUpdate(validate.booleanValue(unsafeForce, 'force update check'))
   )
-  secureHandle(IPC.updateDownload, ['library', 'settings'], () => openAppUpdateDownload())
+  secureHandle(IPC.updateDownload, ['library', 'settings'], () => downloadAppUpdate())
+  secureHandle(IPC.updateManualDownload, ['library', 'settings'], () =>
+    openManualAppUpdateDownload()
+  )
+  secureHandle(IPC.updateInstall, ['library', 'settings'], () => {
+    if (recording.status().state !== 'idle') {
+      return { ok: false, error: 'Finish the active recording or export before restarting.' }
+    }
+    if (editorWindows().length > 0) {
+      return { ok: false, error: 'Close ClipThat editor windows before restarting to update.' }
+    }
+    return installAppUpdate()
+  })
 
   secureOn(
     IPC.windowControl,

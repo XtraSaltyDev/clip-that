@@ -226,6 +226,14 @@ body.mac .set-side {
   font-weight: 600;
   color: var(--ink-0);
 }
+.set-update-fallback {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 8px;
+  padding-top: 10px;
+  border-top: 1px solid var(--line);
+}
 .set-env {
   display: grid;
   gap: 4px;

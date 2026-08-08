@@ -76,6 +76,37 @@ test('library index falls back to backup when the primary is missing', async () 
   }
 })
 
+test('library index preserves valid video trim drafts and rejects malformed drafts', async () => {
+  const root = await mkdtemp(join(tmpdir(), 'clipthat-index-'))
+  try {
+    const primary = join(root, 'index.json')
+    const backup = join(root, 'index.json.bak')
+    const recording = {
+      ...item('video', 'Video'),
+      kind: 'video',
+      filePath: '/recordings/video.mp4',
+      durationMs: 10_000,
+      videoEdit: {
+        startMs: 1_000,
+        endMs: 8_000,
+        format: 'mp4',
+        quality: 'high',
+        updatedAt: 123
+      }
+    }
+    await writeFile(primary, JSON.stringify([recording]), 'utf8')
+    assert.deepEqual(loadLibraryIndex(primary, backup).items[0].videoEdit, recording.videoEdit)
+
+    recording.videoEdit.endMs = 500
+    await writeFile(primary, JSON.stringify([recording]), 'utf8')
+    const invalid = loadLibraryIndex(primary, backup)
+    assert.equal(invalid.items.length, 0)
+    assert.equal(invalid.needsRepair, true)
+  } finally {
+    await rm(root, { recursive: true, force: true })
+  }
+})
+
 test('library index never turns two unreadable generations into a silent healthy result', async () => {
   const root = await mkdtemp(join(tmpdir(), 'clipthat-index-'))
   try {

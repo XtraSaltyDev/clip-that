@@ -300,7 +300,16 @@ export interface LibraryItem {
   favorite: boolean
   ocrText?: string
   durationMs?: number
+  videoEdit?: VideoEditDraft
   byteSize: number
+}
+
+export interface VideoEditDraft {
+  startMs: number
+  endMs: number
+  format: 'mp4' | 'webm'
+  quality: 'medium' | 'high'
+  updatedAt: number
 }
 
 /** The only library fields a renderer is allowed to edit. Paths and identity stay main-owned. */
@@ -309,6 +318,7 @@ export interface LibraryItemPatch {
   tags?: string[]
   favorite?: boolean
   ocrText?: string
+  videoEdit?: VideoEditDraft | null
 }
 
 export interface LibraryHealth {
@@ -483,6 +493,21 @@ export type AppUpdateStatus =
       checkedAt: string
     }
   | {
+      state: 'downloading'
+      currentVersion: string
+      latestVersion: string
+      percent: number
+      transferred: number
+      total: number
+      bytesPerSecond: number
+    }
+  | {
+      state: 'ready'
+      currentVersion: string
+      latestVersion: string
+      downloadedAt: string
+    }
+  | {
       state: 'unavailable'
       currentVersion: string
       reason: 'network' | 'trust' | 'invalid-response'
@@ -490,6 +515,12 @@ export type AppUpdateStatus =
     }
 
 export interface AppUpdateDownloadResult {
+  ok: boolean
+  state?: 'ready' | 'browser'
+  error?: string
+}
+
+export interface AppUpdateInstallResult {
   ok: boolean
   error?: string
 }

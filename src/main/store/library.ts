@@ -292,6 +292,11 @@ class LibraryStore extends EventEmitter {
     }
     if (patch.favorite !== undefined) item.favorite = patch.favorite
     if (patch.ocrText !== undefined) item.ocrText = patch.ocrText.slice(0, 2_000_000)
+    if (patch.videoEdit !== undefined) {
+      if (current.kind !== 'video') throw new TypeError('Only recordings can have video edit drafts')
+      if (patch.videoEdit === null) delete item.videoEdit
+      else item.videoEdit = { ...patch.videoEdit }
+    }
     item.updatedAt = Date.now()
     this.commit(this.load().map((candidate) => (candidate.id === id ? item : candidate)))
     return item

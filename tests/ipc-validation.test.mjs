@@ -17,6 +17,18 @@ test('library patches expose only user-editable fields', () => {
     /cannot be changed/
   )
   assert.throws(() => validation.libraryPatch({ tags: new Array(51).fill('tag') }), /tags/)
+  assert.deepEqual(
+    validation.libraryPatch({
+      videoEdit: { startMs: 100, endMs: 900, format: 'mp4', quality: 'high', updatedAt: 123 }
+    }).videoEdit,
+    { startMs: 100, endMs: 900, format: 'mp4', quality: 'high', updatedAt: 123 }
+  )
+  assert.throws(
+    () => validation.libraryPatch({
+      videoEdit: { startMs: 900, endMs: 100, format: 'mp4', quality: 'high', updatedAt: 123 }
+    }),
+    /trim end/
+  )
 })
 
 test('image payloads require an allowed base64 data URL', () => {

@@ -1,6 +1,14 @@
 import CoreGraphics
 import Foundation
 
+if CommandLine.arguments.count == 4,
+   CommandLine.arguments[1] == "--move-cursor",
+   let x = Double(CommandLine.arguments[2]),
+   let y = Double(CommandLine.arguments[3]) {
+  CGWarpMouseCursorPosition(CGPoint(x: x, y: y))
+  exit(0)
+}
+
 guard CommandLine.arguments.count == 2,
       let rawID = UInt32(CommandLine.arguments[1]) else {
   exit(2)

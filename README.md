@@ -7,7 +7,8 @@ The currently supported release target is **macOS on Apple silicon**. Windows x6
 experimental package target and Linux is build configuration only; neither has completed
 runtime acceptance. No account. No cloud. No telemetry. Capture, recording, text
 recognition and search all run offline. The sole automatic network request is an availability
-check against the fixed public GitHub release manifest; no capture or library content is sent.
+check against the fixed public GitHub release channel; update bytes download only after an
+explicit click, and no capture or library content is sent.
 
 ```bash
 npm install
@@ -88,6 +89,8 @@ Screen or window, 15–60 fps, microphone, a circular
 follows your cursor with a dead-zone, so recordings read like produced video instead of a
 raw screen dump. Floating controller with pause/resume, then a
 review step with trimming and export to **MP4 (H.264)**, **GIF** (two-pass palette), or **WebM**.
+Library recordings open in ClipThat's video editor, where trim drafts persist, a selection can
+be played or looped, timecodes can be entered precisely, and exports remain non-destructive.
 Windows/Linux system-audio paths exist in source but are not a supported or runtime-accepted
 feature.
 
@@ -143,7 +146,7 @@ src/
     overlay/ library/ hud/ settings/
 ```
 
-- **Electron 33 + electron-vite + React 18 + TypeScript.**
+- **Electron 43 + electron-vite + React 18 + TypeScript.**
 - **Konva** for the editor scene graph, split across three layers: the screenshot, the
   annotations, and the UI. Annotating never repaints the screenshot, and shape nodes are
   memoised so editing one shape doesn't rebuild every blur filter on the canvas.
@@ -205,6 +208,7 @@ node scripts/extract-check.mjs /tmp/shots/00-source.png
 
 # End-to-end, inside the packaged app with real permissions: latency budget, pin,
 # quick access, pipeline, scrolling capture, and MP4/GIF/auto-zoom recording.
+# The zoom phase decodes raw WebM and MP4 pixels and checks for stale bottom bands.
 # This is the required real-device acceptance gate; a source build is not equivalent.
 CLIPTHAT_SELF_TEST=all /Applications/ClipThat.app/Contents/MacOS/ClipThat
 ```
@@ -213,8 +217,9 @@ On macOS, `npm run install:mac` builds, signs (Developer ID if present), install
 /Applications and preserves the Screen Recording grant. See RELEASE.md for the full
 release flow and manual checklist.
 
-To remove expanded package trees, old-version delivery files, and other generated build
-output while retaining the current release packages, run `npm run clean:artifacts`.
+To remove expanded package trees, older delivery files, and other generated build output
+while retaining the current and directly previous release packages, updater metadata, and
+blockmaps, run `npm run clean:artifacts`.
 
 ## Known limits
 

@@ -192,7 +192,7 @@ export function libraryQuery(value: unknown): LibraryQuery {
 
 export function libraryPatch(value: unknown): LibraryItemPatch {
   const input = record(value, 'library patch')
-  const allowed = new Set(['title', 'tags', 'favorite', 'ocrText'])
+  const allowed = new Set(['title', 'tags', 'favorite', 'ocrText', 'videoEdit'])
   for (const key of Object.keys(input)) {
     if (!allowed.has(key)) throw new TypeError(`library field ${key} cannot be changed`)
   }
@@ -204,6 +204,23 @@ export function libraryPatch(value: unknown): LibraryItemPatch {
   }
   if (input.favorite !== undefined) patch.favorite = booleanValue(input.favorite, 'favorite')
   if (input.ocrText !== undefined) patch.ocrText = stringValue(input.ocrText, 'OCR text', 2_000_000)
+  if (input.videoEdit !== undefined) {
+    if (input.videoEdit === null) patch.videoEdit = null
+    else {
+      const draft = record(input.videoEdit, 'video edit draft')
+      rejectUnknown(draft, ['startMs', 'endMs', 'format', 'quality', 'updatedAt'], 'video edit draft')
+      const startMs = finite(draft.startMs, 'trim start', 0, 86_400_000)
+      const endMs = finite(draft.endMs, 'trim end', 0, 86_400_000)
+      if (endMs <= startMs) throw new TypeError('trim end must be after trim start')
+      patch.videoEdit = {
+        startMs,
+        endMs,
+        format: enumValue(draft.format, 'video format', ['mp4', 'webm'] as const),
+        quality: enumValue(draft.quality, 'video quality', ['medium', 'high'] as const),
+        updatedAt: finite(draft.updatedAt, 'video edit time', 0, 9_000_000_000_000_000)
+      }
+    }
+  }
   return patch
 }
 

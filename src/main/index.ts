@@ -24,6 +24,7 @@ import { indexBacklog, indexCapture, requestOcr } from './ocr'
 import { library } from './store/library'
 import { isRealPathInside } from './store/path-guard'
 import { libraryFileResponse } from './protocol/library-file'
+import { initializeAppUpdates } from './update/service'
 
 const IS_MAC = process.platform === 'darwin'
 
@@ -122,6 +123,7 @@ app.whenReady().then(async () => {
   await library.initialize()
   registerLibraryProtocol()
   registerIpcHandlers()
+  initializeAppUpdates()
   recording.installDisplayMediaHandler()
 
   const s = settings.get()

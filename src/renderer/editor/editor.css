@@ -201,6 +201,7 @@ body.mac .topbar {
 .video-trim-heading > div { gap: 7px; min-width: 0; }
 .video-trim-heading strong { color: var(--ink-0); font-size: 12px; }
 .video-trim-heading .muted { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.video-trim-actions { justify-content: flex-end; flex-wrap: wrap; }
 .video-trim-rail {
   position: relative;
   height: 76px;
@@ -332,10 +333,25 @@ body.mac .topbar {
 .video-trim-value:first-child { padding-left: 0; }
 .video-trim-value:last-child { padding-right: 0; }
 .video-trim-value + .video-trim-value { border-left: 1px solid var(--line); }
-.video-trim-value output {
+.video-trim-value output,
+.video-timecode {
   grid-column: 1;
   color: var(--ink-0);
   font-size: 13px;
+}
+.video-timecode {
+  width: 94px;
+  min-width: 0;
+  padding: 3px 6px;
+  border: 1px solid transparent;
+  border-radius: 5px;
+  background: transparent;
+}
+.video-timecode:hover { border-color: var(--line-strong); }
+.video-timecode:focus {
+  outline: none;
+  border-color: var(--accent);
+  background: var(--bg-2);
 }
 .video-trim-value .btn {
   grid-column: 2;
@@ -349,7 +365,8 @@ body.mac .topbar {
   text-align: center;
 }
 .video-trim-value.end { text-align: right; }
-.video-trim-value.end output { justify-self: end; }
+.video-trim-value.end output,
+.video-trim-value.end .video-timecode { justify-self: end; text-align: right; }
 .video-inspector {
   grid-column: 2;
   grid-row: 1 / 3;

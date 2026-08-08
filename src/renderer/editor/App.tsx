@@ -32,6 +32,7 @@ export default function App(): React.ReactElement {
   const [openingLibraryId, setOpeningLibraryId] = useState<string | null>(null)
   const [videoItem, setVideoItem] = useState<LibraryItem | null>(null)
   const closeSaving = useRef(false)
+  const videoDraftFlush = useRef<(() => Promise<void>) | null>(null)
   // Rebuilt when the palette opens so disabled states reflect the current selection.
   const commands = useMemo(() => editorCommands(actions), [actions, paletteOpen])
 
@@ -83,6 +84,7 @@ export default function App(): React.ReactElement {
       closeSaving.current = true
       void (async () => {
         try {
+          await videoDraftFlush.current?.()
           const current = useEditor.getState()
           if (current.dirty) {
             const rendered = await actions.render()
@@ -291,10 +293,14 @@ export default function App(): React.ReactElement {
   if (videoItem) {
     return (
       <VideoEditor
+        key={videoItem.id}
         item={videoItem}
         openingId={openingLibraryId}
         onItemChanged={setVideoItem}
         onOpen={(item) => void openLibraryItem(item)}
+        registerDraftFlush={(flush) => {
+          videoDraftFlush.current = flush
+        }}
       />
     )
   }

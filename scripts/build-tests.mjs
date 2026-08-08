@@ -28,6 +28,7 @@ const ENTRIES = {
   editorStore: 'src/renderer/editor/store.ts',
   diagnosticsRedact: 'src/main/diagnostics/redact.ts',
   updateContract: 'src/main/update/contract.ts',
+  updateMetadata: 'src/main/update/metadata.ts',
   updateTrust: 'src/main/update/trust.ts',
   byteRange: 'src/main/protocol/byte-range.ts'
 }

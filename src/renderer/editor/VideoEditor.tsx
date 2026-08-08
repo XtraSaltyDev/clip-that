@@ -1,5 +1,5 @@
 import React, { useCallback, useEffect, useRef, useState } from 'react'
-import type { LibraryItem, VideoExportOptions } from '@shared/types'
+import type { LibraryItem } from '@shared/types'
 import { api } from '../shared/api'
 import { Icon } from '../shared/icons'
 import { Segmented, ToastHost, formatBytes, formatDuration, toast } from '../shared/ui'
@@ -15,6 +15,28 @@ function timecode(ms: number): string {
   const seconds = Math.floor((tenths % 600) / 10)
   const decimal = tenths % 10
   return `${hours ? `${String(hours).padStart(2, '0')}:` : ''}${String(minutes).padStart(2, '0')}:${String(seconds).padStart(2, '0')}.${decimal}`
+}
+
+function parseTimecode(value: string): number | null {
+  const parts = value.trim().split(':')
+  if (parts.length < 2 || parts.length > 3 || parts.some((part) => part.trim() === '')) return null
+  const seconds = Number(parts.at(-1))
+  const minutes = Number(parts.at(-2))
+  const hours = parts.length === 3 ? Number(parts[0]) : 0
+  if (
+    ![seconds, minutes, hours].every(Number.isFinite) ||
+    seconds < 0 || seconds >= 60 || minutes < 0 || minutes >= 60 || hours < 0
+  ) return null
+  return (hours * 3600 + minutes * 60 + seconds) * 1000
+}
+
+function itemTrim(item: LibraryItem, duration: number): [number, number] {
+  const end = Math.max(0, duration || item.durationMs || 0)
+  const draft = item.videoEdit
+  if (!draft || end <= 0) return [0, end]
+  const startMs = Math.max(0, Math.min(draft.startMs, end - MIN_TRIM_MS))
+  const endMs = Math.min(end, Math.max(draft.endMs, startMs + MIN_TRIM_MS))
+  return [startMs, endMs]
 }
 
 function waitForVideo(video: HTMLVideoElement, event: 'loadeddata' | 'seeked'): Promise<void> {
@@ -106,29 +128,39 @@ export default function VideoEditor(props: {
   openingId: string | null
   onItemChanged: (item: LibraryItem) => void
   onOpen: (item: LibraryItem) => void
+  registerDraftFlush: (flush: (() => Promise<void>) | null) => void
 }): React.ReactElement {
   const { item } = props
   const videoRef = useRef<HTMLVideoElement>(null)
   const trimRailRef = useRef<HTMLDivElement>(null)
+  const draftReady = useRef(false)
   const [title, setTitle] = useState(item.title)
   const [duration, setDuration] = useState(item.durationMs ?? 0)
   const [trim, setTrim] = useState<[number, number]>([0, item.durationMs ?? 0])
   const [format, setFormat] = useState<'mp4' | 'webm'>('mp4')
-  const [quality, setQuality] = useState<VideoExportOptions['quality']>('high')
+  const [quality, setQuality] = useState<'medium' | 'high'>('high')
   const [saving, setSaving] = useState(false)
   const [progress, setProgress] = useState(0)
   const [playhead, setPlayhead] = useState(0)
   const [filmstrip, setFilmstrip] = useState<string[]>([])
+  const [playingSelection, setPlayingSelection] = useState(false)
+  const [loopSelection, setLoopSelection] = useState(false)
   const mediaUrl = api.library.fileUrl(item.filePath)
 
   useEffect(() => {
+    draftReady.current = false
     setTitle(item.title)
-    setDuration(item.durationMs ?? 0)
-    setTrim([0, item.durationMs ?? 0])
+    const itemDuration = item.durationMs ?? 0
+    setDuration(itemDuration)
+    setTrim(itemTrim(item, itemDuration))
+    setFormat(item.videoEdit?.format ?? 'mp4')
+    setQuality(item.videoEdit?.quality ?? 'high')
     setSaving(false)
     setProgress(0)
     setPlayhead(0)
     setFilmstrip([])
+    setPlayingSelection(false)
+    draftReady.current = true
   }, [item.id, item.durationMs, item.title])
 
   useEffect(() => api.recording.onProgress(({ percent }) => setProgress(percent)), [])
@@ -159,6 +191,34 @@ export default function VideoEditor(props: {
     [item.id, props.onItemChanged]
   )
 
+  const persistDraft = useCallback(async () => {
+    if (!draftReady.current || duration <= 0 || trim[1] <= trim[0]) return
+    await update({
+        videoEdit: {
+          startMs: trim[0],
+          endMs: trim[1],
+          format,
+          quality,
+          updatedAt: Date.now()
+        }
+      })
+  }, [duration, format, quality, trim, update])
+
+  useEffect(() => {
+    props.registerDraftFlush(persistDraft)
+    return () => props.registerDraftFlush(null)
+  }, [persistDraft, props.registerDraftFlush])
+
+  useEffect(() => {
+    if (!draftReady.current || duration <= 0 || trim[1] <= trim[0]) return
+    const timer = setTimeout(() => {
+      void persistDraft().catch((error) =>
+        toast('error', 'Video edit draft could not be saved', (error as Error).message)
+      )
+    }, 500)
+    return () => clearTimeout(timer)
+  }, [duration, persistDraft, trim])
+
   const saveCopy = useCallback(async () => {
     const video = videoRef.current
     if (!video || saving || trim[1] <= trim[0]) return
@@ -178,16 +238,54 @@ export default function VideoEditor(props: {
       )
       toast('success', 'Edited copy saved', result.title)
     } catch (error) {
-      toast('error', 'Could not save the edited copy', (error as Error).message)
+      if (/cancelled/i.test((error as Error).message)) toast('info', 'Video export cancelled')
+      else toast('error', 'Could not save the edited copy', (error as Error).message)
     } finally {
       setSaving(false)
     }
   }, [format, item.id, quality, saving, trim])
 
+  const cancelSave = useCallback(async () => {
+    if (await api.library.cancelVideoExport()) toast('info', 'Cancelling video export…')
+  }, [])
+
   const seek = (ms: number) => {
-    setPlayhead(ms)
-    if (videoRef.current) videoRef.current.currentTime = ms / 1000
+    const bounded = Math.max(0, Math.min(duration, ms))
+    setPlayhead(bounded)
+    if (videoRef.current) videoRef.current.currentTime = bounded / 1000
   }
+
+  const playSelection = useCallback(() => {
+    const video = videoRef.current
+    if (!video || trim[1] <= trim[0]) return
+    seek(trim[0])
+    setPlayingSelection(true)
+    void video.play()
+  }, [trim])
+
+  useEffect(() => {
+    const onKeyDown = (event: KeyboardEvent) => {
+      const target = event.target as HTMLElement | null
+      if (target?.matches('input, select, textarea, button, [contenteditable="true"]')) return
+      const video = videoRef.current
+      if (!video) return
+      if (event.key === ' ' || event.key.toLowerCase() === 'k') {
+        event.preventDefault()
+        video.paused ? void video.play() : video.pause()
+      } else if (event.key.toLowerCase() === 'j' || event.key === 'ArrowLeft') {
+        event.preventDefault()
+        seek(playhead - (event.shiftKey ? 1000 : 100))
+      } else if (event.key.toLowerCase() === 'l' || event.key === 'ArrowRight') {
+        event.preventDefault()
+        seek(playhead + (event.shiftKey ? 1000 : 100))
+      } else if (event.key === ',' || event.key === '.') {
+        event.preventDefault()
+        seek(playhead + (event.key === ',' ? -1000 / 30 : 1000 / 30))
+      }
+    }
+    window.addEventListener('keydown', onKeyDown)
+    return () => window.removeEventListener('keydown', onKeyDown)
+  }, [duration, playhead])
 
   const updateTrimPoint = (edge: 'start' | 'end', rawValue: number) => {
     const value =
@@ -265,6 +363,11 @@ export default function VideoEditor(props: {
           <button className="btn" onClick={() => void api.exports.reveal(item.filePath)}>
             <Icon name="folder" size={14} /> Reveal
           </button>
+          {saving && (
+            <button className="btn ghost" onClick={() => void cancelSave()}>
+              <Icon name="close" size={14} /> Cancel export
+            </button>
+          )}
           <button className="btn primary" disabled={saving} onClick={() => void saveCopy()}>
             <Icon name="save" size={14} /> {saving ? `Saving ${Math.round(progress)}%` : 'Save copy'}
           </button>
@@ -279,14 +382,30 @@ export default function VideoEditor(props: {
             crossOrigin="anonymous"
             controls
             preload="metadata"
-            onTimeUpdate={(event) => setPlayhead(event.currentTarget.currentTime * 1000)}
+            onTimeUpdate={(event) => {
+              const next = event.currentTarget.currentTime * 1000
+              setPlayhead(next)
+              if (playingSelection && next >= trim[1] - 20) {
+                if (loopSelection) {
+                  event.currentTarget.currentTime = trim[0] / 1000
+                  void event.currentTarget.play()
+                } else {
+                  event.currentTarget.pause()
+                  setPlayingSelection(false)
+                  setPlayhead(trim[1])
+                }
+              }
+            }}
+            onPause={() => {
+              if (playingSelection && !loopSelection) setPlayingSelection(false)
+            }}
             onLoadedMetadata={(event) => {
               const ms = Number.isFinite(event.currentTarget.duration)
                 ? event.currentTarget.duration * 1000
                 : item.durationMs ?? 0
               if (ms > 0) {
                 setDuration(ms)
-                setTrim([0, ms])
+                setTrim(itemTrim(item, ms))
               }
             }}
             onError={() => toast('error', 'This recording could not be played inside ClipThat')}
@@ -298,16 +417,28 @@ export default function VideoEditor(props: {
                 <strong>Trim</strong>
                 <span className="tiny muted">Keep {timecode(selectedMs)}</span>
               </div>
-              <button
-                className="btn ghost sm"
-                disabled={fullSelection}
-                onClick={() => {
-                  setTrim([0, duration])
-                  seek(0)
-                }}
-              >
-                Reset trim
-              </button>
+              <div className="video-trim-actions">
+                <button className="btn ghost sm" onClick={playSelection}>
+                  <Icon name="play" size={12} /> Play selection
+                </button>
+                <button
+                  className="btn ghost sm"
+                  aria-pressed={loopSelection}
+                  onClick={() => setLoopSelection((value) => !value)}
+                >
+                  <Icon name="refresh" size={12} /> {loopSelection ? 'Looping' : 'Loop'}
+                </button>
+                <button
+                  className="btn ghost sm"
+                  disabled={fullSelection}
+                  onClick={() => {
+                    setTrim([0, duration])
+                    seek(0)
+                  }}
+                >
+                  Reset trim
+                </button>
+              </div>
             </div>
 
             <div className="video-trim-rail" ref={trimRailRef}>
@@ -378,7 +509,24 @@ export default function VideoEditor(props: {
             <div className="video-trim-values">
               <div className="video-trim-value">
                 <span className="tiny muted">Start</span>
-                <output className="mono">{timecode(trim[0])}</output>
+                <input
+                  key={`start-${Math.round(trim[0])}`}
+                  className="video-timecode mono"
+                  aria-label="Trim start timecode"
+                  defaultValue={timecode(trim[0])}
+                  onBlur={(event) => {
+                    const value = parseTimecode(event.currentTarget.value)
+                    if (value === null) event.currentTarget.value = timecode(trim[0])
+                    else updateTrimPoint('start', value)
+                  }}
+                  onKeyDown={(event) => {
+                    if (event.key === 'Enter') event.currentTarget.blur()
+                    if (event.key === 'Escape') {
+                      event.currentTarget.value = timecode(trim[0])
+                      event.currentTarget.blur()
+                    }
+                  }}
+                />
                 <button
                   className="btn ghost sm"
                   disabled={playhead >= trim[1] - MIN_TRIM_MS}
@@ -394,7 +542,24 @@ export default function VideoEditor(props: {
               </div>
               <div className="video-trim-value end">
                 <span className="tiny muted">End</span>
-                <output className="mono">{timecode(trim[1])}</output>
+                <input
+                  key={`end-${Math.round(trim[1])}`}
+                  className="video-timecode mono"
+                  aria-label="Trim end timecode"
+                  defaultValue={timecode(trim[1])}
+                  onBlur={(event) => {
+                    const value = parseTimecode(event.currentTarget.value)
+                    if (value === null) event.currentTarget.value = timecode(trim[1])
+                    else updateTrimPoint('end', value)
+                  }}
+                  onKeyDown={(event) => {
+                    if (event.key === 'Enter') event.currentTarget.blur()
+                    if (event.key === 'Escape') {
+                      event.currentTarget.value = timecode(trim[1])
+                      event.currentTarget.blur()
+                    }
+                  }}
+                />
                 <button
                   className="btn ghost sm"
                   disabled={playhead <= trim[0] + MIN_TRIM_MS}
@@ -443,7 +608,10 @@ export default function VideoEditor(props: {
         <LibraryStrip
           activeId={item.id}
           openingId={props.openingId}
-          onOpen={props.onOpen}
+          onOpen={(next) => {
+            if (saving) toast('info', 'Finish or cancel the video export before switching items')
+            else void persistDraft().then(() => props.onOpen(next))
+          }}
         />
       </div>
       <ToastHost />

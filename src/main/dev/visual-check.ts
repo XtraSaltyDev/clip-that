@@ -9,10 +9,12 @@
  * Never loaded unless that variable is set.
  */
 import { BrowserWindow, app, screen } from 'electron'
+import { execFile } from 'node:child_process'
 import { promises as fs } from 'node:fs'
 import { join } from 'node:path'
 import { IPC } from '@shared/ipc'
-import { documentFromCapture, openInEditor } from '../capture/service'
+import { documentFromCapture, openInEditor, openVideoInEditor } from '../capture/service'
+import { ffmpegPath } from '../recording/ffmpeg'
 import {
   editorWindows,
   showHudWindow,
@@ -128,6 +130,31 @@ async function makeSourceImage(dir: string): Promise<Electron.NativeImage> {
   await fs.writeFile(join(dir, '00-source.png'), shot.toPNG())
   mock.destroy()
   return shot
+}
+
+async function makeSourceVideo(path: string): Promise<void> {
+  const bin = ffmpegPath()
+  if (!bin) throw new Error('visual video check needs the bundled FFmpeg')
+  await fs.mkdir(join(app.getPath('userData'), 'tmp'), { recursive: true })
+  await new Promise<void>((resolve, reject) => {
+    execFile(
+      bin,
+      [
+        '-y',
+        '-f',
+        'lavfi',
+        '-i',
+        'testsrc2=size=1280x720:rate=30:duration=4',
+        '-an',
+        '-c:v',
+        'libx264',
+        '-pix_fmt',
+        'yuv420p',
+        path
+      ],
+      (error) => (error ? reject(error) : resolve())
+    )
+  })
 }
 
 async function checkEditor({ dir, shot }: Ctx): Promise<void> {
@@ -321,6 +348,38 @@ export async function runVisualCheck(dir: string): Promise<void> {
     })
     libraryStore.setCreatedAtForVisualCheck(item.id, Date.now() - age)
   }
+
+  const visualVideoPath = join(app.getPath('userData'), 'tmp', 'visual-trim-source.mp4')
+  await makeSourceVideo(visualVideoPath)
+  const videoItem = await libraryStore.addVideo({
+    filePath: visualVideoPath,
+    title: 'Trim controls',
+    width: 1280,
+    height: 720,
+    durationMs: 4000,
+    posterDataUrl: shot.toDataURL()
+  })
+  openVideoInEditor(videoItem)
+  await wait(1800)
+  const videoEditor = editorWindows().at(-1)
+  if (!videoEditor) throw new Error('video editor did not open')
+  const videoControls = await videoEditor.webContents.executeJavaScript(
+    `(() => ({
+      rangeCount: document.querySelectorAll('[role=slider]').length,
+      hasPlaySelection: [...document.querySelectorAll('button')].some((button) => button.textContent.includes('Play selection')),
+      hasLoop: [...document.querySelectorAll('button')].some((button) => button.textContent.includes('Loop')),
+      timecodeCount: document.querySelectorAll('.video-timecode').length
+    }))()`
+  )
+  if (
+    videoControls.rangeCount < 2 ||
+    !videoControls.hasPlaySelection ||
+    !videoControls.hasLoop ||
+    videoControls.timecodeCount !== 2
+  ) {
+    throw new Error(`video trim controls are incomplete: ${JSON.stringify(videoControls)}`)
+  }
+  await snap(dir, '07d-video-editor', videoEditor)
 
   await wait(900)
   const seededEditor = editorWindows()[0]

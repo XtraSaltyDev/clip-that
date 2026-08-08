@@ -23,8 +23,10 @@ tag="v$version"
 dmg="dist/ClipThat-$version-arm64.dmg"
 zip="dist/ClipThat-$version-arm64-mac.zip"
 checksums="dist/ClipThat-$version-SHA256SUMS.txt"
+zip_blockmap="$zip.blockmap"
+latest_macos="dist/latest-mac.yml"
 
-for artifact in "$dmg" "$zip" "$checksums"; do
+for artifact in "$dmg" "$zip" "$zip_blockmap" "$latest_macos" "$checksums"; do
   if [ ! -f "$artifact" ]; then
     echo "Missing verified macOS release artifact: $artifact" >&2
     exit 1
@@ -53,6 +55,8 @@ args=(
   release create "$tag"
   "$dmg"
   "$zip"
+  "$zip_blockmap"
+  "$latest_macos"
   "$checksums"
   --repo "$repo"
   --target "$target"

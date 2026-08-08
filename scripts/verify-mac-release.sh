@@ -16,13 +16,21 @@ fi
 
 dmgs=(dist/ClipThat-"$VERSION"-arm64.dmg)
 zips=(dist/ClipThat-"$VERSION"-arm64-mac.zip)
+zip_blockmap=dist/ClipThat-"$VERSION"-arm64-mac.zip.blockmap
+latest_macos=dist/latest-mac.yml
 
-for artifact in "${dmgs[@]}" "${zips[@]}"; do
+for artifact in "${dmgs[@]}" "${zips[@]}" "$zip_blockmap" "$latest_macos"; do
   if [ ! -f "$artifact" ]; then
     echo "Missing release artifact: $artifact" >&2
     exit 1
   fi
 done
+
+node scripts/prepare-mac-update.mjs verify \
+  --version "$VERSION" \
+  --archive "${zips[0]}" \
+  --blockmap "$zip_blockmap" \
+  --metadata "$latest_macos"
 
 if [ "$mode" = "--complete" ]; then
   app_path=dist/mac-arm64/ClipThat.app

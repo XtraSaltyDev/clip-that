@@ -11,7 +11,8 @@ export async function exportLibraryVideo(
   id: string,
   opts: VideoExportOptions,
   posterDataUrl?: string,
-  onProgress?: (progress: FfmpegProgress) => void
+  onProgress?: (progress: FfmpegProgress) => void,
+  signal?: AbortSignal
 ): Promise<LibraryItem> {
   const source = library.get(id)
   if (!source || source.kind !== 'video') throw new Error('Recording was not found')
@@ -25,9 +26,9 @@ export async function exportLibraryVideo(
   let saved = false
   try {
     if (opts.format === 'mp4') {
-      await toMp4(source.filePath, output, opts, durationMs, onProgress)
+      await toMp4(source.filePath, output, opts, durationMs, onProgress, signal)
     } else {
-      await toWebm(source.filePath, output, opts, durationMs, onProgress)
+      await toWebm(source.filePath, output, opts, durationMs, onProgress, signal)
     }
 
     const item = await library.addVideo({

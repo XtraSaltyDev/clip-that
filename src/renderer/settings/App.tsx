@@ -2,7 +2,16 @@ import React, { useCallback, useEffect, useState } from 'react'
 import type { AppUpdateStatus, Hotkeys, Settings } from '@shared/types'
 import { api } from '../shared/api'
 import { Icon, type IconName } from '../shared/icons'
-import { ColorPicker, Segmented, Slider, ToastHost, Toggle, toast, useTheme } from '../shared/ui'
+import {
+  ColorPicker,
+  Segmented,
+  Slider,
+  ToastHost,
+  Toggle,
+  formatBytes,
+  toast,
+  useTheme
+} from '../shared/ui'
 import './settings.css'
 
 type SectionId = 'welcome' | 'general' | 'capture' | 'hotkeys' | 'annotation' | 'about'
@@ -606,6 +615,7 @@ function About({ version, platform }: { version: string; platform: string }): Re
   const [checkingUpdate, setCheckingUpdate] = useState(true)
   const [updateCheckFailed, setUpdateCheckFailed] = useState(false)
   const [openingUpdate, setOpeningUpdate] = useState(false)
+  const [openingManualUpdate, setOpeningManualUpdate] = useState(false)
 
   const checkForUpdate = useCallback(async (force: boolean) => {
     setCheckingUpdate(true)
@@ -623,6 +633,7 @@ function About({ version, platform }: { version: string; platform: string }): Re
   useEffect(() => {
     void api.system.info().then(setInfo)
     void checkForUpdate(false)
+    return api.system.onUpdateStatus(setUpdate)
   }, [checkForUpdate])
 
   const downloadUpdate = useCallback(async () => {
@@ -631,23 +642,33 @@ function About({ version, platform }: { version: string; platform: string }): Re
     try {
       const result = await api.system.downloadUpdate()
       if (result.ok) {
-        toast(
-          'success',
-          'Update download opened',
-          update?.state === 'available'
-            ? `ClipThat ${update.latestVersion} will download in your default browser.`
-            : undefined
-        )
+        toast('success', 'Update ready', 'Restart ClipThat when you are ready to install it.')
       } else {
-        toast('error', 'Could not open the update download', result.error)
+        toast('error', 'Could not download the update', result.error)
         await checkForUpdate(true)
       }
     } catch (error) {
-      toast('error', 'Could not open the update download', (error as Error).message)
+      toast('error', 'Could not download the update', (error as Error).message)
     } finally {
       setOpeningUpdate(false)
     }
   }, [checkForUpdate, openingUpdate, update])
+
+  const installUpdate = useCallback(async () => {
+    const result = await api.system.installUpdate()
+    if (!result.ok) toast('error', 'ClipThat could not restart', result.error)
+  }, [])
+
+  const openManualUpdate = useCallback(async () => {
+    if (openingManualUpdate) return
+    setOpeningManualUpdate(true)
+    try {
+      const result = await api.system.openManualUpdate()
+      if (!result.ok) toast('error', 'Could not open the manual DMG', result.error)
+    } finally {
+      setOpeningManualUpdate(false)
+    }
+  }, [openingManualUpdate])
 
   let updateTitle = 'Checking for updates…'
   let updateDetail = 'Contacting the public GitHub update channel.'
@@ -656,7 +677,13 @@ function About({ version, platform }: { version: string; platform: string }): Re
     updateDetail = 'Try again, or confirm ClipThat can reach the public channel.'
   } else if (!checkingUpdate && update?.state === 'available') {
     updateTitle = `ClipThat ${update.latestVersion} is available`
-    updateDetail = `You have ${update.currentVersion}. The immutable DMG opens in your default browser.`
+    updateDetail = `You have ${update.currentVersion}. Download the signed update inside ClipThat.`
+  } else if (!checkingUpdate && update?.state === 'downloading') {
+    updateTitle = `Downloading ClipThat ${update.latestVersion} — ${Math.round(update.percent)}%`
+    updateDetail = `${formatBytes(update.transferred)} of ${formatBytes(update.total)} · ${formatBytes(update.bytesPerSecond)}/s`
+  } else if (!checkingUpdate && update?.state === 'ready') {
+    updateTitle = `ClipThat ${update.latestVersion} is ready`
+    updateDetail = 'Restart when no recording or editor work is active.'
   } else if (!checkingUpdate && update?.state === 'current') {
     updateTitle = 'No newer release is available'
     updateDetail = `ClipThat ${update.currentVersion} is current on the public GitHub channel.`
@@ -696,8 +723,8 @@ function About({ version, platform }: { version: string; platform: string }): Re
         <div className="set-update-row">
           <span className="set-update-mark" aria-hidden="true">
             <Icon
-              name={checkingUpdate ? 'refresh' : 'update'}
-              className={checkingUpdate ? 'spin' : undefined}
+              name={checkingUpdate || update?.state === 'ready' ? 'refresh' : 'update'}
+              className={checkingUpdate || update?.state === 'downloading' ? 'spin' : undefined}
             />
           </span>
           <div className="set-update-copy" aria-live="polite">
@@ -712,7 +739,16 @@ function About({ version, platform }: { version: string; platform: string }): Re
               onClick={() => void downloadUpdate()}
             >
               <Icon name="update" size={14} className={openingUpdate ? 'spin' : undefined} />
-              {openingUpdate ? 'Opening…' : `Download ${update.latestVersion}…`}
+              {openingUpdate ? 'Downloading…' : `Download ${update.latestVersion}`}
+            </button>
+          ) : update?.state === 'downloading' ? (
+            <button className="btn" disabled aria-busy="true">
+              <Icon name="update" size={14} className="spin" />
+              {Math.round(update.percent)}%
+            </button>
+          ) : update?.state === 'ready' ? (
+            <button className="btn primary" onClick={() => void installUpdate()}>
+              <Icon name="refresh" size={14} /> Restart to update
             </button>
           ) : update?.state !== 'unsupported' ? (
             <button
@@ -726,6 +762,19 @@ function About({ version, platform }: { version: string; platform: string }): Re
             </button>
           ) : null}
         </div>
+        {(update?.state === 'available' || update?.state === 'unavailable') && !checkingUpdate && (
+          <div className="set-update-fallback">
+            <span className="tiny muted">Having trouble with the managed update?</span>
+            <button
+              className="btn ghost sm"
+              disabled={openingManualUpdate}
+              onClick={() => void openManualUpdate()}
+            >
+              <Icon name="download" size={13} />
+              {openingManualUpdate ? 'Opening…' : 'Open manual DMG'}
+            </button>
+          </div>
+        )}
       </Group>
 
       <Group title="Environment">

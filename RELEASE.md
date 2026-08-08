@@ -9,7 +9,7 @@ typecheck and complete test suite before bundling, so a broken extractor cannot 
 |---|---|---|
 | Unit + regression | `npm test` | extraction, stitching maths, layout, filenames — runs anywhere, ~1s |
 | Visual | `CLIPTHAT_VISUAL_CHECK=/tmp/shots npm run dev` | every window renders; annotate → beautify → redact → save round-trips |
-| End-to-end | `CLIPTHAT_SELF_TEST=all <app binary>` | Packaged-app checks for capture latency, retained memory, pin, quick access (including the clipboard), pipeline, scrolling capture, MP4/GIF/auto-zoom recording, and window-picker behavior. Needs Screen Recording permission; results appear as `[selftest]` lines in the log. Individual phases: `CLIPTHAT_SELF_TEST=latency,quick,pipeline` |
+| End-to-end | `CLIPTHAT_SELF_TEST=all <app binary>` | Packaged-app checks for capture latency, retained memory, pin, quick access (including the clipboard), pipeline, scrolling capture, MP4/GIF recording, and a 16-second auto-zoom pixel test over raw WebM and delivery MP4. Needs Screen Recording permission; results appear as `[selftest]` lines in the log. Individual phases: `CLIPTHAT_SELF_TEST=latency,quick,pipeline,zoom` |
 | Display diagnostics | `CLIPTHAT_DIAG_DISPLAYS=1 <app binary>` | per-display capture health, for support |
 
 The log lives at `<userData>/logs/clipthat.log` (shown in Settings → About).
@@ -37,7 +37,8 @@ npm run install:mac      # build → sign → /Applications, keeps the TCC grant
   supported for CI too. Intel macOS is not emitted because the currently bundled FFmpeg
   dependency is Apple-silicon-only in a build produced on this runner.
 - The finished local release set is `dist/ClipThat-<version>-arm64.dmg`,
-  `dist/ClipThat-<version>-arm64-mac.zip`, and the matching SHA-256 file. The command uses
+  `dist/ClipThat-<version>-arm64-mac.zip`, its ZIP blockmap, `dist/latest-mac.yml`, and
+  the matching SHA-256 file. The command uses
   `--publish never`; creating these files does not publish a release.
 - To create a draft GitHub release from a verified local build without using any hosted
   macOS minutes:
@@ -57,24 +58,32 @@ npm run install:mac      # build → sign → /Applications, keeps the TCC grant
   ```
 
   The publisher requires a clean `main` checkout, an existing `v<version>` tag, the
-  verified DMG/ZIP/checksum set in `dist/`, and SSH access to GitHub Releases. It stages an
-  immutable versioned directory, updates stable aliases, then publishes `latest.json`
-  last. Override the defaults with `CLIPTHAT_RELEASE_SSH_TARGET` and
+  verified DMG/ZIP/blockmap/metadata/checksum set in `dist/`, and SSH access to GitHub Releases.
+  It stages an immutable versioned directory, publishes the updater ZIP and blockmap,
+  validates byte-range responses, updates stable aliases, then moves `latest-mac.yml`
+  and legacy `latest.json` only after their artifacts are live. Override the defaults with
+  `CLIPTHAT_RELEASE_SSH_TARGET` and
   `CLIPTHAT_RELEASE_REMOTE_DIRECTORY` when needed. Its delivery-only verification mode
   reopens both retained artifacts and does not depend on a disposable expanded build
   directory still being present.
 
   The shareable macOS link is
   `https://github.com/XtraSaltyDev/clip-that/releases/ClipThat-arm64.dmg`; the machine-readable
-  release record is `https://github.com/XtraSaltyDev/clip-that/releases/latest.json`. Both are
+  legacy release record is `https://github.com/XtraSaltyDev/clip-that/releases/latest.json`, and
+  managed clients read `https://github.com/XtraSaltyDev/clip-that/releases/latest-mac.yml`. These are
   reachable without an application credential only from a network path that can reach
   GitHub Releases. A recipient browser must also trust GitHub.s private TLS CA; unmanaged Macs need
   that CA installed and trusted once before the link is frictionless. The package remains
   protected by its Developer ID signature and notarization; the manifest records immutable
-  URLs, SHA-256 digests, source commit, and Apple Team ID. The app checks this manifest
-  against its bundled public GitHub Releases CA and offers the validated immutable DMG in Library and
-  Settings. The browser must still trust that CA for the download itself. This remains a
-  browser handoff, not an automatic installer.
+  URLs, digests, source commit, and Apple Team ID. ClipThat verifies the narrowly scoped
+  GitHub Releases certificate chain, downloads a signed update only after the user asks, and offers
+  an explicit restart. The immutable DMG remains the manual recovery path.
+
+  A manual DMG install does not seed electron-updater's previous `update.zip`. The first
+  updater-managed upgrade is therefore a full ZIP download; later consecutive upgrades
+  can use ZIP blockmaps. Before shipping the bootstrap release, prove this with an installed
+  RC chain: RC1 → RC2 must log the expected full fallback, then RC2 → RC3 must log a
+  differential transfer smaller than the full ZIP.
 - If a machine's permission state gets wedged (capture returns nothing while the toggle
   shows on): `RESET_TCC=1 npm run install:mac`, then re-grant. `killall replayd` clears a
   wedged capture daemon.
@@ -145,10 +154,10 @@ end-to-end checklist below on real hardware.
 ## Versioning
 
 Bump `version` in `package.json` and `package-lock.json`; the artifact names and the About panel follow it.
-No automatic installation is wired: `publish: null`. The in-app update control checks the
-fixed internal GitHub Releases manifest and opens its validated, immutable DMG in the default browser;
-macOS still handles download, installation, and Gatekeeper verification. Adding a background
-installer such as `electron-updater` remains deliberate work, not flipping a flag.
+The in-app control checks the fixed generic GitHub Releases feed, downloads only after explicit user
+action, reports progress, and restarts only after explicit confirmation. Installation is
+blocked while a recording is active or an editor window is open. The legacy JSON/DMG path
+stays published so older clients and managed-update failures have a manual recovery route.
 
 ## Cleaning generated artifacts
 
@@ -157,7 +166,8 @@ npm run clean:artifacts
 ```
 
 This removes `out/`, test caches, expanded packaging directories, builder scratch data,
-block maps, and delivery files from older versions. It keeps the current version's DMG,
-ZIP, installer/archive files, and checksum manifests. It never removes `node_modules`,
+and delivery files older than the direct previous version. It keeps the current and
+directly previous DMG, ZIP, blockmap, installer/archive and checksum files plus current
+updater metadata. It never removes `node_modules`,
 source files, the installed application, or application data. Use
 `node scripts/clean-artifacts.mjs --dry-run` to preview the exact paths first.

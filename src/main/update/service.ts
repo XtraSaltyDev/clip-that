@@ -1,13 +1,21 @@
 import { app, shell } from 'electron'
+import { EventEmitter } from 'node:events'
 import { get as httpsGet } from 'node:https'
-import type { AppUpdateDownloadResult, AppUpdateStatus } from '@shared/types'
+import electronUpdater from 'electron-updater'
+import type { UpdateInfo } from 'electron-updater'
+import type {
+  AppUpdateDownloadResult,
+  AppUpdateInstallResult,
+  AppUpdateStatus
+} from '@shared/types'
 import {
   UPDATE_MANIFEST_URL,
+  compareSemanticVersions,
   parseUpdateManifest,
-  statusForUpdateRelease,
   type ValidatedUpdateRelease
 } from './contract'
-import { UPDATE_CA_CERTIFICATE } from './trust'
+import { InvalidUpdateMetadataError, validateMacUpdateMetadata } from './metadata'
+import { UPDATE_CA_CERTIFICATE, installUpdateCertificateTrust } from './trust'
 
 const MAX_MANIFEST_BYTES = 64 * 1024
 const CHECK_TIMEOUT_MS = 5_000
@@ -17,39 +25,240 @@ const FAILURE_CACHE_MS = 60 * 1_000
 class InvalidUpdateResponse extends Error {}
 class UpdateNetworkError extends Error {}
 
-interface CheckResult {
-  status: AppUpdateStatus
-  release?: ValidatedUpdateRelease
-}
+const { autoUpdater } = electronUpdater
+const events = new EventEmitter()
 
-let cached: { checkedAt: number; result: CheckResult } | null = null
-let inFlight: Promise<CheckResult> | null = null
+let initialized = false
+let checkedAtMs = 0
+let inFlight: Promise<AppUpdateStatus> | null = null
+let downloadInFlight: Promise<AppUpdateDownloadResult> | null = null
+let availableInfo: UpdateInfo | null = null
+let status: AppUpdateStatus | null = null
 
 function supported(): boolean {
   return app.isPackaged && process.platform === 'darwin' && process.arch === 'arm64'
 }
 
+function currentVersion(): string {
+  return app.getVersion()
+}
+
+function setStatus(next: AppUpdateStatus): AppUpdateStatus {
+  status = next
+  events.emit('status', next)
+  return next
+}
+
+function unavailableReason(error: unknown): 'network' | 'trust' | 'invalid-response' {
+  if (error instanceof InvalidUpdateResponse || error instanceof InvalidUpdateMetadataError) {
+    return 'invalid-response'
+  }
+  const message = (error as Error).message ?? ''
+  if (/cert|certificate|err_ssl|self.signed|unable to verify|expired/i.test(message)) return 'trust'
+  if (/yaml|sha512|update metadata|latest-mac|zip file not provided|invalid/i.test(message)) {
+    return 'invalid-response'
+  }
+  return 'network'
+}
+
+function unavailable(error: unknown): AppUpdateStatus {
+  const reason = unavailableReason(error)
+  console.warn(`[updates] check failed (${reason}):`, (error as Error).message)
+  return setStatus({
+    state: 'unavailable',
+    currentVersion: currentVersion(),
+    reason,
+    checkedAt: new Date().toISOString()
+  })
+}
+
+function statusForInfo(info: UpdateInfo, isAvailable: boolean): AppUpdateStatus {
+  const checkedAt = new Date().toISOString()
+  const validated = validateMacUpdateMetadata(info)
+  return isAvailable
+    ? {
+        state: 'available',
+        currentVersion: currentVersion(),
+        latestVersion: validated.version,
+        publishedAt: validated.publishedAt,
+        size: validated.size,
+        checkedAt
+      }
+    : {
+        state: 'current',
+        currentVersion: currentVersion(),
+        latestVersion: validated.version,
+        checkedAt
+      }
+}
+
+export function initializeAppUpdates(): void {
+  if (initialized || !supported()) return
+  initialized = true
+  installUpdateCertificateTrust(autoUpdater.netSession)
+  autoUpdater.autoDownload = false
+  autoUpdater.autoInstallOnAppQuit = false
+  autoUpdater.allowDowngrade = false
+  autoUpdater.allowPrerelease = currentVersion().includes('-')
+  autoUpdater.logger = {
+    info: (message?: unknown) => console.log('[updates]', message),
+    warn: (message?: unknown) => console.warn('[updates]', message),
+    error: (message?: unknown) => console.error('[updates]', message)
+  }
+
+  autoUpdater.on('update-available', (info) => {
+    try {
+      availableInfo = info
+      checkedAtMs = Date.now()
+      setStatus(statusForInfo(info, true))
+    } catch (error) {
+      availableInfo = null
+      unavailable(error)
+    }
+  })
+  autoUpdater.on('update-not-available', (info) => {
+    try {
+      availableInfo = null
+      checkedAtMs = Date.now()
+      setStatus(statusForInfo(info, false))
+    } catch (error) {
+      unavailable(error)
+    }
+  })
+  autoUpdater.on('download-progress', (progress) => {
+    const latestVersion = availableInfo?.version
+    if (!latestVersion) return
+    setStatus({
+      state: 'downloading',
+      currentVersion: currentVersion(),
+      latestVersion,
+      percent: Math.max(0, Math.min(100, progress.percent)),
+      transferred: Math.max(0, progress.transferred),
+      total: Math.max(0, progress.total),
+      bytesPerSecond: Math.max(0, progress.bytesPerSecond)
+    })
+  })
+  autoUpdater.on('update-downloaded', (info) => {
+    setStatus({
+      state: 'ready',
+      currentVersion: currentVersion(),
+      latestVersion: info.version,
+      downloadedAt: new Date().toISOString()
+    })
+  })
+  autoUpdater.on('error', (error) => {
+    if (status?.state === 'ready') return
+    unavailable(error)
+  })
+}
+
+export function onAppUpdateStatus(listener: (next: AppUpdateStatus) => void): () => void {
+  events.on('status', listener)
+  return () => events.off('status', listener)
+}
+
+function cacheIsFresh(): boolean {
+  if (!status || checkedAtMs === 0) return false
+  const ttl = status.state === 'unavailable' ? FAILURE_CACHE_MS : SUCCESS_CACHE_MS
+  return Date.now() - checkedAtMs < ttl
+}
+
+export async function checkForAppUpdate(force = false): Promise<AppUpdateStatus> {
+  if (!supported()) return { state: 'unsupported', currentVersion: currentVersion() }
+  initializeAppUpdates()
+  if (status?.state === 'downloading' || status?.state === 'ready') return status
+  if (!force && cacheIsFresh() && status) return status
+  if (inFlight) return inFlight
+
+  inFlight = (async () => {
+    try {
+      const result = await autoUpdater.checkForUpdates()
+      if (!result) throw new UpdateNetworkError('the updater is inactive')
+      const isAvailable = compareSemanticVersions(result.updateInfo.version, currentVersion()) > 0
+      availableInfo = isAvailable ? result.updateInfo : null
+      checkedAtMs = Date.now()
+      return setStatus(statusForInfo(result.updateInfo, isAvailable))
+    } catch (error) {
+      availableInfo = null
+      checkedAtMs = Date.now()
+      return unavailable(error)
+    }
+  })()
+
+  try {
+    return await inFlight
+  } finally {
+    inFlight = null
+  }
+}
+
+export async function downloadAppUpdate(): Promise<AppUpdateDownloadResult> {
+  if (!supported()) {
+    return { ok: false, error: 'Internal updates support macOS on Apple silicon.' }
+  }
+  initializeAppUpdates()
+  if (status?.state === 'ready') return { ok: true, state: 'ready' }
+  if (downloadInFlight) return downloadInFlight
+
+  downloadInFlight = (async () => {
+    const checked =
+      status?.state === 'available' && cacheIsFresh() ? status : await checkForAppUpdate(true)
+    if (checked.state !== 'available' || !availableInfo) {
+      return {
+        ok: false,
+        error:
+          checked.state === 'unavailable'
+            ? 'The public update channel is unavailable. Connect to VPN and try again.'
+            : 'No newer ClipThat release is available.'
+      }
+    }
+
+    try {
+      setStatus({
+        state: 'downloading',
+        currentVersion: currentVersion(),
+        latestVersion: checked.latestVersion,
+        percent: 0,
+        transferred: 0,
+        total: checked.size,
+        bytesPerSecond: 0
+      })
+      await autoUpdater.downloadUpdate()
+      return { ok: true, state: 'ready' }
+    } catch (error) {
+      unavailable(error)
+      return { ok: false, error: `The update could not be downloaded: ${(error as Error).message}` }
+    }
+  })()
+
+  try {
+    return await downloadInFlight
+  } finally {
+    downloadInFlight = null
+  }
+}
+
+export function installAppUpdate(): AppUpdateInstallResult {
+  if (!supported()) {
+    return { ok: false, error: 'Internal updates support macOS on Apple silicon.' }
+  }
+  if (status?.state !== 'ready') return { ok: false, error: 'No downloaded update is ready.' }
+  console.log(`[updates] installing ClipThat ${status.latestVersion} on explicit user request`)
+  autoUpdater.quitAndInstall(false, true)
+  return { ok: true }
+}
+
+/* Legacy DMG fallback retained so 0.1.5 remains recoverable if managed updating fails. */
 function fetchManifestBody(): Promise<string> {
   return new Promise((resolve, reject) => {
     let settled = false
     let deadline: NodeJS.Timeout | null = null
-    const clearDeadline = (): void => {
+    const finish = (error?: Error, body?: string): void => {
+      if (settled) return
+      settled = true
       if (deadline) clearTimeout(deadline)
-      deadline = null
+      error ? reject(error) : resolve(body ?? '')
     }
-    const rejectOnce = (error: Error): void => {
-      if (settled) return
-      settled = true
-      clearDeadline()
-      reject(error)
-    }
-    const resolveOnce = (body: string): void => {
-      if (settled) return
-      settled = true
-      clearDeadline()
-      resolve(body)
-    }
-
     const request = httpsGet(
       UPDATE_MANIFEST_URL,
       {
@@ -60,45 +269,26 @@ function fetchManifestBody(): Promise<string> {
         rejectUnauthorized: true
       },
       (response) => {
-        response.on('error', (error) => rejectOnce(new UpdateNetworkError(error.message)))
-
+        response.on('error', (error) => finish(new UpdateNetworkError(error.message)))
         if (response.statusCode !== 200 || response.headers.location) {
-          rejectOnce(
-            new InvalidUpdateResponse('manifest response did not come from the expected URL')
-          )
+          finish(new InvalidUpdateResponse('manifest response did not come from the expected URL'))
           response.destroy()
           request.destroy()
           return
         }
         const contentType = response.headers['content-type']?.toLowerCase() ?? ''
         if (!contentType.startsWith('application/json')) {
-          rejectOnce(new InvalidUpdateResponse('manifest response is not JSON'))
+          finish(new InvalidUpdateResponse('manifest response is not JSON'))
           response.destroy()
           request.destroy()
           return
         }
-
-        const declaredLength = response.headers['content-length']
-        if (declaredLength !== undefined) {
-          const bytes = Number(declaredLength)
-          if (!Number.isSafeInteger(bytes) || bytes <= 0 || bytes > MAX_MANIFEST_BYTES) {
-            rejectOnce(
-              new InvalidUpdateResponse('manifest body is outside the supported size')
-            )
-            response.destroy()
-            request.destroy()
-            return
-          }
-        }
-
         const chunks: Buffer[] = []
         let total = 0
         response.on('data', (chunk: Buffer) => {
           total += chunk.byteLength
           if (total > MAX_MANIFEST_BYTES) {
-            rejectOnce(
-              new InvalidUpdateResponse('manifest body is outside the supported size')
-            )
+            finish(new InvalidUpdateResponse('manifest body is outside the supported size'))
             response.destroy()
             request.destroy()
             return
@@ -106,41 +296,34 @@ function fetchManifestBody(): Promise<string> {
           chunks.push(chunk)
         })
         response.on('end', () => {
-          if (settled) return
-          if (!response.complete) {
-            rejectOnce(new UpdateNetworkError('manifest response ended early'))
-            return
-          }
-          if (total === 0) {
-            rejectOnce(new InvalidUpdateResponse('manifest response has no body'))
+          if (!response.complete || total === 0) {
+            finish(new UpdateNetworkError('manifest response ended early'))
             return
           }
           try {
-            const body = new TextDecoder('utf-8', { fatal: true }).decode(Buffer.concat(chunks))
-            resolveOnce(body)
+            finish(undefined, new TextDecoder('utf-8', { fatal: true }).decode(Buffer.concat(chunks)))
           } catch {
-            rejectOnce(new InvalidUpdateResponse('manifest response is not valid UTF-8'))
+            finish(new InvalidUpdateResponse('manifest response is not valid UTF-8'))
           }
         })
       }
     )
-    deadline = setTimeout(() => {
-      request.destroy(new UpdateNetworkError('manifest request timed out'))
-    }, CHECK_TIMEOUT_MS)
+    deadline = setTimeout(
+      () => request.destroy(new UpdateNetworkError('manifest request timed out')),
+      CHECK_TIMEOUT_MS
+    )
     request.on('error', (error) =>
-      rejectOnce(
-        error instanceof UpdateNetworkError ? error : new UpdateNetworkError(error.message)
-      )
+      finish(error instanceof UpdateNetworkError ? error : new UpdateNetworkError(error.message))
     )
   })
 }
 
-async function fetchRelease(): Promise<ValidatedUpdateRelease> {
-  const body = await fetchManifestBody()
+async function fetchLegacyRelease(): Promise<ValidatedUpdateRelease> {
   let value: unknown
   try {
-    value = JSON.parse(body)
-  } catch {
+    value = JSON.parse(await fetchManifestBody())
+  } catch (error) {
+    if (error instanceof InvalidUpdateResponse || error instanceof UpdateNetworkError) throw error
     throw new InvalidUpdateResponse('manifest response is not valid JSON')
   }
   try {
@@ -150,74 +333,18 @@ async function fetchRelease(): Promise<ValidatedUpdateRelease> {
   }
 }
 
-function unavailableReason(error: unknown): 'network' | 'trust' | 'invalid-response' {
-  if (error instanceof InvalidUpdateResponse) return 'invalid-response'
-  const message = (error as Error).message ?? ''
-  return /cert|certificate|err_ssl|self.signed|unable to verify|expired/i.test(message)
-    ? 'trust'
-    : 'network'
-}
-
-async function performCheck(): Promise<CheckResult> {
-  const currentVersion = app.getVersion()
-  const checkedAt = new Date().toISOString()
-  try {
-    const release = await fetchRelease()
-    const status = statusForUpdateRelease(currentVersion, release, checkedAt)
-    return { status, release }
-  } catch (error) {
-    const reason = unavailableReason(error)
-    console.warn(`[updates] check failed (${reason}):`, (error as Error).message)
-    return {
-      status: { state: 'unavailable', currentVersion, reason, checkedAt }
-    }
-  }
-}
-
-function cacheIsFresh(entry: NonNullable<typeof cached>): boolean {
-  const ttl = entry.result.status.state === 'unavailable' ? FAILURE_CACHE_MS : SUCCESS_CACHE_MS
-  return Date.now() - entry.checkedAt < ttl
-}
-
-async function loadCheck(force: boolean): Promise<CheckResult> {
-  if (!force && cached && cacheIsFresh(cached)) return cached.result
-  if (inFlight) return inFlight
-
-  inFlight = performCheck()
-  try {
-    const result = await inFlight
-    cached = { checkedAt: Date.now(), result }
-    return result
-  } finally {
-    inFlight = null
-  }
-}
-
-export async function checkForAppUpdate(force = false): Promise<AppUpdateStatus> {
-  const currentVersion = app.getVersion()
-  if (!supported()) return { state: 'unsupported', currentVersion }
-  return (await loadCheck(force)).status
-}
-
-export async function openAppUpdateDownload(): Promise<AppUpdateDownloadResult> {
+export async function openManualAppUpdateDownload(): Promise<AppUpdateDownloadResult> {
   if (!supported()) {
     return { ok: false, error: 'Internal updates support macOS on Apple silicon.' }
   }
-
-  const result = await loadCheck(false)
-  if (result.status.state !== 'available' || !result.release) {
-    const error =
-      result.status.state === 'unavailable'
-        ? 'The public update channel is unavailable. Connect to VPN and try again.'
-        : 'No newer ClipThat release is available.'
-    return { ok: false, error }
-  }
-
   try {
-    await shell.openExternal(result.release.downloadUrl)
-    return { ok: true }
+    const release = await fetchLegacyRelease()
+    if (compareSemanticVersions(release.version, currentVersion()) <= 0) {
+      return { ok: false, error: 'No newer ClipThat release is available.' }
+    }
+    await shell.openExternal(release.downloadUrl)
+    return { ok: true, state: 'browser' }
   } catch (error) {
-    console.warn('[updates] could not open download:', (error as Error).message)
-    return { ok: false, error: 'The update download could not be opened.' }
+    return { ok: false, error: `The manual DMG could not be opened: ${(error as Error).message}` }
   }
 }

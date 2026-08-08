@@ -16,7 +16,12 @@ import { promises as fs } from 'node:fs'
 import { library } from '../store/library'
 import { recording } from '../recording/session'
 import { ffmpegPath } from '../recording/ffmpeg'
-import { closeHudWindow, showHudWindow, getSingleton } from '../windows/manager'
+import {
+  closeHudWindow,
+  createEditorWindow,
+  showHudWindow,
+  getSingleton
+} from '../windows/manager'
 import { captureDisplay } from '../capture/backend'
 import {
   cancelScrollCapture,
@@ -72,13 +77,101 @@ function probeDuration(file: string): Promise<number | null> {
   })
 }
 
+function helperPath(): string {
+  return app.isPackaged
+    ? join(process.resourcesPath, 'build', 'clipthat-window-info')
+    : join(app.getAppPath(), 'build', 'clipthat-window-info')
+}
+
+function moveCursor(x: number, y: number): Promise<void> {
+  return new Promise((resolve, reject) => {
+    execFile(helperPath(), ['--move-cursor', String(Math.round(x)), String(Math.round(y))], (error) =>
+      error ? reject(error) : resolve()
+    )
+  })
+}
+
+function ffmpegBytes(args: string[]): Promise<Buffer> {
+  const bin = ffmpegPath()
+  if (!bin) return Promise.reject(new Error('ffmpeg is unavailable'))
+  return new Promise((resolve, reject) => {
+    execFile(bin, args, { encoding: 'buffer', maxBuffer: 32 * 1024 * 1024 }, (error, stdout) =>
+      error ? reject(error) : resolve(stdout as Buffer)
+    )
+  })
+}
+
+async function analyzeTemporalBands(file: string): Promise<{ ok: boolean; detail: string }> {
+  const width = 64
+  const height = 36
+  const frameBytes = width * height * 3
+  const bytes = await ffmpegBytes([
+    '-v', 'error', '-i', file,
+    '-vf', `fps=10,scale=${width}:${height}:flags=neighbor`,
+    '-pix_fmt', 'rgb24', '-f', 'rawvideo', 'pipe:1'
+  ])
+  const frames = Math.floor(bytes.length / frameBytes)
+  let compared = 0
+  let mismatches = 0
+  const bandScore = (offset: number, fromY: number, toY: number): number => {
+    let score = 0
+    let pixels = 0
+    for (let y = fromY; y < toY; y += 1) {
+      for (let x = 4; x < width - 4; x += 1) {
+        const index = offset + (y * width + x) * 3
+        score += bytes[index] - bytes[index + 2]
+        pixels += 1
+      }
+    }
+    return score / pixels
+  }
+  for (let frame = 0; frame < frames; frame += 1) {
+    const offset = frame * frameBytes
+    const center = bandScore(offset, 15, 21)
+    const bottom = bandScore(offset, 31, 35)
+    // Ignore the few blended frames at each red/blue source transition.
+    if (Math.abs(center) < 45 || Math.abs(bottom) < 45) continue
+    compared += 1
+    if (Math.sign(center) !== Math.sign(bottom)) mismatches += 1
+  }
+  return {
+    ok: frames >= 80 && compared >= 40 && mismatches === 0,
+    detail: `${frames} decoded frames, ${compared} strong comparisons, ${mismatches} bottom-band mismatches`
+  }
+}
+
+const RECORDING_SENTINEL = `<!doctype html><meta charset="utf-8"><title>ClipThat Recording Sentinel</title>
+<style>
+  html,body { width:100%; height:100%; margin:0; overflow:hidden; }
+  body { background:#f01818; color:#fff; font:700 44px ui-monospace,monospace; }
+  body.blue { background:#1828f0; }
+  main { position:absolute; inset:0; display:grid; place-items:center; }
+  footer { position:absolute; left:0; right:0; bottom:0; height:15%; border-top:12px solid #fff; display:grid; place-items:center; }
+</style><main>AUTO-ZOOM PIXEL SENTINEL</main><footer>BOTTOM BAND</footer>
+<script>setInterval(() => document.body.classList.toggle('blue'), 500)</script>`
+
+async function createRecordingSentinel(): Promise<BrowserWindow> {
+  const display = screen.getPrimaryDisplay()
+  const win = createEditorWindow()
+  await win.loadURL(`data:text/html;charset=utf-8,${encodeURIComponent(RECORDING_SENTINEL)}`)
+  win.setTitle('ClipThat Recording Sentinel')
+  win.setBounds({
+    x: display.workArea.x + 24,
+    y: display.workArea.y + 24,
+    width: Math.max(900, display.workArea.width - 48),
+    height: Math.max(650, display.workArea.height - 48)
+  })
+  win.show()
+  return win
+}
+
 /* ------------------------------------------------------------------ *
  * Recording
  * ------------------------------------------------------------------ */
 
 async function testRecording(
   format: 'MP4' | 'GIF',
-  variant: { autoZoom?: boolean } = {}
+  variant: { autoZoom?: boolean; sentinel?: BrowserWindow } = {}
 ): Promise<boolean> {
   const label = variant.autoZoom ? `${format}+zoom` : format
   log(`recording/${label}: starting`)
@@ -103,6 +196,32 @@ async function testRecording(
     return true
   })()`)
   await wait(200)
+
+  if (variant.sentinel) {
+    if (!(await clickButton(hud, 'Window'))) {
+      fail(`recording/${label}: Window target button not found`)
+      return false
+    }
+    await wait(300)
+    const selected = await hud.webContents.executeJavaScript(`(() => {
+      const select = [...document.querySelectorAll('select')].find((element) =>
+        [...element.options].some((option) => option.textContent.includes('Recording Sentinel'))
+      )
+      const option = select && [...select.options].find((item) =>
+        item.textContent.includes('Recording Sentinel')
+      )
+      if (!select || !option) return false
+      const setter = Object.getOwnPropertyDescriptor(window.HTMLSelectElement.prototype, 'value').set
+      setter.call(select, option.value)
+      select.dispatchEvent(new Event('change', { bubbles: true }))
+      return true
+    })()`)
+    if (!selected) {
+      fail(`recording/${label}: sentinel window was not offered as a recording source`)
+      return false
+    }
+    await wait(300)
+  }
 
   if (variant.autoZoom) {
     const toggled = await hud.webContents.executeJavaScript(`(() => {
@@ -134,8 +253,24 @@ async function testRecording(
     fail(`recording/${label}: main state=${recording.status().state}; hud shows: ${dom}`)
     return false
   }
-  log(`recording/${label}: capturing 4s of the primary display`)
-  await wait(4000)
+  const captureMs = variant.sentinel ? 16_000 : 4_000
+  log(`recording/${label}: capturing ${captureMs / 1000}s`)
+  if (variant.sentinel) {
+    const bounds = variant.sentinel.getContentBounds()
+    const points = [
+      [0.5, 0.5], [0.1, 0.88], [0.9, 0.88], [0.12, 0.12], [0.88, 0.12], [0.5, 0.92]
+    ]
+    const started = Date.now()
+    let index = 0
+    while (Date.now() - started < captureMs) {
+      const [x, y] = points[index % points.length]
+      await moveCursor(bounds.x + bounds.width * x, bounds.y + bounds.height * y)
+      index += 1
+      await wait(1800)
+    }
+  } else {
+    await wait(captureMs)
+  }
 
   // Stop through the same path the global hotkey uses.
   recording.markStopping()
@@ -156,6 +291,12 @@ async function testRecording(
     ))
   ) {
     return false
+  }
+
+  let rawEvidence: string | null = null
+  if (variant.sentinel && recording.rawFile()) {
+    rawEvidence = join(app.getPath('userData'), 'logs', 'selftest-autozoom-raw.webm')
+    await fs.copyFile(recording.rawFile()!, rawEvidence)
   }
 
   if (format === 'GIF') {
@@ -205,9 +346,43 @@ async function testRecording(
     ok = false
   }
 
-  await library.remove([item.id])
-  if (ok) log(`recording/${label}: PASS (artifact deleted)`)
+  if (variant.sentinel && rawEvidence) {
+    try {
+      const [rawPixels, deliveryPixels] = await Promise.all([
+        analyzeTemporalBands(rawEvidence),
+        analyzeTemporalBands(item.filePath)
+      ])
+      log(`recording/${label}: raw pixels — ${rawPixels.detail}`)
+      log(`recording/${label}: MP4 pixels — ${deliveryPixels.detail}`)
+      if (!rawPixels.ok || !deliveryPixels.ok) {
+        fail(`recording/${label}: temporal bottom-band validation failed; evidence retained`)
+        log(`recording/${label}: raw evidence → ${rawEvidence}`)
+        log(`recording/${label}: delivery evidence → ${item.filePath}`)
+        ok = false
+      }
+    } catch (error) {
+      fail(`recording/${label}: pixel analysis failed — ${(error as Error).message}`)
+      ok = false
+    }
+  }
+
+  if (ok) {
+    await library.remove([item.id])
+    if (rawEvidence) await fs.rm(rawEvidence, { force: true })
+    log(`recording/${label}: PASS (artifacts deleted)`)
+  }
   return ok
+}
+
+async function testAutoZoomPixels(): Promise<boolean> {
+  const originalCursor = screen.getCursorScreenPoint()
+  const sentinel = await createRecordingSentinel()
+  try {
+    return await testRecording('MP4', { autoZoom: true, sentinel })
+  } finally {
+    await moveCursor(originalCursor.x, originalCursor.y).catch(() => {})
+    if (!sentinel.isDestroyed()) sentinel.destroy()
+  }
 }
 
 /* ------------------------------------------------------------------ *
@@ -637,7 +812,7 @@ export async function runSelfTest(which: string): Promise<void> {
       await wait(1500)
     }
     if (parts.includes('zoom') || parts.includes('all')) {
-      results.push(['recording/zoom', await testRecording('MP4', { autoZoom: true })])
+      results.push(['recording/zoom', await testAutoZoomPixels()])
     }
   } catch (err) {
     fail(`unhandled: ${(err as Error).stack ?? err}`)

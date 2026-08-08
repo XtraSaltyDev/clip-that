@@ -76,7 +76,20 @@ function isLibraryItem(value: unknown): value is LibraryItem {
     (item.projectPath === undefined || typeof item.projectPath === 'string') &&
     (item.ocrText === undefined || typeof item.ocrText === 'string') &&
     (item.durationMs === undefined ||
-      (typeof item.durationMs === 'number' && Number.isFinite(item.durationMs)))
+      (typeof item.durationMs === 'number' && Number.isFinite(item.durationMs))) &&
+    (item.videoEdit === undefined || isVideoEditDraft(item.videoEdit))
+  )
+}
+
+function isVideoEditDraft(value: unknown): boolean {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return false
+  const draft = value as Record<string, unknown>
+  return (
+    typeof draft.startMs === 'number' && Number.isFinite(draft.startMs) && draft.startMs >= 0 &&
+    typeof draft.endMs === 'number' && Number.isFinite(draft.endMs) && draft.endMs > draft.startMs &&
+    (draft.format === 'mp4' || draft.format === 'webm') &&
+    (draft.quality === 'medium' || draft.quality === 'high') &&
+    typeof draft.updatedAt === 'number' && Number.isFinite(draft.updatedAt)
   )
 }
 

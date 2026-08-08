@@ -44,7 +44,8 @@ function parseTime(value: string): number {
 function runFfmpeg(
   args: string[],
   totalMs: number,
-  onProgress?: (p: FfmpegProgress) => void
+  onProgress?: (p: FfmpegProgress) => void,
+  signal?: AbortSignal
 ): Promise<void> {
   const bin = ffmpegPath()
   if (!bin) return Promise.reject(new Error('ffmpeg is unavailable'))
@@ -52,6 +53,20 @@ function runFfmpeg(
   return new Promise((resolve, reject) => {
     const child = spawn(bin, args, { windowsHide: true })
     let stderr = ''
+    let settled = false
+    let cancelled = signal?.aborted ?? false
+    const finish = (error?: Error) => {
+      if (settled) return
+      settled = true
+      signal?.removeEventListener('abort', abort)
+      error ? reject(error) : resolve()
+    }
+    const abort = () => {
+      cancelled = true
+      child.kill('SIGTERM')
+    }
+    if (cancelled) child.kill('SIGTERM')
+    else signal?.addEventListener('abort', abort, { once: true })
 
     child.stderr.on('data', (chunk: Buffer) => {
       const text = chunk.toString()
@@ -67,12 +82,19 @@ function runFfmpeg(
       }
     })
 
-    child.on('error', reject)
+    child.on('error', (error) => finish(error))
     child.on('close', (code) => {
-      if (code === 0) resolve()
-      else reject(new Error(`ffmpeg exited with ${code}\n${stderr.slice(-1500)}`))
+      if (cancelled) finish(new FfmpegCancelledError())
+      else if (code === 0) finish()
+      else finish(new Error(`ffmpeg exited with ${code}\n${stderr.slice(-1500)}`))
     })
   })
+}
+
+export class FfmpegCancelledError extends Error {
+  constructor() {
+    super('Video export was cancelled')
+  }
 }
 
 const CRF: Record<VideoExportOptions['quality'], string> = {
@@ -179,7 +201,8 @@ export async function toMp4(
   output: string,
   opts: VideoExportOptions,
   totalMs: number,
-  onProgress?: (p: FfmpegProgress) => void
+  onProgress?: (p: FfmpegProgress) => void,
+  signal?: AbortSignal
 ): Promise<string> {
   const filters = ['format=yuv420p']
   const scale = scaleFilter(opts.maxWidth)
@@ -208,10 +231,11 @@ export async function toMp4(
   for (const encoder of hardwareH264Candidates(opts.quality)) {
     if (!available.has(encoder.name) || failedHardwareEncoders.has(encoder.name)) continue
     try {
-      await runFfmpeg([...beforeCodec, ...encoder.args, ...afterCodec], totalMs, onProgress)
+      await runFfmpeg([...beforeCodec, ...encoder.args, ...afterCodec], totalMs, onProgress, signal)
       console.log(`[ffmpeg] MP4 encoded with ${encoder.name}`)
       return output
     } catch (err) {
+      if (err instanceof FfmpegCancelledError) throw err
       failedHardwareEncoders.add(encoder.name)
       console.warn(`[ffmpeg] ${encoder.name} unavailable; falling back`, (err as Error).message)
     }
@@ -226,7 +250,8 @@ export async function toMp4(
       ...afterCodec
     ],
     totalMs,
-    onProgress
+    onProgress,
+    signal
   )
   return output
 }
@@ -237,7 +262,8 @@ export async function toGif(
   output: string,
   opts: VideoExportOptions,
   totalMs: number,
-  onProgress?: (p: FfmpegProgress) => void
+  onProgress?: (p: FfmpegProgress) => void,
+  signal?: AbortSignal
 ): Promise<string> {
   const fps = opts.fps ?? 15
   const scale = scaleFilter(opts.maxWidth ?? 900) ?? 'scale=iw:ih'
@@ -255,7 +281,8 @@ export async function toGif(
         palette
       ],
       totalMs,
-      onProgress
+      onProgress,
+      signal
     )
 
     await runFfmpeg(
@@ -273,7 +300,8 @@ export async function toGif(
         output
       ],
       totalMs,
-      onProgress
+      onProgress,
+      signal
     )
     return output
   } finally {
@@ -287,7 +315,8 @@ export async function toWebm(
   output: string,
   opts: VideoExportOptions,
   totalMs: number,
-  onProgress?: (p: FfmpegProgress) => void
+  onProgress?: (p: FfmpegProgress) => void,
+  signal?: AbortSignal
 ): Promise<string> {
   const needsReencode = Boolean(opts.maxWidth || opts.fps)
   const args = needsReencode
@@ -309,7 +338,7 @@ export async function toWebm(
         output
       ]
     : ['-y', ...trimArgs(opts), '-i', input, '-c', 'copy', output]
-  await runFfmpeg(args, totalMs, onProgress)
+  await runFfmpeg(args, totalMs, onProgress, signal)
   return output
 }
 

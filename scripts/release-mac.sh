@@ -50,7 +50,9 @@ npx electron-builder --mac --arm64 --publish never -c.forceCodeSigning=true
 
 dmg="dist/ClipThat-$VERSION-arm64.dmg"
 zip="dist/ClipThat-$VERSION-arm64-mac.zip"
-for artifact in "$dmg" "$zip"; do
+zip_blockmap="$zip.blockmap"
+latest_macos="dist/latest-mac.yml"
+for artifact in "$dmg" "$zip" "$zip_blockmap"; do
   if [ ! -f "$artifact" ]; then
     echo "Missing macOS release artifact: $artifact" >&2
     exit 1
@@ -78,13 +80,24 @@ echo "Notarizing delivery image: $dmg"
 xcrun notarytool submit "$dmg" "${notary_args[@]}" --wait
 xcrun stapler staple "$dmg"
 
+# The DMG is signed after electron-builder creates its metadata. Regenerate the
+# channel file from the unchanged, signed-app ZIP so no stale DMG digest is published.
+node scripts/prepare-mac-update.mjs create \
+  --version "$VERSION" \
+  --archive "$zip" \
+  --blockmap "$zip_blockmap" \
+  --metadata "$latest_macos" \
+  --published-at "$(date -u +%Y-%m-%dT%H:%M:%S.000Z)"
+
 bash scripts/verify-mac-release.sh
 
 (
   cd dist
   shasum -a 256 \
     "ClipThat-$VERSION-arm64.dmg" \
-    "ClipThat-$VERSION-arm64-mac.zip"
+    "ClipThat-$VERSION-arm64-mac.zip" \
+    "ClipThat-$VERSION-arm64-mac.zip.blockmap" \
+    latest-mac.yml
 ) > "dist/ClipThat-$VERSION-SHA256SUMS.txt"
 
 echo "Wrote dist/ClipThat-$VERSION-SHA256SUMS.txt"

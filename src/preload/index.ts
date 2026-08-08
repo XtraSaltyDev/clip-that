@@ -2,6 +2,7 @@ import { contextBridge, ipcRenderer } from 'electron'
 import { IPC } from '@shared/ipc'
 import type {
   AppUpdateDownloadResult,
+  AppUpdateInstallResult,
   AppUpdateStatus,
   CaptureEditorVisibility,
   CaptureOverlayUpdate,
@@ -118,6 +119,8 @@ const api = {
       posterDataUrl?: string
     ): Promise<LibraryItem> =>
       ipcRenderer.invoke(IPC.libraryExportVideo, id, options, posterDataUrl),
+    cancelVideoExport: (): Promise<boolean> =>
+      ipcRenderer.invoke(IPC.libraryCancelVideoExport),
     health: (): Promise<LibraryHealth> => ipcRenderer.invoke(IPC.libraryHealth),
     onChanged: (handler: () => void) => on(IPC.libraryChanged, handler),
     onIssue: (handler: (health: LibraryHealth) => void) => on(IPC.libraryIssue, handler),
@@ -205,6 +208,12 @@ const api = {
       ipcRenderer.invoke(IPC.updateCheck, force),
     downloadUpdate: (): Promise<AppUpdateDownloadResult> =>
       ipcRenderer.invoke(IPC.updateDownload),
+    openManualUpdate: (): Promise<AppUpdateDownloadResult> =>
+      ipcRenderer.invoke(IPC.updateManualDownload),
+    installUpdate: (): Promise<AppUpdateInstallResult> =>
+      ipcRenderer.invoke(IPC.updateInstall),
+    onUpdateStatus: (handler: (status: AppUpdateStatus) => void) =>
+      on(IPC.updateStatus, handler),
     window: (action: 'minimize' | 'maximize' | 'close' | 'library' | 'settings' | 'record') =>
       ipcRenderer.send(IPC.windowControl, action),
     toast: (toast: Toast) => ipcRenderer.send(IPC.toast, toast),

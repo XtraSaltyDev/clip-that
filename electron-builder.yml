@@ -90,4 +90,9 @@ linux:
       Name: ClipThat
       Categories: Graphics;Utility;
 
-publish: null
+publish:
+  - provider: generic
+    url: https://github.com/XtraSaltyDev/clip-that/releases
+    # GitHub.supports normal byte ranges. Separate requests are easier to audit and
+    # avoid multipart-range proxy differences on the private channel.
+    useMultipleRangeRequest: false

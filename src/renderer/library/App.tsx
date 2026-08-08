@@ -74,8 +74,12 @@ export default function App(): React.ReactElement {
     }).catch(() => {
       // Update discovery is intentionally quiet when GitHub Releases is unavailable off VPN.
     })
+    const unsubscribe = api.system.onUpdateStatus((status) => {
+      if (active) setUpdate(status)
+    })
     return () => {
       active = false
+      unsubscribe()
     }
   }, [])
 
@@ -85,21 +89,22 @@ export default function App(): React.ReactElement {
     try {
       const result = await api.system.downloadUpdate()
       if (result.ok) {
-        toast(
-          'success',
-          'Update download opened',
-          `ClipThat ${update.latestVersion} will download in your default browser.`
-        )
+        toast('success', 'Update ready', `ClipThat ${update.latestVersion} can now restart.`)
       } else {
-        toast('error', 'Could not open the update download', result.error)
+        toast('error', 'Could not download the update', result.error)
         setUpdate(await api.system.checkForUpdate(true))
       }
     } catch (error) {
-      toast('error', 'Could not open the update download', (error as Error).message)
+      toast('error', 'Could not download the update', (error as Error).message)
     } finally {
       setOpeningUpdate(false)
     }
   }, [openingUpdate, update])
+
+  const installUpdate = useCallback(async () => {
+    const result = await api.system.installUpdate()
+    if (!result.ok) toast('error', 'ClipThat could not restart', result.error)
+  }, [])
 
   const active = useMemo(
     () => (selected.length === 1 ? items.find((i) => i.id === selected[0]) : null),
@@ -109,6 +114,10 @@ export default function App(): React.ReactElement {
   // Captures arrive constantly, so a flat wall of thumbnails stops being navigable fast.
   // Day buckets give the library the shape of a timeline.
   const groups = useMemo(() => groupByDay(items), [items])
+  const actionableUpdate =
+    update?.state === 'available' || update?.state === 'downloading' || update?.state === 'ready'
+      ? update
+      : null
 
   const remove = useCallback(async () => {
     if (selected.length === 0) return
@@ -249,17 +258,38 @@ export default function App(): React.ReactElement {
           <button className="btn" onClick={() => api.system.window('record')}>
             <Icon name="record" size={11} /> Record
           </button>
-          {update?.state === 'available' && (
+          {actionableUpdate && (
             <button
               className="btn ghost icon tip focus-ring lib-update"
-              data-tip={`Download ClipThat ${update.latestVersion}`}
-              title={`Download ClipThat ${update.latestVersion}`}
-              aria-label={`Download ClipThat ${update.latestVersion}`}
-              aria-busy={openingUpdate}
-              disabled={openingUpdate}
-              onClick={() => void downloadUpdate()}
+              data-tip={
+                actionableUpdate.state === 'ready'
+                  ? `Restart to install ClipThat ${actionableUpdate.latestVersion}`
+                  : actionableUpdate.state === 'downloading'
+                    ? `Downloading ClipThat ${actionableUpdate.latestVersion}: ${Math.round(actionableUpdate.percent)}%`
+                    : `Download ClipThat ${actionableUpdate.latestVersion}`
+              }
+              title={
+                actionableUpdate.state === 'ready'
+                  ? `Restart to install ClipThat ${actionableUpdate.latestVersion}`
+                  : `Download ClipThat ${actionableUpdate.latestVersion}`
+              }
+              aria-label={
+                actionableUpdate.state === 'ready'
+                  ? `Restart to install ClipThat ${actionableUpdate.latestVersion}`
+                  : `Download ClipThat ${actionableUpdate.latestVersion}`
+              }
+              aria-busy={openingUpdate || actionableUpdate.state === 'downloading'}
+              disabled={openingUpdate || actionableUpdate.state === 'downloading'}
+              onClick={() =>
+                void (actionableUpdate.state === 'ready' ? installUpdate() : downloadUpdate())
+              }
             >
-              <Icon name="update" className={openingUpdate ? 'spin' : undefined} />
+              <Icon
+                name={actionableUpdate.state === 'ready' ? 'refresh' : 'update'}
+                className={
+                  openingUpdate || actionableUpdate.state === 'downloading' ? 'spin' : undefined
+                }
+              />
             </button>
           )}
           <button
