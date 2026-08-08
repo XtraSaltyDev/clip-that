@@ -8,6 +8,7 @@ import type {
   ScrollCaptureConfig
 } from '@shared/types'
 import { formatFilename } from '@shared/defaults'
+import { IPC } from '@shared/ipc'
 import { settings } from '../store/settings'
 import { library } from '../store/library'
 import { copyImageToClipboard, loadProjectFile, saveImage } from '../export'
@@ -212,7 +213,7 @@ function appendScrollPng(session: ScrollSession, png: Buffer): boolean {
   if (session.retainedBytes + png.length > 512 * 1024 * 1024) return false
   session.frames.push(png)
   session.retainedBytes += png.length
-  broadcast('scroll:frame-count', session.frames.length)
+  broadcast(IPC.captureScrollFrameCount, session.frames.length)
   return true
 }
 

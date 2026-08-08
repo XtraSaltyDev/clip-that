@@ -4,6 +4,7 @@ import type { CaptureEditorVisibility, CaptureOverlayUpdate, DisplaySnapshot, Re
 import { loadEntry, preloadPath } from './urls'
 import { beginOverlaySnapshots, snapshotAllDisplays } from '../capture/backend'
 import { broadcast, editorWindows, hideAppWindows } from './manager'
+import { registerRendererWindow } from '../ipc/sender'
 
 const IS_MAC = process.platform === 'darwin'
 
@@ -103,6 +104,10 @@ function windowPickerBackdrop(display: Electron.Display): DisplaySnapshot {
 
 export function isOverlayOpen(): boolean {
   return pending !== null
+}
+
+export function isPendingOverlayWindow(win: BrowserWindow | null): boolean {
+  return Boolean(win && pending?.windows.includes(win))
 }
 
 /**
@@ -241,12 +246,13 @@ function makeOverlayWindow(): BrowserWindow {
     title: 'ClipThat Capture',
     webPreferences: {
       preload: preloadPath(),
-      sandbox: false,
+      sandbox: true,
       contextIsolation: true,
       nodeIntegration: false,
       backgroundThrottling: false
     }
   })
+  registerRendererWindow(win, 'overlay')
   win.setAlwaysOnTop(true, 'screen-saver')
   win.setVisibleOnAllWorkspaces(true, { visibleOnFullScreen: true })
   loadEntry(win, 'overlay')
@@ -352,7 +358,7 @@ export async function openOverlay(mode: OverlayMode): Promise<OverlaySelection |
     await poolReady.get(win)
     if (generation !== openingGeneration) return
     win.setBounds(display.bounds)
-    win.webContents.send('overlay:init', {
+    win.webContents.send(IPC.captureOverlayInit, {
       mode,
       snapshot: snap,
       displayCount: screen.getAllDisplays().length,

@@ -1,4 +1,4 @@
-import { app, BrowserWindow, ipcMain, screen, shell } from 'electron'
+import { app, BrowserWindow, screen, shell } from 'electron'
 import { dialog } from 'electron'
 import { IPC } from '@shared/ipc'
 import type {
@@ -11,7 +11,6 @@ import type {
   Settings,
   VideoExportOptions
 } from '@shared/types'
-import { logFilePath } from '../log'
 import { createPin } from '../windows/pins'
 import { quickCache } from '../windows/quick'
 import { openResultInEditor } from '../capture/service'
@@ -35,7 +34,7 @@ import {
   switchEditorToLibraryItem,
   takePendingDocument
 } from '../capture/service'
-import { closeOverlay, setOverlayEditorsVisible, type OverlaySelection } from '../windows/overlay'
+import { closeOverlay, isPendingOverlayWindow, setOverlayEditorsVisible } from '../windows/overlay'
 import { listWindows, windowPreview } from '../capture/backend'
 import { listDisplays } from '../capture/displays'
 import {
@@ -43,6 +42,10 @@ import {
   closeHudWindow,
   editorWindows,
   getSingleton,
+  markEditorCloseReady,
+  resolveEditorClose,
+  resizeWindow,
+  dockHud,
   showHudWindow,
   showLibraryWindow,
   showSettingsWindow
@@ -63,7 +66,9 @@ import { ffmpegAvailable } from '../recording/ffmpeg'
 import { checkPermissions, openScreenRecordingSettings, requestPermission } from '../permissions'
 import { registerHotkeys, hotkeyFailures } from '../hotkeys'
 import { refreshTray, syncTrayVisibility, installAppMenu } from '../tray'
+import { exportDiagnostics } from '../diagnostics/export'
 import * as validate from './validation'
+import { rendererRole, secureHandle, secureOn } from './sender'
 import {
   initialLibraryOpenAction,
   libraryOpenActionFromResponse,
@@ -81,7 +86,7 @@ function startCursorFeed(): void {
       stopCursorFeed()
       return
     }
-    hud.webContents.send('record:cursor', screen.getCursorScreenPoint())
+    hud.webContents.send(IPC.recordCursor, screen.getCursorScreenPoint())
   }, 33)
 }
 
@@ -93,30 +98,41 @@ function stopCursorFeed(): void {
 export function registerIpcHandlers(): void {
   /* ---------------- capture ---------------- */
 
-  ipcMain.handle(IPC.captureStart, async (_e, req: CaptureRequest) =>
+  secureHandle(IPC.captureStart, ['editor', 'library', 'settings'], async (_e, req: CaptureRequest) =>
     performCapture(validate.captureRequest(req))
   )
 
-  ipcMain.handle(IPC.captureDisplays, () => listDisplays())
-  ipcMain.handle(IPC.captureWindows, () => listWindows())
-  ipcMain.handle(IPC.captureWindowPreview, (_e, windowId: string) =>
+  secureHandle(IPC.captureDisplays, ['hud'], () => listDisplays())
+  secureHandle(IPC.captureWindows, ['overlay'], () => listWindows())
+  secureHandle(IPC.captureWindowPreview, ['overlay'], (_e, windowId: string) =>
     windowPreview(validate.idValue(windowId, 'window id'))
   )
 
   // Overlay renderers report their result here.
-  ipcMain.on(IPC.captureRegionResult, (_e, selection: OverlaySelection) => {
-    closeOverlay(selection)
+  secureOn(IPC.captureRegionResult, ['overlay'], (e, selection: unknown) => {
+    const win = BrowserWindow.fromWebContents(e.sender)
+    if (!isPendingOverlayWindow(win)) throw new Error('overlay is not active')
+    closeOverlay(validate.overlaySelection(selection))
   })
-  ipcMain.on(IPC.captureCancel, () => {
-    closeOverlay(null)
-    if (scrollCaptureActive()) cancelScrollCapture()
+  secureOn(IPC.captureCancel, ['overlay', 'hud'], (e) => {
+    const role = rendererRole(e)
+    const roleWindow = BrowserWindow.fromWebContents(e.sender)
+    if (role === 'overlay') {
+      if (!isPendingOverlayWindow(roleWindow)) throw new Error('overlay is not active')
+      closeOverlay(null)
+      return
+    }
+    if (!scrollCaptureActive()) throw new Error('no scrolling capture is active')
+    cancelScrollCapture()
   })
-  ipcMain.handle(IPC.captureEditorVisibility, (e, visible: unknown) => {
-    if (typeof visible !== 'boolean') throw new Error('editor visibility must be a boolean')
-    return setOverlayEditorsVisible(BrowserWindow.fromWebContents(e.sender), visible)
+  secureHandle(IPC.captureEditorVisibility, ['overlay'], (e, visible: unknown) => {
+    return setOverlayEditorsVisible(
+      BrowserWindow.fromWebContents(e.sender),
+      validate.booleanValue(visible, 'editor visibility')
+    )
   })
 
-  ipcMain.handle(IPC.captureClipboard, () => {
+  secureHandle(IPC.captureClipboard, ['editor'], () => {
     const image = readImageFromClipboard()
     if (!image) return null
     const result = {
@@ -133,23 +149,23 @@ export function registerIpcHandlers(): void {
     return result
   })
 
-  ipcMain.handle(IPC.captureScrollConfig, (e) => {
+  secureHandle(IPC.captureScrollConfig, ['hud'], (e) => {
     const hud = getSingleton('hud')
     if (!hud || hud.webContents.id !== e.sender.id) return null
     return scrollCaptureConfig()
   })
-  ipcMain.on(IPC.captureScrollFrame, (e, bytes: Uint8Array) => {
+  secureOn(IPC.captureScrollFrame, ['hud'], (e, bytes: unknown) => {
     const hud = getSingleton('hud')
     if (!hud || hud.webContents.id !== e.sender.id) return
-    appendScrollFrameBytes(bytes)
+    appendScrollFrameBytes(validate.byteArray(bytes, 'scroll frame', 64 * 1024 * 1024))
   })
-  ipcMain.on(IPC.captureScrollFallback, (e, reason: string) => {
+  secureOn(IPC.captureScrollFallback, ['hud'], (e, reason: unknown) => {
     const hud = getSingleton('hud')
     if (!hud || hud.webContents.id !== e.sender.id) return
-    startScrollFallback(typeof reason === 'string' ? reason.slice(0, 240) : 'live stream unavailable')
+    startScrollFallback(validate.recordingFailure(reason).slice(0, 240))
   })
 
-  ipcMain.handle(IPC.captureScrollStitch, async () => {
+  secureHandle(IPC.captureScrollStitch, ['hud'], async () => {
     const result = await finishScrollCapture()
     closeHudWindow()
     if (!result) return null
@@ -159,43 +175,47 @@ export function registerIpcHandlers(): void {
 
   /* ---------------- editor ---------------- */
 
-  ipcMain.handle(IPC.editorLoad, (e) => takePendingDocument(e.sender.id))
-  ipcMain.on(IPC.editorClose, (e) => {
+  secureHandle(IPC.editorLoad, ['editor'], (e) => takePendingDocument(e.sender.id))
+  secureOn(IPC.editorClose, ['editor'], (e) => {
     releasePendingDocument(e.sender.id)
     BrowserWindow.fromWebContents(e.sender)?.close()
   })
-  ipcMain.handle(IPC.editorOpen, (_e, doc: ClipDocument) => {
+  secureHandle(IPC.editorConfirmClose, ['editor'], (e, allow: unknown) =>
+    resolveEditorClose(e.sender.id, validate.booleanValue(allow, 'allow editor close'))
+  )
+  secureHandle(IPC.editorCloseReady, ['editor'], (e) => markEditorCloseReady(e.sender.id))
+  secureHandle(IPC.editorOpen, ['editor'], (_e, doc: ClipDocument) => {
     openInEditor(validate.clipDocument(doc))
     return true
   })
-  ipcMain.handle(IPC.editorSwitchLibraryItem, (e, id: string) =>
+  secureHandle(IPC.editorSwitchLibraryItem, ['editor'], (e, id: string) =>
     switchEditorToLibraryItem(e.sender.id, validate.idValue(id))
   )
 
   /* ---------------- export ---------------- */
 
-  ipcMain.handle(IPC.saveImage, async (_e, req: SaveImageRequest) =>
+  secureHandle(IPC.saveImage, ['editor'], async (_e, req: SaveImageRequest) =>
     saveImage(validate.saveImageRequest(req))
   )
-  ipcMain.handle(IPC.copyImage, (_e, dataUrl: string) =>
+  secureHandle(IPC.copyImage, ['editor', 'library'], (_e, dataUrl: string) =>
     copyImageToClipboard(validate.imageDataUrl(dataUrl))
   )
-  ipcMain.handle(IPC.exportPdf, async (_e, dataUrl: string, name?: string) =>
+  secureHandle(IPC.exportPdf, ['editor'], async (_e, dataUrl: string, name?: string) =>
     exportPdf(validate.imageDataUrl(dataUrl), name === undefined ? undefined : validate.idValue(name, 'PDF name'))
   )
-  ipcMain.handle(IPC.saveProject, async (_e, doc: ClipDocument, saveAs = true) =>
-    saveProject(validate.clipDocument(doc), Boolean(saveAs))
+  secureHandle(IPC.saveProject, ['editor'], async (_e, doc: ClipDocument, saveAs: unknown = true) =>
+    saveProject(validate.clipDocument(doc), validate.booleanValue(saveAs, 'save as'))
   )
-  ipcMain.handle(IPC.openProject, async () => openProjectDialog())
-  ipcMain.handle(IPC.startDrag, async (e, dataUrl: string, name: string) => {
+  secureHandle(IPC.openProject, ['editor'], async () => openProjectDialog())
+  secureHandle(IPC.startDrag, ['editor'], async (e, dataUrl: string, name: string) => {
     await startDrag(e, validate.imageDataUrl(dataUrl), validate.idValue(name, 'drag name'))
   })
-  ipcMain.handle(IPC.revealFile, (_e, filePath: string) => {
+  secureHandle(IPC.revealFile, ['library'], (_e, filePath: string) => {
     const path = validate.pathValue(filePath)
     if (!library.ownsPath(path)) throw new TypeError('file is not in the library')
     revealFile(path)
   })
-  ipcMain.handle(IPC.openFile, async (_e, filePath: string) => {
+  secureHandle(IPC.openFile, ['library'], async (_e, filePath: string) => {
     const path = validate.pathValue(filePath)
     if (!library.ownsPath(path)) throw new TypeError('file is not in the library')
     return openFile(path)
@@ -203,12 +223,14 @@ export function registerIpcHandlers(): void {
 
   /* ---------------- library ---------------- */
 
-  ipcMain.handle(IPC.libraryList, (_e, query: LibraryQuery) =>
+  secureHandle(IPC.libraryList, ['editor', 'library'], (_e, query: LibraryQuery) =>
     library.list(validate.libraryQuery(query))
   )
-  ipcMain.handle(IPC.libraryTags, () => library.allTags())
-  ipcMain.handle(
+  secureHandle(IPC.libraryTags, ['library'], () => library.allTags())
+  secureHandle(IPC.libraryHealth, ['editor', 'library'], () => library.health())
+  secureHandle(
     IPC.libraryAdd,
+    ['editor'],
     async (
       _e,
       payload: {
@@ -234,17 +256,17 @@ export function registerIpcHandlers(): void {
       return library.addImage(safePayload)
     }
   )
-  ipcMain.handle(IPC.libraryUpdate, (_e, id: string, patch: Partial<LibraryItem>) =>
+  secureHandle(IPC.libraryUpdate, ['library'], (_e, id: string, patch: Partial<LibraryItem>) =>
     library.update(validate.idValue(id), validate.libraryPatch(patch))
   )
-  ipcMain.handle(IPC.libraryDelete, async (_e, ids: string[]) => {
+  secureHandle(IPC.libraryDelete, ['library'], async (_e, ids: string[]) => {
     await library.remove(validate.idList(ids))
     return true
   })
-  ipcMain.handle(IPC.libraryLoadProject, async (_e, id: string) =>
+  secureHandle(IPC.libraryLoadProject, ['library'], async (_e, id: string) =>
     library.loadProject(validate.idValue(id))
   )
-  ipcMain.handle(IPC.libraryOpen, async (e, id: string) => {
+  secureHandle(IPC.libraryOpen, ['editor', 'library'], async (e, id: string) => {
     const item = library.get(validate.idValue(id))
     if (!item) return false
     if (item.kind === 'video') {
@@ -292,7 +314,7 @@ export function registerIpcHandlers(): void {
 
   /* ---------------- recording ---------------- */
 
-  ipcMain.handle(IPC.recordSources, async () => {
+  secureHandle(IPC.recordSources, ['hud'], async () => {
     // The setup screen gives this lookup time to finish before Start is pressed, without
     // competing with unrelated screenshot work at application launch.
     await recording.prewarmDisplaySources()
@@ -306,58 +328,88 @@ export function registerIpcHandlers(): void {
     }
   })
 
-  ipcMain.handle(IPC.recordConfigure, (_e, options: RecordingOptions) =>
+  secureHandle(IPC.recordConfigure, ['hud'], (_e, options: RecordingOptions) =>
     recording.configure(validate.recordingOptions(options))
   )
 
-  ipcMain.handle(IPC.recordStart, (_e, options: RecordingOptions) => {
+  secureHandle(IPC.recordStart, ['hud'], async (_e, options: RecordingOptions) => {
     const safeOptions = validate.recordingOptions(options)
-    recording.beginCountdown(safeOptions)
-    const hud = showHudWindow()
-    hud.webContents.send(IPC.recordHudCommand, { command: 'start', options: safeOptions })
+    await recording.beginCountdown(safeOptions)
+    showHudWindow()
     return recording.status()
   })
 
-  ipcMain.on('record:started', () => {
-    recording.markStarted()
+  secureHandle(IPC.recordStarted, ['hud'], async () => {
+    await recording.markStarted()
     if (recording.status().options?.autoZoom) startCursorFeed()
     refreshTray()
-  })
-
-  ipcMain.handle(IPC.recordPause, () => {
-    recording.pause()
-    getSingleton('hud')?.webContents.send(IPC.recordHudCommand, { command: 'pause' })
     return recording.status()
   })
 
-  ipcMain.handle(IPC.recordResume, () => {
-    recording.resume()
-    getSingleton('hud')?.webContents.send(IPC.recordHudCommand, { command: 'resume' })
+  secureHandle(IPC.recordPause, ['hud'], async () => {
+    await recording.pause()
     return recording.status()
   })
 
-  ipcMain.handle(IPC.recordStop, () => {
+  secureHandle(IPC.recordResume, ['hud'], async () => {
+    await recording.resume()
+    return recording.status()
+  })
+
+  secureHandle(IPC.recordStop, ['hud'], () => {
     stopCursorFeed()
     recording.markStopping()
-    getSingleton('hud')?.webContents.send(IPC.recordHudCommand, { command: 'stop' })
     return recording.status()
   })
 
-  ipcMain.handle(IPC.recordCancel, async () => {
+  secureHandle(IPC.recordCancel, ['hud'], async () => {
     stopCursorFeed()
-    getSingleton('hud')?.webContents.send(IPC.recordHudCommand, { command: 'cancel' })
     await recording.discard()
-    closeHudWindow()
     refreshTray()
     return recording.status()
   })
 
-  ipcMain.handle(IPC.recordSaveBlob, async (_e, bytes: Uint8Array) =>
-    recording.saveRaw(validate.recordingBytes(bytes))
+  secureHandle(
+    IPC.recordAppendChunk,
+    ['hud'],
+    async (
+      _e,
+      sessionId: string,
+      sequence: number,
+      bytes: Uint8Array,
+      mimeType: string
+    ) => {
+      await recording.appendChunk(
+        validate.idValue(sessionId, 'recording session id'),
+        validate.recordingSequence(sequence),
+        validate.recordingChunkBytes(bytes),
+        validate.recordingMimeType(mimeType)
+      )
+    }
   )
 
-  ipcMain.handle(
+  secureHandle(IPC.recordFinalize, ['hud'], async (_e, meta: unknown) =>
+    recording.finalize(validate.recordingFinalizeMeta(meta))
+  )
+
+  secureHandle(IPC.recordPreserveFailure, ['hud'], async (_e, message: unknown) =>
+    recording.preserveFailure(validate.recordingFailure(message))
+  )
+
+  secureHandle(IPC.recordRecoveries, ['hud'], () => recording.recoveries())
+
+  secureHandle(IPC.recordRecover, ['hud'], async (_e, id: unknown) =>
+    recording.recover(validate.idValue(id, 'recording recovery id'))
+  )
+
+  secureHandle(IPC.recordDiscardRecovery, ['hud'], async (_e, id: unknown) => {
+    await recording.discardRecovery(validate.idValue(id, 'recording recovery id'))
+    return recording.recoveries()
+  })
+
+  secureHandle(
     IPC.recordExport,
+    ['hud'],
     async (
       e,
       opts: VideoExportOptions,
@@ -368,8 +420,8 @@ export function registerIpcHandlers(): void {
           validate.videoExportOptions(opts),
           validate.recordingMeta(meta),
           (percent) => {
-          e.sender.send(IPC.recordProgress, { percent })
-          broadcast(IPC.recordProgress, { percent })
+            e.sender.send(IPC.recordProgress, { percent })
+            broadcast(IPC.recordProgress, { percent })
           }
         )
         closeHudWindow()
@@ -384,12 +436,11 @@ export function registerIpcHandlers(): void {
         }
         return item
       } catch (err) {
-        await recording.discard()
-        closeHudWindow()
+        await recording.preserveFailure((err as Error).message)
         refreshTray()
         broadcast(IPC.toast, {
           kind: 'error',
-          message: 'Could not encode the recording',
+          message: 'Could not encode the recording — the raw video was preserved',
           detail: (err as Error).message
         })
         return null
@@ -397,19 +448,20 @@ export function registerIpcHandlers(): void {
     }
   )
 
-  ipcMain.handle(IPC.recordStatus, () => recording.status())
+  secureHandle(IPC.recordStatus, ['hud'], () => recording.status())
 
   /* ---------------- settings ---------------- */
 
-  ipcMain.handle(IPC.settingsGet, () => ({
+  secureHandle(IPC.settingsGet, ['editor', 'library', 'settings', 'hud'], () => ({
     settings: settings.get(),
     hotkeyFailures: hotkeyFailures(),
     platform: process.platform,
     version: app.getVersion()
   }))
 
-  ipcMain.handle(IPC.settingsSet, (_e, patch: Partial<Settings>) => {
+  secureHandle(IPC.settingsSet, ['settings'], (_e, unsafePatch: Partial<Settings>) => {
     const before = settings.get()
+    const patch = validate.settingsPatch(unsafePatch, before)
     const next = settings.set(patch)
     if (patch.hotkeys) {
       registerHotkeys()
@@ -430,7 +482,7 @@ export function registerIpcHandlers(): void {
     return next
   })
 
-  ipcMain.handle(IPC.settingsReset, () => {
+  secureHandle(IPC.settingsReset, ['settings'], () => {
     const next = settings.reset()
     registerHotkeys()
     installAppMenu()
@@ -439,7 +491,7 @@ export function registerIpcHandlers(): void {
     return next
   })
 
-  ipcMain.handle(IPC.settingsPickDirectory, async () => {
+  secureHandle(IPC.settingsPickDirectory, ['settings'], async () => {
     const res = await dialog.showOpenDialog({
       title: 'Choose where captures are saved',
       properties: ['openDirectory', 'createDirectory'],
@@ -451,8 +503,9 @@ export function registerIpcHandlers(): void {
 
   /* ---------------- system ---------------- */
 
-  ipcMain.handle(IPC.permissionsCheck, () => checkPermissions())
-  ipcMain.handle(IPC.permissionsRequest, async (_e, kind: 'microphone' | 'camera' | 'screen') => {
+  secureHandle(IPC.permissionsCheck, ['settings'], () => checkPermissions())
+  secureHandle(IPC.permissionsRequest, ['settings'], async (_e, unsafeKind: unknown) => {
+    const kind = validate.permissionKind(unsafeKind)
     if (kind === 'screen') {
       await openScreenRecordingSettings()
       return false
@@ -460,26 +513,41 @@ export function registerIpcHandlers(): void {
     return requestPermission(kind)
   })
 
-  ipcMain.handle(IPC.openExternal, async (_e, url: string) => {
-    if (!/^https?:\/\//i.test(url)) return false
+  secureHandle(IPC.openExternal, ['editor'], async (_e, unsafeUrl: unknown) => {
+    const url = validate.externalUrl(unsafeUrl)
     await shell.openExternal(url)
     return true
   })
 
-  ipcMain.handle(IPC.appInfo, () => ({
+  secureHandle(IPC.appInfo, ['settings'], () => ({
     version: app.getVersion(),
     electron: process.versions.electron,
     chrome: process.versions.chrome,
     node: process.versions.node,
     platform: process.platform,
     arch: process.arch,
-    userData: app.getPath('userData'),
-    log: logFilePath()
+    packaged: String(app.isPackaged)
   }))
+  secureHandle(IPC.exportDiagnostics, ['settings'], (e) =>
+    exportDiagnostics(BrowserWindow.fromWebContents(e.sender))
+  )
 
-  ipcMain.on(
+  secureOn(
     IPC.windowControl,
-    (e, action: 'minimize' | 'maximize' | 'close' | 'library' | 'settings' | 'record') => {
+    ['editor', 'library', 'settings', 'quick', 'pin'],
+    (e, unsafeAction: unknown) => {
+      const action = validate.windowAction(unsafeAction)
+      const role = rendererRole(e)
+      const allowedActions = {
+        editor: ['minimize', 'maximize', 'close', 'library', 'settings', 'record'],
+        library: ['minimize', 'maximize', 'close', 'settings', 'record'],
+        settings: ['minimize', 'maximize', 'close', 'record'],
+        quick: ['close'],
+        pin: ['close']
+      } as const
+      if (!role || !(allowedActions[role as keyof typeof allowedActions] as readonly string[] | undefined)?.includes(action)) {
+        throw new Error(`window action ${action} is not allowed for ${role ?? 'unknown'} renderer`)
+      }
       const win = BrowserWindow.fromWebContents(e.sender)
       switch (action) {
         case 'minimize':
@@ -505,15 +573,19 @@ export function registerIpcHandlers(): void {
     }
   )
 
-  ipcMain.on(IPC.toast, (_e, toast) => broadcast(IPC.toast, toast))
+  secureOn(IPC.toast, ['editor', 'library', 'settings', 'hud'], (_e, toast) =>
+    broadcast(IPC.toast, validate.toastValue(toast))
+  )
 
   /* ---------------- pins & quick access ---------------- */
 
-  ipcMain.handle(IPC.pinCreate, (_e, dataUrl: string, scaleFactor = 1) =>
+  secureHandle(IPC.pinCreate, ['editor'], (_e, dataUrl: string, scaleFactor = 1) =>
     Boolean(createPin(validate.imageDataUrl(dataUrl), { scaleFactor: validate.scaleFactorValue(scaleFactor) }))
   )
 
-  ipcMain.handle(IPC.quickAction, async (_e, id: string, action: string) => {
+  secureHandle(IPC.quickAction, ['quick'], async (_e, unsafeId: unknown, unsafeAction: unknown) => {
+    const id = validate.idValue(unsafeId, 'quick capture id')
+    const action = validate.quickAction(unsafeAction)
     const entry = quickCache().get(id)
     if (!entry) return { ok: false, error: 'capture expired' }
     const { result, libraryId } = entry
@@ -535,20 +607,41 @@ export function registerIpcHandlers(): void {
       case 'edit':
         openResultInEditor(result, libraryId)
         return { ok: true }
-      default:
-        return { ok: false, error: `unknown action ${action}` }
     }
   })
 
-  ipcMain.handle('quick:drag', async (e, id: string) => {
+  secureHandle(IPC.quickDrag, ['quick'], async (e, unsafeId: unknown) => {
+    const id = validate.idValue(unsafeId, 'quick capture id')
     const entry = quickCache().get(id)
     if (!entry) return
     const name = entry.result.title || formatFilename(settings.get().filenameTemplate)
     await startDrag(e, entry.result.dataUrl, name)
   })
 
-  ipcMain.handle(IPC.quit, () => app.quit())
+  secureHandle(IPC.quit, ['settings'], () => app.quit())
+
+  secureOn(IPC.hudResize, ['hud'], (e, width: unknown, height: unknown) => {
+    resizeWindow(
+      BrowserWindow.fromWebContents(e.sender),
+      validate.numberValue(width, 'HUD width', 240, 2_000),
+      validate.numberValue(height, 'HUD height', 60, 2_000)
+    )
+  })
+  secureOn(IPC.hudDock, ['hud'], (_e, width: unknown, height: unknown) => {
+    dockHud(
+      validate.numberValue(width, 'HUD width', 240, 2_000),
+      validate.numberValue(height, 'HUD height', 60, 2_000)
+    )
+  })
+  secureOn(IPC.hudClose, ['hud'], () => {
+    if (recording.status().state === 'idle') {
+      closeHudWindow()
+      return
+    }
+    void recording.discard().finally(closeHudWindow)
+  })
 
   library.on('changed', () => broadcast(IPC.libraryChanged))
+  library.on('issue', (health) => broadcast(IPC.libraryIssue, health))
   recording.on('status', (status) => broadcast(IPC.recordStatus, status))
 }

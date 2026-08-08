@@ -601,6 +601,7 @@ function prettify(accelerator: string): string {
 
 function About({ version, platform }: { version: string; platform: string }): React.ReactElement {
   const [info, setInfo] = useState<Record<string, string> | null>(null)
+  const [exporting, setExporting] = useState(false)
   useEffect(() => {
     void api.system.info().then(setInfo)
   }, [])
@@ -615,6 +616,7 @@ function About({ version, platform }: { version: string; platform: string }): Re
         <div>
           <div style={{ fontSize: 17, fontWeight: 600 }}>ClipThat {version}</div>
           <div className="muted">Screen capture, annotation and recording.</div>
+          <div className="tiny muted">Supported release: macOS on Apple silicon.</div>
         </div>
       </div>
 
@@ -627,6 +629,25 @@ function About({ version, platform }: { version: string; platform: string }): Re
               </div>
             ))}
         </div>
+      </Group>
+
+      <Group
+        title="Support diagnostics"
+        hint="Creates a local JSON report with versions, permission state, shortcut conflicts, display geometry and redacted logs. Captures, settings and the Library index are excluded. Redaction is best-effort; review the file before sharing."
+      >
+        <button
+          className="btn"
+          disabled={exporting}
+          onClick={() => {
+            setExporting(true)
+            void api.system.exportDiagnostics().then((result) => {
+              if (result.ok) toast('success', 'Diagnostics exported', result.filePath)
+              else if (!result.canceled) toast('error', 'Diagnostics export failed', result.error)
+            }).finally(() => setExporting(false))
+          }}
+        >
+          <Icon name="download" size={14} /> {exporting ? 'Exporting…' : 'Export diagnostics…'}
+        </button>
       </Group>
 
       <Group title="Keyboard reference" hint="Inside the editor">

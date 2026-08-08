@@ -1,10 +1,10 @@
 import { EventEmitter } from 'node:events'
-import { promises as fs } from 'node:fs'
 import { join } from 'node:path'
 import { randomUUID } from 'node:crypto'
 import { desktopCapturer, session as electronSession } from 'electron'
 import type {
   LibraryItem,
+  RecoverableRecording,
   RecordingOptions,
   RecordingState,
   RecordingStatus,
@@ -13,8 +13,9 @@ import type {
 import { formatFilename } from '@shared/defaults'
 import { settings } from '../store/settings'
 import { library } from '../store/library'
-import { recordingsDir, tempDir } from '../store/paths'
+import { recordingSessionsDir, recordingsDir } from '../store/paths'
 import { toGif, toMp4, toWebm } from './ffmpeg'
+import { RecordingRecoveryStore } from './recovery-store'
 
 const IS_WIN = process.platform === 'win32'
 const IS_LINUX = process.platform === 'linux'
@@ -26,6 +27,8 @@ class RecordingSession extends EventEmitter {
   private accumulatedMs = 0
   private ticker: NodeJS.Timeout | null = null
   private rawPath: string | null = null
+  private sessionId: string | null = null
+  private recoveryStore: RecordingRecoveryStore | null = null
   private displayOverride: string | null = null
   private screenSources: Electron.DesktopCapturerSource[] = []
   private screenSourcesAt = 0
@@ -35,7 +38,8 @@ class RecordingSession extends EventEmitter {
     return {
       state: this.state,
       elapsedMs: this.elapsed(),
-      options: this.options ?? undefined
+      options: this.options ?? undefined,
+      sessionId: this.sessionId ?? undefined
     }
   }
 
@@ -175,31 +179,51 @@ class RecordingSession extends EventEmitter {
     return this.options
   }
 
-  beginCountdown(options: RecordingOptions): void {
+  async initializeRecovery(): Promise<void> {
+    const store = new RecordingRecoveryStore(recordingSessionsDir())
+    await store.initialize()
+    this.recoveryStore = store
+  }
+
+  recoveries(): RecoverableRecording[] {
+    return this.store().list()
+  }
+
+  ownsRawPath(filePath: string): boolean {
+    return this.recoveryStore?.ownsRawPath(filePath) ?? false
+  }
+
+  async beginCountdown(options: RecordingOptions): Promise<void> {
     if (this.state !== 'idle') throw new Error('A recording is already active')
-    this.configure(options)
+    const configured = this.configure(options)
     this.accumulatedMs = 0
+    const recovery = await this.store().create(configured)
+    this.sessionId = recovery.id
+    this.rawPath = recovery.rawPath
     this.setState('countdown')
   }
 
-  markStarted(): void {
+  async markStarted(): Promise<void> {
     if (this.state !== 'countdown') return
     this.startedAt = Date.now()
     this.accumulatedMs = 0
     this.setState('recording')
+    await this.checkpoint({ state: 'recording' })
     this.ticker = setInterval(() => this.emit('status', this.status()), 500)
   }
 
-  pause(): void {
+  async pause(): Promise<void> {
     if (this.state !== 'recording') return
     this.accumulatedMs += Date.now() - this.startedAt
     this.setState('paused')
+    await this.checkpoint({ durationMs: Math.max(1, this.accumulatedMs) })
   }
 
-  resume(): void {
+  async resume(): Promise<void> {
     if (this.state !== 'paused') return
     this.startedAt = Date.now()
     this.setState('recording')
+    await this.checkpoint({ state: 'recording' })
   }
 
   markStopping(): void {
@@ -219,16 +243,72 @@ class RecordingSession extends EventEmitter {
     }
     this.accumulatedMs = 0
     this.rawPath = null
+    this.sessionId = null
+    this.options = null
     this.setState('idle')
   }
 
-  /** Persist the raw WebM the renderer's MediaRecorder produced. */
-  async saveRaw(bytes: Uint8Array): Promise<string> {
-    if (this.state !== 'encoding') throw new Error('No recording is ready to save')
-    const path = join(tempDir(), `recording-${randomUUID()}.webm`)
-    await fs.writeFile(path, Buffer.from(bytes))
-    this.rawPath = path
-    return path
+  /** Append one MediaRecorder timeslice to the main-process-owned raw file. */
+  async appendChunk(
+    sessionId: string,
+    sequence: number,
+    bytes: Uint8Array,
+    mimeType: string
+  ): Promise<void> {
+    if (sessionId !== this.sessionId) throw new Error('Recording session is no longer active')
+    if (!['countdown', 'recording', 'paused', 'encoding'].includes(this.state)) {
+      throw new Error('Recording is not accepting video data')
+    }
+    await this.store().append(sessionId, sequence, bytes, mimeType, Math.max(1, this.elapsed()))
+  }
+
+  /** Flush the append queue and make the durable raw file available for review/export. */
+  async finalize(meta: {
+    width: number
+    height: number
+    mimeType: string
+  }): Promise<RecoverableRecording> {
+    if (this.state !== 'encoding' || !this.sessionId) {
+      throw new Error('No recording is ready to finalize')
+    }
+    const recovery = await this.store().update(this.sessionId, {
+      state: 'ready',
+      width: meta.width,
+      height: meta.height,
+      durationMs: Math.max(1, this.accumulatedMs),
+      mimeType: meta.mimeType
+    })
+    if (recovery.byteSize === 0) throw new Error('The recording did not produce any video data')
+    this.rawPath = recovery.rawPath
+    return recovery
+  }
+
+  async preserveFailure(message: string): Promise<RecoverableRecording | null> {
+    if (!this.sessionId) return null
+    if (this.state === 'recording' || this.state === 'paused') this.markStopping()
+    else if (this.state === 'countdown') this.setState('encoding')
+    return this.store().update(this.sessionId, {
+      state: 'failed',
+      durationMs: Math.max(1, this.accumulatedMs),
+      failure: message
+    })
+  }
+
+  async recover(id: string): Promise<RecoverableRecording> {
+    if (this.state !== 'idle') throw new Error('Finish the active recording first')
+    const recovery = this.store().get(id)
+    if (!recovery || recovery.byteSize === 0) throw new Error('Recovery recording was not found')
+    this.sessionId = recovery.id
+    this.rawPath = recovery.rawPath
+    this.options = { ...recovery.options }
+    this.accumulatedMs = recovery.durationMs ?? 0
+    this.setState('encoding')
+    return recovery
+  }
+
+  async discardRecovery(id: string): Promise<void> {
+    if (id === this.sessionId) this.reset()
+    await this.store().remove(id)
   }
 
   rawFile(): string | null {
@@ -269,16 +349,25 @@ class RecordingSession extends EventEmitter {
       posterDataUrl: meta.posterDataUrl
     })
 
-    await fs.rm(input, { force: true }).catch(() => {})
-    this.rawPath = null
+    if (this.sessionId) await this.store().remove(this.sessionId)
     this.reset()
     return item
   }
 
   async discard(): Promise<void> {
-    if (this.rawPath) await fs.rm(this.rawPath, { force: true }).catch(() => {})
-    this.rawPath = null
+    if (this.sessionId) await this.store().remove(this.sessionId)
     this.reset()
+  }
+
+  private store(): RecordingRecoveryStore {
+    if (!this.recoveryStore) throw new Error('Recording recovery store is not initialized')
+    return this.recoveryStore
+  }
+
+  private async checkpoint(
+    patch: Parameters<RecordingRecoveryStore['update']>[1]
+  ): Promise<void> {
+    if (this.sessionId) await this.store().update(this.sessionId, patch)
   }
 }
 

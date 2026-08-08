@@ -2,6 +2,7 @@ import { BrowserWindow, nativeImage, screen } from 'electron'
 import { IPC } from '@shared/ipc'
 import type { CaptureResult } from '@shared/types'
 import { loadEntry, preloadPath } from './urls'
+import { registerRendererWindow } from '../ipc/sender'
 
 /**
  * The Quick Access card: a small floating window that appears after a capture with the
@@ -90,11 +91,13 @@ export function showQuickAccess(result: CaptureResult, libraryId?: string): Brow
     title: 'ClipThat Quick Access',
     webPreferences: {
       preload: preloadPath(),
-      sandbox: false,
+      sandbox: true,
       contextIsolation: true,
       nodeIntegration: false
     }
   })
+
+  registerRendererWindow(win, 'quick')
 
   win.setAlwaysOnTop(true, 'floating')
   win.setVisibleOnAllWorkspaces(true, { visibleOnFullScreen: true })

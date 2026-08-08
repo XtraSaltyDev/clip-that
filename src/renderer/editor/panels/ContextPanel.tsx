@@ -118,12 +118,18 @@ export default function ContextPanel({ image }: { image: HTMLImageElement | null
     useEditor.setState((s) =>
       s.doc
         ? {
-            doc: { ...s.doc, shapes: [...s.doc.shapes, ...(shapes as Shape[])] },
+            doc: {
+              ...s.doc,
+              shapes: [...s.doc.shapes, ...(shapes as Shape[])],
+              updatedAt: Date.now()
+            },
             selectedIds: shapes.map((s2) => s2.id),
+            future: [],
             dirty: true
           }
         : s
     )
+    state.end()
     toast('success', `Blurred ${shapes.length} item${shapes.length === 1 ? '' : 's'}`)
   }
 
@@ -150,6 +156,7 @@ export default function ContextPanel({ image }: { image: HTMLImageElement | null
       } as Shape,
       { history: false }
     )
+    state.end()
   }
 
   const selected = selectedText(words, liveSelection)
@@ -238,7 +245,15 @@ export default function ContextPanel({ image }: { image: HTMLImageElement | null
         <Section icon="sparkles" title="Suggested name">
           <div className="ctx-row">
             <span className="ctx-value truncate">{title}</span>
-            <button className="btn sm" onClick={() => useEditor.getState().setTitle(title)}>
+            <button
+              className="btn sm"
+              onClick={() => {
+                const state = useEditor.getState()
+                state.begin()
+                state.setTitle(title)
+                state.end()
+              }}
+            >
               Use
             </button>
           </div>

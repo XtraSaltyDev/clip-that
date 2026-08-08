@@ -20,7 +20,7 @@ export default function TopBar({
   const cropDraft = useEditor((s) => s.cropDraft)
   const ocrBusy = useEditor((s) => s.ocrBusy)
   const panel = useEditor((s) => s.panel)
-  const { undo, redo, setZoom, applyCrop, setTool, setTitle, setPanel } = useEditor.getState()
+  const { begin, end, undo, redo, setZoom, applyCrop, setTool, setTitle, setPanel } = useEditor.getState()
 
   const [menu, setMenu] = useState<'export' | 'capture' | null>(null)
   const menuRef = useRef<HTMLDivElement>(null)
@@ -83,6 +83,8 @@ export default function TopBar({
           className="title-input"
           value={doc.title}
           spellCheck={false}
+          onFocus={begin}
+          onBlur={end}
           onChange={(e) => setTitle(e.target.value)}
         />
         {dirty && <span className="dot-dirty" title="Unsaved changes" />}

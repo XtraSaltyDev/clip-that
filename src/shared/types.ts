@@ -311,6 +311,13 @@ export interface LibraryItemPatch {
   ocrText?: string
 }
 
+export interface LibraryHealth {
+  status: 'ok' | 'warning' | 'error'
+  message: string
+  detail?: string
+  recoveredItems?: number
+}
+
 export interface LibraryQuery {
   search?: string
   tag?: string
@@ -352,6 +359,27 @@ export interface RecordingStatus {
   state: RecordingState
   elapsedMs: number
   options?: RecordingOptions
+  /** Main-process-owned durable capture session, present while a recording is active. */
+  sessionId?: string
+}
+
+export type RecoverableRecordingState = 'recording' | 'ready' | 'failed'
+
+/** A raw WebM kept outside renderer memory until it is exported or explicitly discarded. */
+export interface RecoverableRecording {
+  id: string
+  state: RecoverableRecordingState
+  createdAt: number
+  updatedAt: number
+  rawPath: string
+  mimeType: string
+  byteSize: number
+  chunkCount: number
+  options: RecordingOptions
+  width?: number
+  height?: number
+  durationMs?: number
+  failure?: string
 }
 
 export type VideoFormat = 'mp4' | 'gif' | 'webm'

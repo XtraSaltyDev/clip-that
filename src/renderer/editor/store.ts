@@ -75,6 +75,8 @@ interface EditorState {
 
   /** Snapshot the current state so the next mutation can be undone. */
   begin: () => void
+  /** Close a transaction and remove its history entry when nothing changed. */
+  end: () => void
   addShape: (shape: Shape, options?: { history?: boolean }) => void
   updateShape: (id: string, patch: Partial<Shape>) => void
   updateShapes: (patch: Record<string, Partial<Shape>>) => void
@@ -106,6 +108,9 @@ const snapshot = (doc: ClipDocument): Snapshot => ({
   canvas: { ...doc.canvas },
   title: doc.title
 })
+
+const sameSnapshot = (a: Snapshot, b: Snapshot): boolean =>
+  JSON.stringify(a) === JSON.stringify(b)
 
 export const useEditor = create<EditorState>((set, get) => ({
   doc: null,
@@ -178,11 +183,19 @@ export const useEditor = create<EditorState>((set, get) => ({
   begin: () => {
     const { doc, past } = get()
     if (!doc) return
+    const current = snapshot(doc)
+    if (past.length > 0 && sameSnapshot(past[past.length - 1], current)) return
     set({
-      past: [...past.slice(-(MAX_HISTORY - 1)), snapshot(doc)],
-      future: [],
-      dirty: true
+      past: [...past.slice(-(MAX_HISTORY - 1)), current]
     })
+  },
+
+  end: () => {
+    const { doc, past } = get()
+    if (!doc || past.length === 0) return
+    if (sameSnapshot(past[past.length - 1], snapshot(doc))) {
+      set({ past: past.slice(0, -1) })
+    }
   },
 
   addShape: (shape, options) =>
@@ -208,6 +221,7 @@ export const useEditor = create<EditorState>((set, get) => ({
           shapes: s.doc.shapes.map((sh) => (sh.id === id ? ({ ...sh, ...patch } as Shape) : sh)),
           updatedAt: Date.now()
         },
+        future: [],
         dirty: true
       }
     }),
@@ -223,6 +237,7 @@ export const useEditor = create<EditorState>((set, get) => ({
           ),
           updatedAt: Date.now()
         },
+        future: [],
         dirty: true
       }
     }),
@@ -305,7 +320,11 @@ export const useEditor = create<EditorState>((set, get) => ({
   setCanvas: (patch) =>
     set((s) =>
       s.doc
-        ? { doc: { ...s.doc, canvas: { ...s.doc.canvas, ...patch }, updatedAt: Date.now() }, dirty: true }
+        ? {
+            doc: { ...s.doc, canvas: { ...s.doc.canvas, ...patch }, updatedAt: Date.now() },
+            future: [],
+            dirty: true
+          }
         : s
     ),
 
@@ -340,7 +359,12 @@ export const useEditor = create<EditorState>((set, get) => ({
       }
     }),
 
-  setTitle: (title) => set((s) => (s.doc ? { doc: { ...s.doc, title }, dirty: true } : s)),
+  setTitle: (title) =>
+    set((s) =>
+      s.doc
+        ? { doc: { ...s.doc, title, updatedAt: Date.now() }, future: [], dirty: true }
+        : s
+    ),
   setOcrText: (ocrText) => set((s) => (s.doc ? { doc: { ...s.doc, ocrText } } : s)),
 
   undo: () =>

@@ -1,5 +1,5 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react'
-import type { LibraryItem } from '@shared/types'
+import type { LibraryHealth, LibraryItem } from '@shared/types'
 import { api } from '../shared/api'
 import { Icon } from '../shared/icons'
 import {
@@ -28,6 +28,7 @@ export default function App(): React.ReactElement {
   const [view, setView] = useState<'grid' | 'list'>('grid')
   const [loading, setLoading] = useState(true)
   const [paletteOpen, setPaletteOpen] = useState(false)
+  const [health, setHealth] = useState<LibraryHealth | null>(null)
   const searchRef = useRef<HTMLInputElement>(null)
 
   const refresh = useCallback(async () => {
@@ -37,10 +38,15 @@ export default function App(): React.ReactElement {
       favorite: filter === 'favorite' || undefined,
       tag: tag ?? undefined
     }
-    const [list, allTags] = await Promise.all([api.library.list(query), api.library.tags()])
-    setItems(list)
-    setTags(allTags)
-    setLoading(false)
+    try {
+      const [list, allTags] = await Promise.all([api.library.list(query), api.library.tags()])
+      setItems(list)
+      setTags(allTags)
+    } catch (error) {
+      toast('error', 'Could not load the Library', (error as Error).message)
+    } finally {
+      setLoading(false)
+    }
   }, [search, filter, tag])
 
   useEffect(() => {
@@ -48,6 +54,16 @@ export default function App(): React.ReactElement {
   }, [refresh])
 
   useEffect(() => api.library.onChanged(() => void refresh()), [refresh])
+
+  useEffect(() => {
+    void api.library.health().then(setHealth)
+    return api.library.onIssue((next) => {
+      setHealth(next)
+      if (next.status !== 'ok') {
+        toast(next.status === 'error' ? 'error' : 'info', next.message, next.detail)
+      }
+    })
+  }, [])
 
   const active = useMemo(
     () => (selected.length === 1 ? items.find((i) => i.id === selected[0]) : null),
@@ -60,9 +76,13 @@ export default function App(): React.ReactElement {
 
   const remove = useCallback(async () => {
     if (selected.length === 0) return
-    await api.library.remove(selected)
-    setSelected([])
-    toast('success', `Deleted ${selected.length} item${selected.length === 1 ? '' : 's'}`)
+    try {
+      await api.library.remove(selected)
+      setSelected([])
+      toast('success', `Deleted ${selected.length} item${selected.length === 1 ? '' : 's'}`)
+    } catch (error) {
+      toast('error', 'Could not delete the selected items', (error as Error).message)
+    }
   }, [selected])
 
   const copy = useCallback(async (item: LibraryItem) => {
@@ -202,6 +222,16 @@ export default function App(): React.ReactElement {
           </button>
         </div>
       </header>
+
+      {health && health.status !== 'ok' && (
+        <div className={`lib-health ${health.status}`} role="status">
+          <Icon name={health.status === 'error' ? 'alert' : 'info'} size={15} />
+          <div>
+            <strong>{health.message}</strong>
+            {health.detail && <div className="tiny">{health.detail}</div>}
+          </div>
+        </div>
+      )}
 
       <div className="lib-body">
         <nav className="lib-side">

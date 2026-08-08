@@ -305,6 +305,12 @@ export default function EditorStage({
     )
   }, [])
 
+  const commitShapeChange = useCallback((id: string, patch: Partial<Shape>) => {
+    const state = useEditor.getState()
+    state.updateShape(id, patch)
+    state.end()
+  }, [])
+
   /* ---------- floating toolbar position ---------- */
 
   useEffect(() => {
@@ -406,7 +412,7 @@ export default function EditorStage({
                   ctx={shapeCtx}
                   draggable={tool === 'select'}
                   onSelect={onSelectShape}
-                  onChange={updateShape}
+                  onChange={commitShapeChange}
                   onDragStart={begin}
                   onEditText={setEditingText}
                 />
@@ -480,6 +486,7 @@ export default function EditorStage({
           autoFocus
           className="canvas-text-editor"
           defaultValue={editingShape.text}
+          onFocus={() => useEditor.getState().begin()}
           style={{
             left: textBox.left,
             top: textBox.top,
@@ -493,6 +500,7 @@ export default function EditorStage({
           }}
           onBlur={(e) => {
             updateShape(editingShape.id, { text: e.target.value } as Partial<Shape>)
+            useEditor.getState().end()
             setEditingText(null)
           }}
           onKeyDown={(e) => {
@@ -531,6 +539,7 @@ function FloatingToolbar({
     const state = useEditor.getState()
     state.begin()
     state.updateShapes(Object.fromEntries(selectedIds.map((id) => [id, patch])))
+    state.end()
   }
 
   const setColour = (colour: string) => {
@@ -548,6 +557,7 @@ function FloatingToolbar({
         ])
       )
     )
+    state.end()
     state.setStyle({ color: colour, fill: colour })
   }
 

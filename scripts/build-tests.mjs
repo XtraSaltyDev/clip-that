@@ -22,7 +22,11 @@ const ENTRIES = {
   libraryOpenPolicy: 'src/main/library/open-policy.ts',
   windowSources: 'src/main/capture/window-sources.ts',
   ipcValidation: 'src/main/ipc/validation.ts',
-  pathGuard: 'src/main/store/path-guard.ts'
+  pathGuard: 'src/main/store/path-guard.ts',
+  recordingRecovery: 'src/main/recording/recovery-store.ts',
+  libraryIndex: 'src/main/store/library-index.ts',
+  editorStore: 'src/renderer/editor/store.ts',
+  diagnosticsRedact: 'src/main/diagnostics/redact.ts'
 }
 
 rmSync(outdir, { recursive: true, force: true })

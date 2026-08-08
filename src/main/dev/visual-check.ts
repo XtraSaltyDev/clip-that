@@ -193,11 +193,11 @@ async function checkOverlay({ dir, shot }: Ctx): Promise<void> {
     show: false,
     frame: false,
     backgroundColor: '#000000',
-    webPreferences: { preload: preloadPath(), sandbox: false, contextIsolation: true }
+    webPreferences: { preload: preloadPath(), sandbox: true, contextIsolation: true }
   })
   loadEntry(overlay, 'overlay')
   await new Promise<void>((r) => overlay.webContents.once('did-finish-load', () => r()))
-  overlay.webContents.send('overlay:init', {
+  overlay.webContents.send(IPC.captureOverlayInit, {
     mode: 'region',
     snapshot: {
       displayId: 'mock',
@@ -353,7 +353,7 @@ export async function runVisualCheck(dir: string): Promise<void> {
   const settings = showSettingsWindow('welcome')
   await wait(1600)
   await snap(dir, '09-settings', settings)
-  settings.webContents.send('settings:navigate', 'general')
+  settings.webContents.send(IPC.settingsNavigate, 'general')
   await wait(500)
   await snap(dir, '09b-settings-library-choice', settings)
 
@@ -365,14 +365,14 @@ export async function runVisualCheck(dir: string): Promise<void> {
   const { settings: settingsStore } = await import('../store/settings')
   const { broadcast } = await import('../windows/manager')
   settingsStore.set({ theme: 'light' })
-  broadcast('settings:changed', settingsStore.get())
+  broadcast(IPC.settingsChanged, settingsStore.get())
   await wait(1400)
   const editor = editorWindows()[0]
   if (editor) await snap(dir, '13-editor-light', editor)
   await snap(dir, '14-library-light', library)
   await snap(dir, '15-settings-light', settings)
   settingsStore.set({ theme: 'dark' })
-  broadcast('settings:changed', settingsStore.get())
+  broadcast(IPC.settingsChanged, settingsStore.get())
 
   await checkOverlay(ctx)
   if (process.env['CLIPTHAT_LIVE_CAPTURE_CHECK']) await checkLiveEditorOverlay(ctx)

@@ -197,12 +197,18 @@ export function useEditorActions(stageRef: StageRef, settings: Settings | null) 
       useEditor.setState((s) =>
         s.doc
           ? {
-              doc: { ...s.doc, shapes: [...s.doc.shapes, ...(shapes as Shape[])] },
+              doc: {
+                ...s.doc,
+                shapes: [...s.doc.shapes, ...(shapes as Shape[])],
+                updatedAt: Date.now()
+              },
               selectedIds: shapes.map((s2) => s2.id),
+              future: [],
               dirty: true
             }
           : s
       )
+      state.end()
 
       const kinds = [...new Set(matches.map((m) => SENSITIVE_LABELS[m.kind]))].join(', ')
       toast('success', `Blurred ${matches.length} sensitive item${matches.length === 1 ? '' : 's'}`, kinds)

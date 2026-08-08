@@ -15,6 +15,8 @@ export const IPC = {
   captureScrollFrame: 'capture:scroll-frame',
   captureScrollFallback: 'capture:scroll-fallback',
   captureScrollStitch: 'capture:scroll-stitch',
+  captureOverlayInit: 'overlay:init',
+  captureScrollFrameCount: 'scroll:frame-count',
 
   // editor
   editorOpen: 'editor:open',
@@ -22,6 +24,9 @@ export const IPC = {
   editorDocument: 'editor:document',
   editorSwitchLibraryItem: 'editor:switch-library-item',
   editorClose: 'editor:close',
+  editorCloseRequested: 'editor:close-requested',
+  editorCloseReady: 'editor:close-ready',
+  editorConfirmClose: 'editor:confirm-close',
 
   // export
   saveImage: 'export:save-image',
@@ -41,27 +46,37 @@ export const IPC = {
   libraryOpen: 'library:open',
   libraryTags: 'library:tags',
   libraryChanged: 'library:changed',
+  libraryHealth: 'library:health',
+  libraryIssue: 'library:issue',
   libraryLoadProject: 'library:load-project',
 
   // recording
   recordConfigure: 'record:configure',
   recordStart: 'record:start',
+  recordStarted: 'record:started',
   recordStop: 'record:stop',
   recordPause: 'record:pause',
   recordResume: 'record:resume',
   recordCancel: 'record:cancel',
   recordStatus: 'record:status',
-  recordSaveBlob: 'record:save-blob',
+  recordAppendChunk: 'record:append-chunk',
+  recordFinalize: 'record:finalize',
+  recordPreserveFailure: 'record:preserve-failure',
+  recordRecoveries: 'record:recoveries',
+  recordRecover: 'record:recover',
+  recordDiscardRecovery: 'record:discard-recovery',
   recordExport: 'record:export',
   recordProgress: 'record:progress',
   recordSources: 'record:sources',
   recordHudCommand: 'record:hud-command',
+  recordCursor: 'record:cursor',
 
   // pins & quick access
   pinCreate: 'pin:create',
   pinInit: 'pin:init',
   quickInit: 'quick:init',
   quickAction: 'quick:action',
+  quickDrag: 'quick:drag',
 
   // settings
   settingsGet: 'settings:get',
@@ -69,15 +84,24 @@ export const IPC = {
   settingsChanged: 'settings:changed',
   settingsReset: 'settings:reset',
   settingsPickDirectory: 'settings:pick-directory',
+  settingsNavigate: 'settings:navigate',
 
   // system
   permissionsCheck: 'system:permissions',
   permissionsRequest: 'system:permissions-request',
   openExternal: 'system:open-external',
   appInfo: 'system:app-info',
+  exportDiagnostics: 'system:export-diagnostics',
   windowControl: 'system:window-control',
   toast: 'system:toast',
-  quit: 'system:quit'
+  quit: 'system:quit',
+
+  // renderer-specialized channels
+  hudResize: 'hud:resize',
+  hudDock: 'hud:dock',
+  hudClose: 'hud:close',
+  ocrRequest: 'ocr:request',
+  ocrResult: 'ocr:result'
 } as const
 
 export type IpcChannel = (typeof IPC)[keyof typeof IPC]

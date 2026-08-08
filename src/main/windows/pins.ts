@@ -1,6 +1,7 @@
 import { BrowserWindow, nativeImage, screen } from 'electron'
 import { IPC } from '@shared/ipc'
 import { loadEntry, preloadPath } from './urls'
+import { registerRendererWindow } from '../ipc/sender'
 
 /**
  * Pinned screenshots: frameless, always-on-top image windows the user parks anywhere
@@ -66,11 +67,13 @@ export function createPin(
     title: 'ClipThat Pin',
     webPreferences: {
       preload: preloadPath(),
-      sandbox: false,
+      sandbox: true,
       contextIsolation: true,
       nodeIntegration: false
     }
   })
+
+  registerRendererWindow(win, 'pin')
 
   win.setAlwaysOnTop(true, 'floating')
   win.setVisibleOnAllWorkspaces(true, { visibleOnFullScreen: true })

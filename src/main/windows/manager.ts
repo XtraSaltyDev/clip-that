@@ -1,6 +1,8 @@
-import { BrowserWindow, screen, shell } from 'electron'
+import { app, BrowserWindow, screen } from 'electron'
 import { join } from 'node:path'
+import { IPC } from '@shared/ipc'
 import { loadEntry, preloadPath, type RendererEntry } from './urls'
+import { registerRendererWindow } from '../ipc/sender'
 
 const IS_MAC = process.platform === 'darwin'
 
@@ -14,7 +16,7 @@ function baseOptions(): Electron.BrowserWindowConstructorOptions {
     icon: process.platform === 'linux' ? icon() : undefined,
     webPreferences: {
       preload: preloadPath(),
-      sandbox: false,
+      sandbox: true,
       contextIsolation: true,
       nodeIntegration: false,
       webSecurity: true,
@@ -32,20 +34,34 @@ export function getSingleton(entry: RendererEntry): BrowserWindow | undefined {
   return win && !win.isDestroyed() ? win : undefined
 }
 
-function harden(win: BrowserWindow): void {
-  // Nothing in this app should ever spawn a browser window or navigate away.
-  win.webContents.setWindowOpenHandler(({ url }) => {
-    if (/^https?:/.test(url)) void shell.openExternal(url)
-    return { action: 'deny' }
-  })
-  win.webContents.on('will-navigate', (event, url) => {
-    const dev = process.env['ELECTRON_RENDERER_URL']
-    if (dev && url.startsWith(dev)) return
-    event.preventDefault()
-  })
+const editors = new Set<BrowserWindow>()
+const editorCloseState = new Map<
+  number,
+  { win: BrowserWindow; ready: boolean; pending: boolean; approved: boolean }
+>()
+let editorAppQuitRequested = false
+
+export function markEditorAppQuitRequested(): void {
+  editorAppQuitRequested = true
 }
 
-const editors = new Set<BrowserWindow>()
+export function markEditorCloseReady(webContentsId: number): boolean {
+  const state = editorCloseState.get(webContentsId)
+  if (!state) return false
+  state.ready = true
+  return true
+}
+
+export function resolveEditorClose(webContentsId: number, allow: boolean): boolean {
+  const state = editorCloseState.get(webContentsId)
+  if (!state || state.win.isDestroyed()) return false
+  state.pending = false
+  if (!allow) return true
+  state.approved = true
+  state.win.close()
+  if (editorAppQuitRequested) setTimeout(() => app.quit(), 0)
+  return true
+}
 
 export function createEditorWindow(): BrowserWindow {
   const win = new BrowserWindow({
@@ -58,9 +74,24 @@ export function createEditorWindow(): BrowserWindow {
     titleBarStyle: IS_MAC ? 'hiddenInset' : 'default',
     trafficLightPosition: IS_MAC ? { x: 16, y: 18 } : undefined
   })
-  harden(win)
+  registerRendererWindow(win, 'editor')
   editors.add(win)
-  win.on('closed', () => editors.delete(win))
+  const closeState = { win, ready: false, pending: false, approved: false }
+  editorCloseState.set(win.webContents.id, closeState)
+  win.on('close', (event) => {
+    if (closeState.approved || !closeState.ready || win.webContents.isDestroyed()) return
+    event.preventDefault()
+    if (closeState.pending) return
+    closeState.pending = true
+    win.webContents.send(IPC.editorCloseRequested)
+  })
+  win.on('closed', () => {
+    editors.delete(win)
+    editorCloseState.delete(win.webContents.id)
+  })
+  win.webContents.on('render-process-gone', () => {
+    closeState.approved = true
+  })
   loadEntry(win, 'editor')
   win.once('ready-to-show', () => {
     win.show()
@@ -86,7 +117,7 @@ export function showLibraryWindow(): BrowserWindow {
     titleBarStyle: IS_MAC ? 'hiddenInset' : 'default',
     trafficLightPosition: IS_MAC ? { x: 16, y: 18 } : undefined
   })
-  harden(win)
+  registerRendererWindow(win, 'library')
   singletons.set('library', win)
   win.on('closed', () => singletons.delete('library'))
   loadEntry(win, 'library')
@@ -99,7 +130,7 @@ export function showSettingsWindow(section = 'general'): BrowserWindow {
   if (existing) {
     existing.show()
     existing.focus()
-    existing.webContents.send('settings:navigate', section)
+    existing.webContents.send(IPC.settingsNavigate, section)
     return existing
   }
   const win = new BrowserWindow({
@@ -113,7 +144,7 @@ export function showSettingsWindow(section = 'general'): BrowserWindow {
     titleBarStyle: IS_MAC ? 'hiddenInset' : 'default',
     trafficLightPosition: IS_MAC ? { x: 16, y: 18 } : undefined
   })
-  harden(win)
+  registerRendererWindow(win, 'settings')
   singletons.set('settings', win)
   win.on('closed', () => singletons.delete('settings'))
   loadEntry(win, 'settings', section)
@@ -149,7 +180,7 @@ export function showHudWindow(hash = ''): BrowserWindow {
   })
   win.setAlwaysOnTop(true, 'screen-saver')
   win.setVisibleOnAllWorkspaces(true, { visibleOnFullScreen: true })
-  harden(win)
+  registerRendererWindow(win, 'hud')
   singletons.set('hud', win)
   hudDisplayId = screen.getDisplayNearestPoint(screen.getCursorScreenPoint()).id
   win.on('closed', () => {
@@ -228,6 +259,7 @@ export function getWorkerWindow(): Promise<BrowserWindow> {
       offscreen: false
     }
   })
+  registerRendererWindow(win, 'worker')
   worker = win
   win.on('closed', () => {
     if (worker === win) worker = null

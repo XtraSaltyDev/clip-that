@@ -18,6 +18,26 @@ body.mac .lib-top {
   --lib-left-pad: 82px;
 }
 
+.lib-health {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  padding: 9px 14px;
+  border-bottom: 1px solid color-mix(in srgb, var(--warn) 45%, var(--line));
+  background: color-mix(in srgb, var(--warn) 12%, var(--bg-1));
+  color: var(--ink-0);
+  flex: none;
+}
+.lib-health.error {
+  border-bottom-color: color-mix(in srgb, var(--danger) 45%, var(--line));
+  background: color-mix(in srgb, var(--danger) 12%, var(--bg-1));
+}
+.lib-health strong {
+  display: block;
+  margin-bottom: 2px;
+  font-size: 12px;
+}
+
 .lib-search {
   display: flex;
   align-items: center;

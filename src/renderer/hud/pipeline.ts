@@ -13,13 +13,20 @@ export interface CaptureHandles {
   /** The OS-owned screen/window track; ending it must stop the recording session too. */
   sourceTrack: MediaStreamTrack
   recorder: MediaRecorder
-  chunks: Blob[]
+  mimeType: string
   width: number
   height: number
   setPaused: (paused: boolean) => void
-  stop: () => Promise<Blob>
+  /** Stop MediaRecorder only after its final chunk has reached durable main-process storage. */
+  stop: () => Promise<void>
   dispose: () => void
 }
+
+type PersistChunk = (
+  sequence: number,
+  bytes: Uint8Array,
+  mimeType: string
+) => Promise<void>
 
 function pickMimeType(): string {
   const candidates = [
@@ -123,7 +130,11 @@ async function getDisplayStream(options: RecordingOptions): Promise<MediaStream>
   }
 }
 
-export async function startCapture(options: RecordingOptions, region?: Rect): Promise<CaptureHandles> {
+export async function startCapture(
+  options: RecordingOptions,
+  region: Rect | undefined,
+  persistChunk: PersistChunk
+): Promise<CaptureHandles> {
   const display = await getDisplayStream(options)
 
   const displayTrack = display.getVideoTracks()[0]
@@ -297,9 +308,22 @@ export async function startCapture(options: RecordingOptions, region?: Rect): Pr
     audioBitsPerSecond: 128_000
   })
 
-  const chunks: Blob[] = []
+  let sequence = 0
+  let acceptingChunks = true
+  let chunkFailure: Error | null = null
+  let chunkWrites: Promise<void> = Promise.resolve()
   recorder.ondataavailable = (e) => {
-    if (e.data.size > 0) chunks.push(e.data)
+    if (!acceptingChunks || e.data.size === 0 || chunkFailure) return
+    const chunk = e.data
+    const chunkSequence = sequence++
+    chunkWrites = chunkWrites
+      .then(async () => {
+        const bytes = new Uint8Array(await chunk.arrayBuffer())
+        await persistChunk(chunkSequence, bytes, recorder.mimeType || 'video/webm')
+      })
+      .catch((err: unknown) => {
+        chunkFailure = err instanceof Error ? err : new Error(String(err))
+      })
   }
 
   const setPaused = (paused: boolean) => {
@@ -316,7 +340,10 @@ export async function startCapture(options: RecordingOptions, region?: Rect): Pr
     }
   }
 
-  const dispose = () => {
+  let disposed = false
+  const disposeMedia = () => {
+    if (disposed) return
+    disposed = true
     offCursor?.()
     if (raf) cancelAnimationFrame(raf)
     displayVideo?.pause()
@@ -328,23 +355,41 @@ export async function startCapture(options: RecordingOptions, region?: Rect): Pr
     void audioContext?.close()
   }
 
+  const dispose = () => {
+    acceptingChunks = false
+    recorder.ondataavailable = null
+    if (recorder.state !== 'inactive') recorder.stop()
+    disposeMedia()
+  }
+
   // The user can also stop sharing from the OS bar; treat that as "stop".
   displayTrack.addEventListener('ended', () => {
     if (recorder.state !== 'inactive') recorder.stop()
   })
 
-  const stop = () =>
-    new Promise<Blob>((resolve) => {
-      const finish = () => {
-        dispose()
-        resolve(new Blob(chunks, { type: recorder.mimeType || 'video/webm' }))
-      }
-      if (recorder.state === 'inactive') finish()
+  let stopped = recorder.state === 'inactive'
+  recorder.addEventListener('stop', () => {
+    stopped = true
+  })
+
+  let stopPromise: Promise<void> | null = null
+  const stop = () => {
+    if (stopPromise) return stopPromise
+    stopPromise = new Promise<void>((resolve) => {
+      const finish = () => resolve()
+      if (stopped) finish()
       else {
-        recorder.onstop = finish
-        recorder.stop()
+        recorder.addEventListener('stop', finish, { once: true })
+        if (recorder.state !== 'inactive') recorder.stop()
       }
+    }).then(async () => {
+      await chunkWrites
+      acceptingChunks = false
+      disposeMedia()
+      if (chunkFailure) throw chunkFailure
     })
+    return stopPromise
+  }
 
   recorder.start(1000)
 
@@ -352,7 +397,7 @@ export async function startCapture(options: RecordingOptions, region?: Rect): Pr
     stream,
     sourceTrack: displayTrack,
     recorder,
-    chunks,
+    mimeType: recorder.mimeType || 'video/webm',
     width: outWidth,
     height: outHeight,
     setPaused,
@@ -361,9 +406,8 @@ export async function startCapture(options: RecordingOptions, region?: Rect): Pr
   }
 }
 
-/** Grab a still from a recorded blob for the library thumbnail. */
-export async function posterFromBlob(blob: Blob, atMs = 200): Promise<string | undefined> {
-  const url = URL.createObjectURL(blob)
+/** Grab a still from a durable recording URL for the library thumbnail. */
+export async function posterFromUrl(url: string, atMs = 200): Promise<string | undefined> {
   try {
     const video = document.createElement('video')
     video.src = url
@@ -385,8 +429,6 @@ export async function posterFromBlob(blob: Blob, atMs = 200): Promise<string | u
     return canvas.toDataURL('image/png')
   } catch {
     return undefined
-  } finally {
-    URL.revokeObjectURL(url)
   }
 }
 

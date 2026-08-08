@@ -17,9 +17,12 @@ export const projectsDir = () => ensure(join(libraryDir(), 'projects'))
 export const thumbsDir = () => ensure(join(libraryDir(), 'thumbnails'))
 export const recordingsDir = () => ensure(join(libraryDir(), 'recordings'))
 export const tempDir = () => ensure(join(userData(), 'tmp'))
+/** Durable raw recordings and manifests that survive an interrupted app session. */
+export const recordingSessionsDir = () => ensure(join(userData(), 'recording-sessions'))
 
 export const settingsFile = () => join(userData(), 'settings.json')
 export const libraryIndexFile = () => join(libraryDir(), 'index.json')
+export const libraryIndexBackupFile = () => join(libraryDir(), 'index.json.bak')
 
 /** Default place to drop saved images: `~/Pictures/ClipThat`. */
 export function defaultSaveDirectory(): string {

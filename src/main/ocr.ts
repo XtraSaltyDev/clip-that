@@ -1,10 +1,13 @@
-import { ipcMain } from 'electron'
+import { ipcMain, type IpcMainEvent } from 'electron'
+import { IPC } from '@shared/ipc'
 import { promises as fs } from 'node:fs'
 import { extname } from 'node:path'
 import type { Rect } from '@shared/types'
 import { closeWorkerWindow, getWorkerWindow } from './windows/manager'
 import { library } from './store/library'
 import { settings } from './store/settings'
+import { assertIpcSender } from './ipc/sender'
+import { ocrResponse } from './ipc/validation'
 
 let sequence = 0
 let activeRequests = 0
@@ -41,19 +44,26 @@ export async function requestOcr(dataUrl: string, rect?: Rect, timeoutMs = 90_00
 
     return await new Promise<string>((resolve) => {
       const timer = setTimeout(() => {
-        ipcMain.removeListener('ocr:result', onResult)
+        ipcMain.removeListener(IPC.ocrResult, onResult)
         resolve('')
       }, timeoutMs)
 
-      const onResult = (_e: unknown, payload: { id: string; text: string }) => {
-        if (payload.id !== id) return
+      const onResult = (event: IpcMainEvent, payload: unknown) => {
+        let safe: ReturnType<typeof ocrResponse>
+        try {
+          assertIpcSender(event, ['worker'])
+          safe = ocrResponse(payload)
+        } catch {
+          return
+        }
+        if (safe.id !== id) return
         clearTimeout(timer)
-        ipcMain.removeListener('ocr:result', onResult)
-        resolve(payload.text)
+        ipcMain.removeListener(IPC.ocrResult, onResult)
+        resolve(safe.text)
       }
 
-      ipcMain.on('ocr:result', onResult)
-      worker.webContents.send('ocr:request', { id, dataUrl, rect })
+      ipcMain.on(IPC.ocrResult, onResult)
+      worker.webContents.send(IPC.ocrRequest, { id, dataUrl, rect })
     })
   } finally {
     finishOcrRequest()

@@ -120,7 +120,20 @@ export function Slider(props: {
   step?: number
   suffix?: string
   onChange: (value: number) => void
+  onChangeStart?: () => void
+  onChangeEnd?: () => void
 }): React.ReactElement {
+  const active = useRef(false)
+  const start = () => {
+    if (active.current) return
+    active.current = true
+    props.onChangeStart?.()
+  }
+  const end = () => {
+    if (!active.current) return
+    active.current = false
+    props.onChangeEnd?.()
+  }
   return (
     <label className="col" style={{ gap: 4 }}>
       {props.label && (
@@ -139,6 +152,12 @@ export function Slider(props: {
         max={props.max}
         step={props.step ?? 1}
         value={props.value}
+        onPointerDown={start}
+        onPointerUp={end}
+        onPointerCancel={end}
+        onKeyDown={start}
+        onKeyUp={end}
+        onBlur={end}
         onChange={(e) => props.onChange(Number(e.target.value))}
       />
     </label>
@@ -191,14 +210,31 @@ export function ColorPicker(props: {
   onChange: (value: string) => void
   swatches?: string[]
   allowAlpha?: boolean
+  onChangeStart?: () => void
+  onChangeEnd?: () => void
 }): React.ReactElement {
   const swatches = props.swatches ?? SWATCHES
+  const active = useRef(false)
+  const start = () => {
+    if (active.current) return
+    active.current = true
+    props.onChangeStart?.()
+  }
+  const end = () => {
+    if (!active.current) return
+    active.current = false
+    props.onChangeEnd?.()
+  }
   return (
     <div className="row" style={{ flexWrap: 'wrap', gap: 5 }}>
       {swatches.map((c) => (
         <button
           key={c}
-          onClick={() => props.onChange(c)}
+          onClick={() => {
+            props.onChangeStart?.()
+            props.onChange(c)
+            props.onChangeEnd?.()
+          }}
           title={c}
           style={{
             width: 20,
@@ -216,6 +252,8 @@ export function ColorPicker(props: {
       <input
         type="color"
         value={/^#[0-9a-f]{6}$/i.test(props.value) ? props.value : '#ff3b30'}
+        onFocus={start}
+        onBlur={end}
         onChange={(e) => props.onChange(e.target.value)}
         title="Custom colour"
       />

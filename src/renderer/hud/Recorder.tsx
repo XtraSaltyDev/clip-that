@@ -1,16 +1,23 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react'
-import type { DisplayInfo, RecordingOptions, VideoExportOptions, WindowInfo } from '@shared/types'
+import type {
+  DisplayInfo,
+  RecoverableRecording,
+  RecordingOptions,
+  VideoExportOptions,
+  WindowInfo
+} from '@shared/types'
 import { DEFAULT_RECORDING } from '@shared/defaults'
 import { api } from '../shared/api'
 import { Icon } from '../shared/icons'
 import { Segmented, Slider, Toggle, formatDuration, useTheme } from '../shared/ui'
-import { listDevices, posterFromBlob, startCapture, type CaptureHandles } from './pipeline'
+import { listDevices, posterFromUrl, startCapture, type CaptureHandles } from './pipeline'
 import './hud.css'
 
-type Phase = 'setup' | 'countdown' | 'recording' | 'review' | 'encoding'
+type Phase = 'setup' | 'recovery' | 'countdown' | 'recording' | 'review' | 'encoding'
 
 const SIZES: Record<Phase, [number, number]> = {
   setup: [440, 620],
+  recovery: [520, 420],
   countdown: [260, 260],
   recording: [332, 60],
   review: [620, 560],
@@ -37,8 +44,9 @@ export default function Recorder(): React.ReactElement {
   const [error, setError] = useState<string | null>(null)
   const [progress, setProgress] = useState(0)
 
-  const [blob, setBlob] = useState<Blob | null>(null)
-  const [blobUrl, setBlobUrl] = useState<string | null>(null)
+  const [recoveries, setRecoveries] = useState<RecoverableRecording[]>([])
+  const [activeRecovery, setActiveRecovery] = useState<RecoverableRecording | null>(null)
+  const [mediaUrl, setMediaUrl] = useState<string | null>(null)
   const [duration, setDuration] = useState(0)
   const [trim, setTrim] = useState<[number, number]>([0, 0])
   const [format, setFormat] = useState<VideoExportOptions['format']>('mp4')
@@ -49,6 +57,7 @@ export default function Recorder(): React.ReactElement {
   const pausedFor = useRef(0)
   const pausedAt = useRef(0)
   const videoRef = useRef<HTMLVideoElement>(null)
+  const countdownRun = useRef(0)
 
   /* ---------- window sizing follows the phase ---------- */
 
@@ -70,6 +79,10 @@ export default function Recorder(): React.ReactElement {
     })
     void api.settings.get().then((r) => setOptions((o) => ({ ...r.settings.recording, ...o })))
     void listDevices().then(setDevices)
+    void api.recording.recoveries().then((items) => {
+      setRecoveries(items)
+      if (items.length > 0) setPhase('recovery')
+    })
   }, [])
 
   useEffect(() => api.recording.onProgress(({ percent }) => setProgress(percent)), [])
@@ -87,6 +100,7 @@ export default function Recorder(): React.ReactElement {
   /* ---------- start / stop ---------- */
 
   const beginRecording = useCallback(async () => {
+    const run = ++countdownRun.current
     setError(null)
     await api.recording.configure(options)
 
@@ -96,20 +110,26 @@ export default function Recorder(): React.ReactElement {
       for (let i = options.countdown; i > 0; i--) {
         setCount(i)
         await new Promise((r) => setTimeout(r, 1000))
+        if (run !== countdownRun.current) return
       }
     }
 
     try {
-      await api.recording.start(options)
-      const handles = await startCapture(options, options.region)
+      const status = await api.recording.start(options)
+      if (!status.sessionId) throw new Error('Recording session did not start')
+      const handles = await startCapture(options, options.region, (sequence, bytes, mimeType) =>
+        api.recording.appendChunk(status.sessionId!, sequence, bytes, mimeType)
+      )
       capture.current = handles
       startedAt.current = Date.now()
       pausedFor.current = 0
       setElapsed(0)
       setPaused(false)
       setPhase('recording')
-      api.recording.started()
+      await api.recording.started()
     } catch (err) {
+      capture.current?.dispose()
+      capture.current = null
       setError((err as Error).message || 'Screen capture was refused')
       setPhase('setup')
       await api.recording.cancel()
@@ -120,17 +140,29 @@ export default function Recorder(): React.ReactElement {
     const handles = capture.current
     if (!handles) return
     capture.current = null
-    await api.recording.stop()
     try {
-      const recorded = await handles.stop()
-      setBlob(recorded)
-      const url = URL.createObjectURL(recorded)
-      setBlobUrl(url)
+      await api.recording.stop()
+      await handles.stop()
+      const recovery = await api.recording.finalize({
+        width: handles.width,
+        height: handles.height,
+        mimeType: handles.mimeType
+      })
+      setActiveRecovery(recovery)
+      setMediaUrl(api.library.fileUrl(recovery.rawPath))
       setPhase('review')
     } catch (err) {
-      await api.recording.cancel()
-      setError((err as Error).message || 'Could not finish the recording')
-      setPhase('setup')
+      const message = (err as Error).message || 'Could not finish the recording'
+      const recovery = await api.recording.preserveFailure(message).catch(() => null)
+      if (recovery && recovery.byteSize > 0) {
+        setError(`${message}. The raw recording was preserved.`)
+        setActiveRecovery(recovery)
+        setMediaUrl(api.library.fileUrl(recovery.rawPath))
+        setPhase('review')
+      } else {
+        setError(message)
+        setPhase('setup')
+      }
     }
   }, [])
 
@@ -145,6 +177,7 @@ export default function Recorder(): React.ReactElement {
   }, [finishRecording, phase])
 
   const cancelRecording = useCallback(async () => {
+    countdownRun.current += 1
     capture.current?.dispose()
     capture.current = null
     await api.recording.cancel()
@@ -186,7 +219,7 @@ export default function Recorder(): React.ReactElement {
   /* ---------- review ---------- */
 
   useEffect(() => {
-    if (!blobUrl || !videoRef.current) return
+    if (!mediaUrl || !videoRef.current) return
     const video = videoRef.current
     const onMeta = () => {
       // WebM from MediaRecorder often reports Infinity until it's seeked to the end.
@@ -205,43 +238,59 @@ export default function Recorder(): React.ReactElement {
       video.removeEventListener('loadedmetadata', onMeta)
       video.removeEventListener('durationchange', onMeta)
     }
-  }, [blobUrl])
+  }, [mediaUrl])
 
   const saveRecording = useCallback(async () => {
-    if (!blob) return
+    if (!mediaUrl) return
     setPhase('encoding')
     setProgress(0)
-    const bytes = new Uint8Array(await blob.arrayBuffer())
-    await api.recording.saveBlob(bytes)
-    const poster = await posterFromBlob(blob, trim[0] + 200)
+    const poster = await posterFromUrl(mediaUrl, trim[0] + 200)
+    const knownDuration = Math.max(1, duration, activeRecovery?.durationMs ?? 0)
+    const hasTrim = trim[1] > trim[0]
     const item = await api.recording.export(
       {
         format,
         quality,
-        startMs: trim[0],
-        endMs: trim[1],
+        startMs: hasTrim ? trim[0] : undefined,
+        endMs: hasTrim ? trim[1] : undefined,
         fps: format === 'gif' ? 15 : undefined,
         maxWidth: format === 'gif' ? 900 : undefined
       },
       {
-        width: capture.current?.width ?? videoRef.current?.videoWidth ?? 1920,
-        height: capture.current?.height ?? videoRef.current?.videoHeight ?? 1080,
-        durationMs: duration,
+        width: videoRef.current?.videoWidth || activeRecovery?.width || 1920,
+        height: videoRef.current?.videoHeight || activeRecovery?.height || 1080,
+        durationMs: knownDuration,
         posterDataUrl: poster
       }
     )
     if (item) api.hud.close()
     else {
-      setError('Encoding failed — check that ffmpeg is available.')
+      setError('Encoding failed. The raw recording is still available to retry.')
       setPhase('review')
     }
-  }, [blob, duration, format, quality, trim])
+  }, [activeRecovery, duration, format, mediaUrl, quality, trim])
 
   const discard = useCallback(async () => {
-    if (blobUrl) URL.revokeObjectURL(blobUrl)
     await api.recording.cancel()
     api.hud.close()
-  }, [blobUrl])
+  }, [])
+
+  const openRecovery = useCallback(async (item: RecoverableRecording) => {
+    setError(item.failure ? `Previous export failed: ${item.failure}` : null)
+    const recovery = await api.recording.recover(item.id)
+    setActiveRecovery(recovery)
+    setOptions(recovery.options)
+    setDuration(recovery.durationMs ?? 0)
+    if (recovery.durationMs) setTrim([0, recovery.durationMs])
+    setMediaUrl(api.library.fileUrl(recovery.rawPath))
+    setPhase('review')
+  }, [])
+
+  const removeRecovery = useCallback(async (id: string) => {
+    const remaining = await api.recording.discardRecovery(id)
+    setRecoveries(remaining)
+    if (remaining.length === 0) setPhase('setup')
+  }, [])
 
   /* ------------------------------------------------------------------ */
 
@@ -295,12 +344,57 @@ export default function Recorder(): React.ReactElement {
     )
   }
 
+  if (phase === 'recovery') {
+    return (
+      <div className="hud-card hud-recovery">
+        <header className="drag-region">
+          <Icon name="video" size={16} />
+          <h1>Recover recordings</h1>
+          <span className="spacer" />
+          <button className="btn ghost icon no-drag" onClick={() => api.hud.close()}>
+            <Icon name="close" />
+          </button>
+        </header>
+        <div className="hud-recovery-list">
+          <p className="tiny muted">
+            These raw recordings survived an interruption or failed export.
+          </p>
+          {recoveries.map((item) => (
+            <div className="hud-recovery-item" key={item.id}>
+              <div>
+                <strong>{new Date(item.createdAt).toLocaleString()}</strong>
+                <div className="tiny muted">
+                  {(item.byteSize / 1024 / 1024).toFixed(1)} MB
+                  {item.durationMs ? ` · ${formatDuration(item.durationMs)}` : ''}
+                  {item.state === 'failed' ? ' · export failed' : ' · interrupted'}
+                </div>
+              </div>
+              <span className="spacer" />
+              <button className="btn ghost" onClick={() => void removeRecovery(item.id)}>
+                Discard
+              </button>
+              <button className="btn primary" onClick={() => void openRecovery(item)}>
+                Review
+              </button>
+            </div>
+          ))}
+        </div>
+        <footer>
+          <span className="spacer" />
+          <button className="btn" onClick={() => setPhase('setup')}>
+            Record new
+          </button>
+        </footer>
+      </div>
+    )
+  }
+
   if (phase === 'review') {
     return (
       <div className="hud-card hud-review">
         <header className="drag-region">
           <Icon name="video" size={16} />
-          <h1>Review recording</h1>
+          <h1>{activeRecovery?.state === 'failed' ? 'Recover recording' : 'Review recording'}</h1>
           <span className="spacer" />
           <button className="btn ghost icon no-drag" onClick={() => void discard()}>
             <Icon name="close" />
@@ -308,7 +402,7 @@ export default function Recorder(): React.ReactElement {
         </header>
 
         <div className="hud-video">
-          {blobUrl && <video ref={videoRef} src={blobUrl} controls preload="metadata" />}
+          {mediaUrl && <video ref={videoRef} src={mediaUrl} controls preload="metadata" />}
         </div>
 
         <div className="hud-trim">

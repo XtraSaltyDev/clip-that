@@ -8,8 +8,10 @@ import type {
   ClipDocument,
   DisplayInfo,
   LibraryItem,
+  LibraryHealth,
   LibraryItemPatch,
   LibraryQuery,
+  RecoverableRecording,
   RecordingOptions,
   RecordingStatus,
   SaveImageRequest,
@@ -48,11 +50,12 @@ const api = {
     cancel: () => ipcRenderer.send(IPC.captureCancel),
     setEditorsVisible: (visible: boolean): Promise<CaptureEditorVisibility> =>
       ipcRenderer.invoke(IPC.captureEditorVisibility, visible),
-    onOverlayInit: (handler: (payload: unknown) => void) => on('overlay:init', handler),
+    onOverlayInit: (handler: (payload: unknown) => void) => on(IPC.captureOverlayInit, handler),
     onOverlayUpdate: (handler: (payload: CaptureOverlayUpdate) => void) =>
       on(IPC.captureOverlayUpdate, handler),
     onOverlayRelease: (handler: () => void) => on(IPC.captureOverlayRelease, handler),
-    onScrollFrameCount: (handler: (count: number) => void) => on('scroll:frame-count', handler)
+    onScrollFrameCount: (handler: (count: number) => void) =>
+      on(IPC.captureScrollFrameCount, handler)
   },
 
   editor: {
@@ -62,7 +65,11 @@ const api = {
     switchLibraryItem: (id: string): Promise<boolean> =>
       ipcRenderer.invoke(IPC.editorSwitchLibraryItem, id),
     open: (doc: ClipDocument): Promise<boolean> => ipcRenderer.invoke(IPC.editorOpen, doc),
-    close: () => ipcRenderer.send(IPC.editorClose)
+    close: () => ipcRenderer.send(IPC.editorClose),
+    closeReady: (): Promise<boolean> => ipcRenderer.invoke(IPC.editorCloseReady),
+    confirmClose: (allow: boolean): Promise<boolean> =>
+      ipcRenderer.invoke(IPC.editorConfirmClose, allow),
+    onCloseRequested: (handler: () => void) => on(IPC.editorCloseRequested, handler)
   },
 
   exports: {
@@ -99,7 +106,9 @@ const api = {
     open: (id: string): Promise<boolean> => ipcRenderer.invoke(IPC.libraryOpen, id),
     loadProject: (id: string): Promise<ClipDocument | null> =>
       ipcRenderer.invoke(IPC.libraryLoadProject, id),
+    health: (): Promise<LibraryHealth> => ipcRenderer.invoke(IPC.libraryHealth),
     onChanged: (handler: () => void) => on(IPC.libraryChanged, handler),
+    onIssue: (handler: (health: LibraryHealth) => void) => on(IPC.libraryIssue, handler),
     /** Turn an absolute library path into a URL the renderer may load. */
     fileUrl: (filePath: string) => `clipthat://file/${encodeURIComponent(filePath)}`
   },
@@ -115,13 +124,31 @@ const api = {
       ipcRenderer.invoke(IPC.recordConfigure, options),
     start: (options: RecordingOptions): Promise<RecordingStatus> =>
       ipcRenderer.invoke(IPC.recordStart, options),
-    started: () => ipcRenderer.send('record:started'),
+    started: (): Promise<RecordingStatus> => ipcRenderer.invoke(IPC.recordStarted),
     pause: (): Promise<RecordingStatus> => ipcRenderer.invoke(IPC.recordPause),
     resume: (): Promise<RecordingStatus> => ipcRenderer.invoke(IPC.recordResume),
     stop: (): Promise<RecordingStatus> => ipcRenderer.invoke(IPC.recordStop),
     cancel: (): Promise<RecordingStatus> => ipcRenderer.invoke(IPC.recordCancel),
     status: (): Promise<RecordingStatus> => ipcRenderer.invoke(IPC.recordStatus),
-    saveBlob: (bytes: Uint8Array): Promise<string> => ipcRenderer.invoke(IPC.recordSaveBlob, bytes),
+    appendChunk: (
+      sessionId: string,
+      sequence: number,
+      bytes: Uint8Array,
+      mimeType: string
+    ): Promise<void> =>
+      ipcRenderer.invoke(IPC.recordAppendChunk, sessionId, sequence, bytes, mimeType),
+    finalize: (meta: {
+      width: number
+      height: number
+      mimeType: string
+    }): Promise<RecoverableRecording> => ipcRenderer.invoke(IPC.recordFinalize, meta),
+    preserveFailure: (message: string): Promise<RecoverableRecording | null> =>
+      ipcRenderer.invoke(IPC.recordPreserveFailure, message),
+    recoveries: (): Promise<RecoverableRecording[]> => ipcRenderer.invoke(IPC.recordRecoveries),
+    recover: (id: string): Promise<RecoverableRecording> =>
+      ipcRenderer.invoke(IPC.recordRecover, id),
+    discardRecovery: (id: string): Promise<RecoverableRecording[]> =>
+      ipcRenderer.invoke(IPC.recordDiscardRecovery, id),
     export: (
       opts: VideoExportOptions,
       meta: { width: number; height: number; durationMs: number; posterDataUrl?: string }
@@ -129,7 +156,8 @@ const api = {
     onCommand: (handler: (payload: { command: string; options?: RecordingOptions }) => void) =>
       on(IPC.recordHudCommand, handler),
     /** Global cursor position stream while auto-zoom recording is live. */
-    onCursor: (handler: (point: { x: number; y: number }) => void) => on('record:cursor', handler),
+    onCursor: (handler: (point: { x: number; y: number }) => void) =>
+      on(IPC.recordCursor, handler),
     onStatus: (handler: (status: RecordingStatus) => void) => on(IPC.recordStatus, handler),
     onProgress: (handler: (payload: { percent: number }) => void) => on(IPC.recordProgress, handler)
   },
@@ -145,7 +173,7 @@ const api = {
     reset: (): Promise<Settings> => ipcRenderer.invoke(IPC.settingsReset),
     pickDirectory: (): Promise<string | null> => ipcRenderer.invoke(IPC.settingsPickDirectory),
     onChanged: (handler: (settings: Settings) => void) => on(IPC.settingsChanged, handler),
-    onNavigate: (handler: (section: string) => void) => on('settings:navigate', handler)
+    onNavigate: (handler: (section: string) => void) => on(IPC.settingsNavigate, handler)
   },
 
   system: {
@@ -160,6 +188,7 @@ const api = {
       ipcRenderer.invoke(IPC.permissionsRequest, kind),
     openExternal: (url: string): Promise<boolean> => ipcRenderer.invoke(IPC.openExternal, url),
     info: (): Promise<Record<string, string>> => ipcRenderer.invoke(IPC.appInfo),
+    exportDiagnostics: (): Promise<SaveResult> => ipcRenderer.invoke(IPC.exportDiagnostics),
     window: (action: 'minimize' | 'maximize' | 'close' | 'library' | 'settings' | 'record') =>
       ipcRenderer.send(IPC.windowControl, action),
     toast: (toast: Toast) => ipcRenderer.send(IPC.toast, toast),
@@ -168,9 +197,9 @@ const api = {
   },
 
   hud: {
-    resize: (width: number, height: number) => ipcRenderer.send('hud:resize', width, height),
-    dock: (width: number, height: number) => ipcRenderer.send('hud:dock', width, height),
-    close: () => ipcRenderer.send('hud:close')
+    resize: (width: number, height: number) => ipcRenderer.send(IPC.hudResize, width, height),
+    dock: (width: number, height: number) => ipcRenderer.send(IPC.hudDock, width, height),
+    close: () => ipcRenderer.send(IPC.hudClose)
   },
 
   pin: {
@@ -187,14 +216,14 @@ const api = {
       id: string,
       action: 'copy' | 'save' | 'pin' | 'edit'
     ): Promise<{ ok: boolean; error?: string }> => ipcRenderer.invoke(IPC.quickAction, id, action),
-    drag: (id: string): Promise<void> => ipcRenderer.invoke('quick:drag', id)
+    drag: (id: string): Promise<void> => ipcRenderer.invoke(IPC.quickDrag, id)
   },
 
   ocr: {
     onRequest: (
       handler: (payload: { id: string; dataUrl: string; rect?: unknown }) => void
-    ) => on('ocr:request', handler),
-    respond: (id: string, text: string) => ipcRenderer.send('ocr:result', { id, text })
+    ) => on(IPC.ocrRequest, handler),
+    respond: (id: string, text: string) => ipcRenderer.send(IPC.ocrResult, { id, text })
   }
 }
 

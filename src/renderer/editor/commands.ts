@@ -120,6 +120,7 @@ export function editorCommands(actions: EditorActions): Command[] {
       run: () => {
         state().begin()
         state().setCanvas(BEAUTIFY_CANVAS)
+        state().end()
         state().setPanel('inspect')
       }
     },
@@ -131,6 +132,7 @@ export function editorCommands(actions: EditorActions): Command[] {
       run: () => {
         state().begin()
         state().setCanvas(DEFAULT_CANVAS)
+        state().end()
       }
     },
     ...(['macos', 'windows', 'none'] as const).map((frame) => ({
@@ -142,6 +144,7 @@ export function editorCommands(actions: EditorActions): Command[] {
       run: () => {
         state().begin()
         state().setCanvas({ frame })
+        state().end()
       }
     })),
 

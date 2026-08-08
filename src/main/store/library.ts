@@ -1,11 +1,30 @@
 import { EventEmitter } from 'node:events'
-import { promises as fs, readFileSync, writeFileSync, renameSync } from 'node:fs'
-import { basename, join, resolve } from 'node:path'
+import { promises as fs } from 'node:fs'
+import { basename, extname, join, resolve } from 'node:path'
 import { randomUUID } from 'node:crypto'
 import { nativeImage } from 'electron'
-import type { ClipDocument, LibraryItem, LibraryItemPatch, LibraryQuery } from '@shared/types'
-import { capturesDir, libraryIndexFile, projectsDir, recordingsDir, thumbsDir } from './paths'
+import type {
+  ClipDocument,
+  LibraryHealth,
+  LibraryItem,
+  LibraryItemPatch,
+  LibraryQuery
+} from '@shared/types'
+import {
+  capturesDir,
+  libraryIndexBackupFile,
+  libraryIndexFile,
+  projectsDir,
+  recordingsDir,
+  thumbsDir
+} from './paths'
 import { isPathInside, isRealPathInside } from './path-guard'
+import {
+  discoverLibraryFiles,
+  loadLibraryIndex,
+  persistLibraryIndex,
+  type LibraryIndexLoadResult
+} from './library-index'
 
 const THUMB_MAX = 480
 
@@ -31,28 +50,99 @@ interface AddVideoInput {
 
 class LibraryStore extends EventEmitter {
   private items: LibraryItem[] | null = null
+  private loadResult: LibraryIndexLoadResult | null = null
+  private startupHealth: LibraryHealth | null = null
+  private runtimeHealth: LibraryHealth | null = null
+  private initialized = false
 
   private load(): LibraryItem[] {
     if (this.items) return this.items
-    try {
-      const raw = JSON.parse(readFileSync(libraryIndexFile(), 'utf8'))
-      this.items = Array.isArray(raw) ? (raw as LibraryItem[]) : []
-    } catch {
-      this.items = []
+    this.loadResult = loadLibraryIndex(libraryIndexFile(), libraryIndexBackupFile())
+    this.items = this.loadResult.items
+    if (this.loadResult.warning) {
+      this.startupHealth = {
+        status: this.loadResult.source === 'empty' ? 'error' : 'warning',
+        message: this.loadResult.warning,
+        detail: this.loadResult.detail
+      }
     }
     return this.items
   }
 
-  private persist(): void {
-    const target = libraryIndexFile()
-    const tmp = `${target}.tmp`
+  async initialize(): Promise<void> {
+    if (this.initialized) return
+    this.initialized = true
+    const loaded = this.load()
+    let reconciliation: Awaited<ReturnType<LibraryStore['reconcile']>>
     try {
-      writeFileSync(tmp, JSON.stringify(this.load(), null, 2), 'utf8')
-      renameSync(tmp, target)
+      reconciliation = await this.reconcile(loaded)
+    } catch (error) {
+      console.error('[library] startup reconciliation failed', error)
+      this.startupHealth = {
+        status: 'error',
+        message: 'The Library could not verify its files at startup',
+        detail: (error as Error).message
+      }
+      return
+    }
+    const { items, recovered, removed, repairedMetadata } = reconciliation
+    const changed = recovered > 0 || removed > 0 || repairedMetadata > 0
+    const canRepairUnreadable = this.loadResult?.source !== 'empty' || recovered > 0
+
+    if (changed || (this.loadResult?.needsRepair && canRepairUnreadable)) {
+      try {
+        this.commit(items, false)
+      } catch {
+        return
+      }
+    }
+
+    if (changed) {
+      const parts = [
+        recovered > 0 ? `${recovered} file(s) recovered` : '',
+        removed > 0 ? `${removed} missing record(s) removed` : '',
+        repairedMetadata > 0 ? `${repairedMetadata} metadata record(s) repaired` : ''
+      ].filter(Boolean)
+      this.startupHealth = {
+        status: 'warning',
+        message: 'The Library was reconciled with its files',
+        detail: parts.join('; '),
+        recoveredItems: recovered
+      }
+    } else if (this.loadResult?.source === 'backup') {
+      this.startupHealth = {
+        status: 'warning',
+        message: 'The Library index was restored from its backup',
+        detail: this.loadResult.detail
+      }
+    }
+  }
+
+  health(): LibraryHealth {
+    return (
+      this.runtimeHealth ??
+      this.startupHealth ?? { status: 'ok', message: 'Library storage is healthy' }
+    )
+  }
+
+  private commit(items: LibraryItem[], emitChanged = true): void {
+    const recoveredFromRuntimeIssue = this.runtimeHealth !== null
+    try {
+      persistLibraryIndex(libraryIndexFile(), libraryIndexBackupFile(), items)
+      this.items = items
+      this.runtimeHealth = null
     } catch (err) {
       console.error('[library] index write failed', err)
+      this.runtimeHealth = {
+        status: 'error',
+        message: 'Library changes could not be saved',
+        detail: (err as Error).message
+      }
+      this.emit('issue', this.health())
+      throw err
     }
-    this.emit('changed')
+    if (emitChanged) this.emit('changed')
+    if (recoveredFromRuntimeIssue) this.emit('issue', this.health())
   }
 
   list(query: LibraryQuery = {}): LibraryItem[] {
@@ -123,8 +213,7 @@ class LibraryStore extends EventEmitter {
       byteSize: stat?.size ?? 0
     }
 
-    this.load().unshift(item)
-    this.persist()
+    this.commit([item, ...this.load()])
     this.emit('added', item)
     return item
   }
@@ -161,8 +250,7 @@ class LibraryStore extends EventEmitter {
       byteSize: stat?.size ?? 0
     }
 
-    this.load().unshift(item)
-    this.persist()
+    this.commit([item, ...this.load()])
     return item
   }
 
@@ -173,10 +261,11 @@ class LibraryStore extends EventEmitter {
     project?: ClipDocument,
     ocrText?: string
   ): Promise<LibraryItem | undefined> {
-    const item = this.get(id)
-    if (!item) return undefined
+    const current = this.get(id)
+    if (!current) return undefined
     const image = nativeImage.createFromDataURL(dataUrl)
-    await fs.writeFile(item.filePath, image.toPNG())
+    await fs.writeFile(current.filePath, image.toPNG())
+    const item = { ...current }
     if (project) {
       item.projectPath ??= join(projectsDir(), `${id}.clipthat`)
       await fs.writeFile(item.projectPath, JSON.stringify(project), 'utf8')
@@ -189,13 +278,14 @@ class LibraryStore extends EventEmitter {
     if (ocrText !== undefined) item.ocrText = ocrText
     const stat = await fs.stat(item.filePath).catch(() => null)
     item.byteSize = stat?.size ?? item.byteSize
-    this.persist()
+    this.commit(this.load().map((candidate) => (candidate.id === id ? item : candidate)))
     return item
   }
 
   update(id: string, patch: LibraryItemPatch): LibraryItem | undefined {
-    const item = this.get(id)
-    if (!item) return undefined
+    const current = this.get(id)
+    if (!current) return undefined
+    const item = { ...current, tags: [...current.tags] }
     if (patch.title !== undefined) item.title = patch.title.trim().slice(0, 240) || item.title
     if (patch.tags !== undefined) {
       item.tags = [...new Set(patch.tags.map((tag) => tag.trim()).filter(Boolean))].slice(0, 50)
@@ -203,16 +293,16 @@ class LibraryStore extends EventEmitter {
     if (patch.favorite !== undefined) item.favorite = patch.favorite
     if (patch.ocrText !== undefined) item.ocrText = patch.ocrText.slice(0, 2_000_000)
     item.updatedAt = Date.now()
-    this.persist()
+    this.commit(this.load().map((candidate) => (candidate.id === id ? item : candidate)))
     return item
   }
 
   /** Deterministic timeline seeding for the development-only visual harness. */
   setCreatedAtForVisualCheck(id: string, createdAt: number): void {
-    const item = this.get(id)
-    if (!item) return
-    item.createdAt = createdAt
-    this.persist()
+    const current = this.get(id)
+    if (!current) return
+    const item = { ...current, createdAt }
+    this.commit(this.load().map((candidate) => (candidate.id === id ? item : candidate)))
   }
 
   /** Exact allowlist for renderer requests that reveal or open a library-owned record. */
@@ -229,22 +319,44 @@ class LibraryStore extends EventEmitter {
     const set = new Set(ids)
     const items = this.load()
     const removed = items.filter((i) => set.has(i.id))
-    this.items = items.filter((i) => !set.has(i.id))
+    const next = items.filter((i) => !set.has(i.id))
 
-    await Promise.all(
-      removed.flatMap((i) => [
-        isPathInside(capturesDir(), i.filePath) || isPathInside(recordingsDir(), i.filePath)
-          ? fs.rm(i.filePath, { force: true }).catch(() => {})
-          : Promise.resolve(),
-        i.projectPath && isPathInside(projectsDir(), i.projectPath)
-          ? fs.rm(i.projectPath, { force: true }).catch(() => {})
-          : Promise.resolve(),
-        i.thumbnail
-          ? fs.rm(join(thumbsDir(), basename(i.thumbnail)), { force: true }).catch(() => {})
-          : Promise.resolve()
-      ])
-    )
-    this.persist()
+    // Make the removal durable before deleting files. A failed index write leaves every
+    // asset and the old index intact, so the user can safely retry.
+    this.commit(next)
+
+    const failures = (
+      await Promise.all(
+        removed.flatMap((i) => [
+          isPathInside(capturesDir(), i.filePath) || isPathInside(recordingsDir(), i.filePath)
+            ? fs.rm(i.filePath, { force: true }).then(
+                () => null,
+                (error) => error as Error
+              )
+            : Promise.resolve(null),
+          i.projectPath && isPathInside(projectsDir(), i.projectPath)
+            ? fs.rm(i.projectPath, { force: true }).then(
+                () => null,
+                (error) => error as Error
+              )
+            : Promise.resolve(null),
+          i.thumbnail
+            ? fs.rm(join(thumbsDir(), basename(i.thumbnail)), { force: true }).then(
+                () => null,
+                (error) => error as Error
+              )
+            : Promise.resolve(null)
+        ])
+      )
+    ).filter((error): error is Error => error instanceof Error)
+    if (failures.length > 0) {
+      this.runtimeHealth = {
+        status: 'warning',
+        message: 'Some deleted Library files could not be removed',
+        detail: failures[0].message
+      }
+      this.emit('issue', this.health())
+    }
   }
 
   async loadProject(id: string): Promise<ClipDocument | null> {
@@ -272,6 +384,118 @@ class LibraryStore extends EventEmitter {
     const path = join(thumbsDir(), `${id}.png`)
     await fs.writeFile(path, thumb.toPNG())
     return path
+  }
+
+  private async reconcile(items: LibraryItem[]): Promise<{
+    items: LibraryItem[]
+    recovered: number
+    removed: number
+    repairedMetadata: number
+  }> {
+    const valid: LibraryItem[] = []
+    let removed = 0
+    let repairedMetadata = 0
+
+    for (const item of items) {
+      const root = item.kind === 'image' ? capturesDir() : recordingsDir()
+      const owned = isPathInside(root, item.filePath) && (await isRealPathInside(root, item.filePath))
+      if (!owned) {
+        removed += 1
+        continue
+      }
+      const stat = await fs.stat(item.filePath).catch(() => null)
+      if (!stat?.isFile()) {
+        removed += 1
+        continue
+      }
+
+      let next = item
+      if (item.kind === 'image' && (!item.thumbnail || !(await this.fileExists(item.thumbnail)))) {
+        const image = nativeImage.createFromPath(item.filePath)
+        if (!image.isEmpty()) {
+          next = { ...item, thumbnail: await this.writeThumb(item.id, image), byteSize: stat.size }
+          repairedMetadata += 1
+        }
+      } else if (item.byteSize !== stat.size) {
+        next = { ...item, byteSize: stat.size }
+        repairedMetadata += 1
+      }
+      valid.push(next)
+    }
+
+    const referenced = new Set(valid.map((item) => resolve(item.filePath)))
+    const usedIds = new Set(valid.map((item) => item.id))
+    const recoveredItems: LibraryItem[] = []
+    const discovered = await discoverLibraryFiles(capturesDir(), recordingsDir(), referenced)
+    for (const { filePath, kind } of discovered) {
+      const recovered = await this.recoverFile(filePath, kind, usedIds)
+      if (!recovered) continue
+      recoveredItems.push(recovered)
+      usedIds.add(recovered.id)
+    }
+
+    return {
+      items: [...recoveredItems, ...valid].sort((a, b) => b.createdAt - a.createdAt),
+      recovered: recoveredItems.length,
+      removed,
+      repairedMetadata
+    }
+  }
+
+  private async recoverFile(
+    filePath: string,
+    kind: LibraryItem['kind'],
+    usedIds: Set<string>
+  ): Promise<LibraryItem | null> {
+    const stat = await fs.stat(filePath).catch(() => null)
+    if (!stat?.isFile()) return null
+    const stem = basename(filePath, extname(filePath))
+    const id = !usedIds.has(stem) && /^[0-9a-f-]{36}$/i.test(stem) ? stem : randomUUID()
+    const projectCandidate = join(projectsDir(), `${stem}.clipthat`)
+    const thumbCandidate = join(thumbsDir(), `${stem}.png`)
+    let project: ClipDocument | null = null
+    if (kind === 'image' && (await this.fileExists(projectCandidate))) {
+      project = await fs
+        .readFile(projectCandidate, 'utf8')
+        .then(
+          (text) => JSON.parse(text) as ClipDocument,
+          () => null
+        )
+        .catch(() => null)
+    }
+
+    let width = 1
+    let height = 1
+    let thumbnail = (await this.fileExists(thumbCandidate)) ? thumbCandidate : ''
+    if (kind === 'image') {
+      const image = nativeImage.createFromPath(filePath)
+      if (image.isEmpty()) return null
+      const size = image.getSize()
+      width = size.width
+      height = size.height
+      if (!thumbnail) thumbnail = await this.writeThumb(id, image)
+    }
+
+    return {
+      id,
+      title: project?.title?.trim() || `Recovered ${kind === 'image' ? 'capture' : 'recording'}`,
+      createdAt: stat.birthtimeMs || stat.mtimeMs,
+      updatedAt: stat.mtimeMs,
+      kind,
+      width,
+      height,
+      filePath,
+      projectPath: project ? projectCandidate : undefined,
+      thumbnail,
+      tags: [],
+      favorite: false,
+      ocrText: project?.ocrText,
+      byteSize: stat.size
+    }
+  }
+
+  private async fileExists(path: string): Promise<boolean> {
+    return fs.stat(path).then((stat) => stat.isFile(), () => false)
   }
 }
 

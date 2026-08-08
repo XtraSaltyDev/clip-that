@@ -29,6 +29,7 @@ export default function App(): React.ReactElement {
   const [dropping, setDropping] = useState(false)
   const [paletteOpen, setPaletteOpen] = useState(false)
   const [openingLibraryId, setOpeningLibraryId] = useState<string | null>(null)
+  const closeSaving = useRef(false)
   // Rebuilt when the palette opens so disabled states reflect the current selection.
   const commands = useMemo(() => editorCommands(actions), [actions, paletteOpen])
 
@@ -61,6 +62,47 @@ export default function App(): React.ReactElement {
       off()
     }
   }, [actions.render, actions.syncLibrary, setDoc])
+
+  /* ---------- dirty-close interception ---------- */
+
+  useEffect(() => {
+    const off = api.editor.onCloseRequested(() => {
+      if (closeSaving.current) return
+      closeSaving.current = true
+      void (async () => {
+        try {
+          const current = useEditor.getState()
+          if (current.dirty) {
+            const rendered = await actions.render()
+            if (!rendered) throw new Error('The edited image could not be rendered')
+            await actions.syncLibrary(rendered)
+            useEditor.getState().markSaved()
+          }
+          await api.editor.confirmClose(true)
+        } catch (error) {
+          toast('error', 'Could not save changes before closing', (error as Error).message)
+          await api.editor.confirmClose(false)
+        } finally {
+          closeSaving.current = false
+        }
+      })()
+    })
+    void api.editor.closeReady()
+    return off
+  }, [actions.render, actions.syncLibrary])
+
+  useEffect(() => {
+    void api.library.health().then((health) => {
+      if (health.status !== 'ok') {
+        toast(health.status === 'error' ? 'error' : 'info', health.message, health.detail)
+      }
+    })
+    return api.library.onIssue((health) => {
+      if (health.status !== 'ok') {
+        toast(health.status === 'error' ? 'error' : 'info', health.message, health.detail)
+      }
+    })
+  }, [])
 
   /* ---------- seed tool defaults from settings ---------- */
 
@@ -304,4 +346,5 @@ function nudge(dx: number, dy: number): void {
     }
   }
   state.updateShapes(patch)
+  state.end()
 }

@@ -99,7 +99,7 @@ job after a push to `main`, skips documentation-only pushes, cancels superseded 
 runs the typecheck, tests, and production bundle. Pull requests do not trigger a second
 duplicate run; use the manual CI button when a branch needs validation before merging.
 
-## Windows / Linux
+## Unsupported Windows / Linux candidates
 
 ```powershell
 npm run release:win      # signed x64 NSIS installer + portable EXE + ZIP
@@ -109,9 +109,9 @@ The Windows release command accepts either Azure Artifact Signing or a normal OV
 code-signing certificate. It refuses to emit an unsigned release and verifies both the
 Authenticode signature and trusted timestamp, including `ClipThat.exe` inside the ZIP.
 Configure the variables documented by the error printed by `scripts/release-win.ps1`.
-Windows release automation is intentionally not part of the macOS workflow. Run and
-validate `release:win` separately when Windows signing credentials and test hardware are
-available.
+Windows release automation is intentionally not part of the supported macOS workflow.
+Any Windows output remains experimental until `release:win` is run with signing credentials
+and the manual checklist passes on Windows test hardware.
 
 Windows ARM64 is deliberately not advertised: the recorder's bundled FFmpeg
 does not provide a native ARM64 binary. The x64 package is the candidate to test under
@@ -121,7 +121,7 @@ Windows 11 ARM emulation; do not label it supported until that runtime check pas
 npm run build:linux      # AppImage, deb, rpm (unsigned development artifacts)
 ```
 
-**Windows and Linux have not been runtime-tested in this checkout.** The capture paths are written and typed
+**Windows and Linux are not supported release targets and have not been runtime-tested in this checkout.** The capture paths are written and typed
 (`desktopCapturer` on both; portal picker on Wayland; loopback system audio), and CI
 builds them, but before calling a Windows or Linux build releasable someone must run the
 end-to-end checklist below on real hardware.

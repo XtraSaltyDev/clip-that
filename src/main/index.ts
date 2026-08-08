@@ -1,21 +1,19 @@
-import { app, BrowserWindow, clipboard, ipcMain, protocol, net } from 'electron'
+import { app, BrowserWindow, clipboard, protocol, net } from 'electron'
 import { promises as fs } from 'node:fs'
 import { pathToFileURL } from 'node:url'
 import { IPC } from '@shared/ipc'
-import { installFileLogger, flushLog, logFilePath } from './log'
+import { installFileLogger, flushLog } from './log'
 import { settings } from './store/settings'
-import { libraryDir } from './store/paths'
+import { libraryDir, recordingSessionsDir } from './store/paths'
 import { registerIpcHandlers } from './ipc/handlers'
 import { emitter, hotkeyFailures, registerHotkeys, unregisterHotkeys } from './hotkeys'
 import { checkPermissions } from './permissions'
 import { createTray, installAppMenu } from './tray'
 import {
   broadcast,
-  closeHudWindow,
-  dockHud,
   getSingleton,
   hasVisibleWindows,
-  resizeWindow,
+  markEditorAppQuitRequested,
   showHudWindow,
   showLibraryWindow,
   showSettingsWindow
@@ -49,9 +47,11 @@ function registerLibraryProtocol(): void {
       const url = new URL(request.url)
       // clipthat://file/<absolute path, URI-encoded>
       const raw = decodeURIComponent(url.pathname.replace(/^\//, ''))
-      const root = libraryDir()
-      // Resolve symlinks too: a path that only appears to live in the library is not enough.
-      if (!(await isRealPathInside(root, raw))) {
+      // Resolve symlinks too: a path that only appears to live in an allowed root is not enough.
+      const libraryFile = await isRealPathInside(libraryDir(), raw)
+      const recoveryFile =
+        recording.ownsRawPath(raw) && (await isRealPathInside(recordingSessionsDir(), raw))
+      if (!libraryFile && !recoveryFile) {
         return new Response('forbidden', { status: 403 })
       }
       const resolved = await fs.realpath(raw)
@@ -108,22 +108,11 @@ app.whenReady().then(async () => {
   installFileLogger()
   if (process.platform === 'win32') app.setAppUserModelId('dev.clipthat.app')
 
+  await recording.initializeRecovery()
+  await library.initialize()
   registerLibraryProtocol()
   registerIpcHandlers()
   recording.installDisplayMediaHandler()
-
-  // Window-level extras the IPC module doesn't own.
-  ipcMain.on('hud:resize', (e, width: number, height: number) => {
-    resizeWindow(BrowserWindow.fromWebContents(e.sender), width, height)
-  })
-  ipcMain.on('hud:dock', (_e, width: number, height: number) => dockHud(width, height))
-  ipcMain.on('hud:close', () => {
-    if (recording.status().state === 'idle') {
-      closeHudWindow()
-      return
-    }
-    void recording.discard().finally(closeHudWindow)
-  })
 
   const s = settings.get()
   if (IS_MAC && !s.showInDock) app.dock?.hide()
@@ -169,6 +158,8 @@ app.whenReady().then(async () => {
   } else if (!s.showInTray) {
     showLibraryWindow()
   }
+
+  if (recording.recoveries().length > 0) showHudWindow('recovery')
 
   const selfTest = process.env['CLIPTHAT_SELF_TEST']
   if (selfTest) {
@@ -220,6 +211,7 @@ app.on('will-quit', () => {
 })
 
 app.on('before-quit', () => {
+  markEditorAppQuitRequested()
   if (recording.status().state === 'recording') stopRecordingFlow()
 })
 

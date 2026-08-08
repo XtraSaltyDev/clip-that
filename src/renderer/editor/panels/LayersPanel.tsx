@@ -48,7 +48,7 @@ function describe(shape: Shape): string {
 export default function LayersPanel(): React.ReactElement {
   const doc = useEditor((s) => s.doc)
   const selectedIds = useEditor((s) => s.selectedIds)
-  const { select, updateShape, removeShapes, reorder, begin, setTool } = useEditor.getState()
+  const { select, updateShape, removeShapes, reorder, begin, end, setTool } = useEditor.getState()
 
   const shapes = [...(doc?.shapes ?? [])].sort((a, b) => b.z - a.z)
 
@@ -96,6 +96,7 @@ export default function LayersPanel(): React.ReactElement {
                 e.stopPropagation()
                 begin()
                 updateShape(shape.id, { hidden: !shape.hidden })
+                end()
               }}
             >
               <Icon name={shape.hidden ? 'eyeOff' : 'eye'} size={13} />
@@ -107,6 +108,7 @@ export default function LayersPanel(): React.ReactElement {
                 e.stopPropagation()
                 begin()
                 updateShape(shape.id, { locked: !shape.locked })
+                end()
               }}
             >
               <Icon name="lock" size={13} style={{ opacity: shape.locked ? 1 : 0.4 }} />

@@ -198,6 +198,36 @@ body {
   height: 16px;
 }
 
+/* ---------- recording recovery ---------- */
+
+.hud-recovery-list {
+  display: flex;
+  flex: 1;
+  min-height: 0;
+  flex-direction: column;
+  gap: 8px;
+  padding: 12px 14px;
+  overflow-y: auto;
+}
+.hud-recovery-list > p {
+  margin: 0 0 4px;
+}
+.hud-recovery-item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 10px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  background: var(--bg-2);
+}
+.hud-recovery-item strong {
+  display: block;
+  margin-bottom: 3px;
+  color: var(--ink-0);
+  font-size: 12px;
+}
+
 /* ---------- encoding ---------- */
 
 .hud-encoding {

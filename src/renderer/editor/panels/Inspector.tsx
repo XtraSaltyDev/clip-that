@@ -1,5 +1,12 @@
 import React, { useState } from 'react'
-import type { ArrowShape, BoxShape, Shape, StepShape, TextShape } from '@shared/types'
+import type {
+  ArrowShape,
+  BoxShape,
+  CanvasStyle,
+  Shape,
+  StepShape,
+  TextShape
+} from '@shared/types'
 import { BEAUTIFY_CANVAS, DEFAULT_CANVAS } from '@shared/defaults'
 import { ColorPicker, Segmented, Slider, Toggle } from '../../shared/ui'
 import { Icon } from '../../shared/icons'
@@ -192,11 +199,12 @@ function labelFor(shape: Shape): string {
 }
 
 function ShapeStyle({ shape }: { shape: Shape }): React.ReactElement {
-  const { updateShape, begin, removeShapes, reorder } = useEditor.getState()
+  const { updateShape, begin, end, removeShapes, reorder } = useEditor.getState()
 
   const patch = (p: Partial<Shape>, history = true) => {
     if (history) begin()
     updateShape(shape.id, p)
+    if (history) end()
   }
 
   const hasStroke = 'stroke' in shape && shape.type !== 'redact' && shape.type !== 'spotlight'
@@ -209,7 +217,9 @@ function ShapeStyle({ shape }: { shape: Shape }): React.ReactElement {
         <Row label={isText ? 'Text' : 'Colour'}>
           <ColorPicker
             value={(shape as { stroke?: string }).stroke ?? '#ff3b30'}
-            onChange={(stroke) => patch({ stroke } as Partial<Shape>)}
+            onChangeStart={begin}
+            onChangeEnd={end}
+            onChange={(stroke) => patch({ stroke } as Partial<Shape>, false)}
           />
         </Row>
       )}
@@ -219,14 +229,18 @@ function ShapeStyle({ shape }: { shape: Shape }): React.ReactElement {
           <Row label="Text">
             <ColorPicker
               value={(shape as TextShape).color}
-              onChange={(color) => patch({ color } as Partial<Shape>)}
+              onChangeStart={begin}
+              onChangeEnd={end}
+              onChange={(color) => patch({ color } as Partial<Shape>, false)}
             />
           </Row>
           {shape.type === 'callout' && (
             <Row label="Bubble">
               <ColorPicker
                 value={(shape as TextShape).background ?? '#ff3b30'}
-                onChange={(background) => patch({ background } as Partial<Shape>)}
+                onChangeStart={begin}
+                onChangeEnd={end}
+                onChange={(background) => patch({ background } as Partial<Shape>, false)}
               />
             </Row>
           )}
@@ -236,6 +250,8 @@ function ShapeStyle({ shape }: { shape: Shape }): React.ReactElement {
             min={10}
             max={140}
             suffix="px"
+            onChangeStart={begin}
+            onChangeEnd={end}
             onChange={(fontSize) => patch({ fontSize } as Partial<Shape>, false)}
           />
           <Row label="Align">
@@ -270,6 +286,8 @@ function ShapeStyle({ shape }: { shape: Shape }): React.ReactElement {
           min={1}
           max={40}
           suffix="px"
+          onChangeStart={begin}
+          onChangeEnd={end}
           onChange={(strokeWidth) => patch({ strokeWidth } as Partial<Shape>, false)}
         />
       )}
@@ -289,6 +307,8 @@ function ShapeStyle({ shape }: { shape: Shape }): React.ReactElement {
               value={(shape as BoxShape).cornerRadius ?? 0}
               min={0}
               max={80}
+              onChangeStart={begin}
+              onChangeEnd={end}
               onChange={(cornerRadius) => patch({ cornerRadius } as Partial<Shape>, false)}
             />
           )}
@@ -301,6 +321,8 @@ function ShapeStyle({ shape }: { shape: Shape }): React.ReactElement {
           value={(shape as BoxShape).intensity ?? 12}
           min={2}
           max={60}
+          onChangeStart={begin}
+          onChangeEnd={end}
           onChange={(intensity) => patch({ intensity } as Partial<Shape>, false)}
         />
       )}
@@ -313,6 +335,8 @@ function ShapeStyle({ shape }: { shape: Shape }): React.ReactElement {
           max={6}
           step={0.1}
           suffix="×"
+          onChangeStart={begin}
+          onChangeEnd={end}
           onChange={(intensity) => patch({ intensity } as Partial<Shape>, false)}
         />
       )}
@@ -324,6 +348,8 @@ function ShapeStyle({ shape }: { shape: Shape }): React.ReactElement {
           min={10}
           max={95}
           suffix="%"
+          onChangeStart={begin}
+          onChangeEnd={end}
           onChange={(v) => patch({ dim: v / 100 } as Partial<Shape>, false)}
         />
       )}
@@ -336,7 +362,9 @@ function ShapeStyle({ shape }: { shape: Shape }): React.ReactElement {
               type="number"
               min={0}
               value={(shape as StepShape).index}
-              onChange={(e) => patch({ index: Number(e.target.value) } as Partial<Shape>)}
+              onFocus={begin}
+              onBlur={end}
+              onChange={(e) => patch({ index: Number(e.target.value) } as Partial<Shape>, false)}
             />
           </Row>
           <Row label="Shape">
@@ -355,6 +383,8 @@ function ShapeStyle({ shape }: { shape: Shape }): React.ReactElement {
             value={(shape as StepShape).radius}
             min={10}
             max={90}
+            onChangeStart={begin}
+            onChangeEnd={end}
             onChange={(radius) =>
               patch({ radius, fontSize: Math.round(radius * 1.1) } as Partial<Shape>, false)
             }
@@ -362,7 +392,9 @@ function ShapeStyle({ shape }: { shape: Shape }): React.ReactElement {
           <Row label="Fill">
             <ColorPicker
               value={(shape as StepShape).fill}
-              onChange={(fill) => patch({ fill } as Partial<Shape>)}
+              onChangeStart={begin}
+              onChangeEnd={end}
+              onChange={(fill) => patch({ fill } as Partial<Shape>, false)}
             />
           </Row>
         </>
@@ -375,6 +407,8 @@ function ShapeStyle({ shape }: { shape: Shape }): React.ReactElement {
             value={(shape as ArrowShape).curve ?? 0}
             min={-160}
             max={160}
+            onChangeStart={begin}
+            onChangeEnd={end}
             onChange={(curve) => patch({ curve } as Partial<Shape>, false)}
           />
           <Toggle
@@ -418,6 +452,8 @@ function ShapeStyle({ shape }: { shape: Shape }): React.ReactElement {
         min={5}
         max={100}
         suffix="%"
+        onChangeStart={begin}
+        onChangeEnd={end}
         onChange={(v) => patch({ opacity: v / 100 } as Partial<Shape>, false)}
       />
 
@@ -457,10 +493,9 @@ function ShapeStyle({ shape }: { shape: Shape }): React.ReactElement {
 }
 
 function MultiSelection({ shapes }: { shapes: Shape[] }): React.ReactElement {
-  const { begin, updateShapes, removeShapes } = useEditor.getState()
+  const { begin, end, updateShapes, removeShapes } = useEditor.getState()
 
   const applyColour = (color: string) => {
-    begin()
     const patch: Record<string, Partial<Shape>> = {}
     for (const s of shapes) {
       patch[s.id] =
@@ -479,7 +514,12 @@ function MultiSelection({ shapes }: { shapes: Shape[] }): React.ReactElement {
         {shapes.length} shapes selected
       </p>
       <Row label="Colour">
-        <ColorPicker value="#ff3b30" onChange={applyColour} />
+        <ColorPicker
+          value="#ff3b30"
+          onChangeStart={begin}
+          onChangeEnd={end}
+          onChange={applyColour}
+        />
       </Row>
       <div className="divider" />
       <button className="btn sm danger" onClick={() => removeShapes(shapes.map((s) => s.id))}>
@@ -497,26 +537,26 @@ function CanvasStyleEditor(): React.ReactElement {
   const doc = useEditor((s) => s.doc)!
   const setCanvas = useEditor((s) => s.setCanvas)
   const begin = useEditor((s) => s.begin)
+  const end = useEditor((s) => s.end)
   const c = doc.canvas
+  const changeCanvas = (patch: Partial<CanvasStyle>) => {
+    begin()
+    setCanvas(patch)
+    end()
+  }
 
   return (
     <>
       <div className="row" style={{ gap: 6 }}>
         <button
           className="btn sm primary"
-          onClick={() => {
-            begin()
-            setCanvas(BEAUTIFY_CANVAS)
-          }}
+          onClick={() => changeCanvas(BEAUTIFY_CANVAS)}
         >
           <Icon name="sparkles" size={13} /> Beautify
         </button>
         <button
           className="btn sm ghost"
-          onClick={() => {
-            begin()
-            setCanvas(DEFAULT_CANVAS)
-          }}
+          onClick={() => changeCanvas(DEFAULT_CANVAS)}
         >
           Reset
         </button>
@@ -530,6 +570,8 @@ function CanvasStyleEditor(): React.ReactElement {
         min={0}
         max={220}
         suffix="px"
+        onChangeStart={begin}
+        onChangeEnd={end}
         onChange={(padding) => setCanvas({ padding })}
       />
 
@@ -541,7 +583,7 @@ function CanvasStyleEditor(): React.ReactElement {
             { value: 'solid', label: 'Solid' },
             { value: 'gradient', label: 'Gradient' }
           ]}
-          onChange={(background) => setCanvas({ background })}
+          onChange={(background) => changeCanvas({ background })}
         />
       </Row>
 
@@ -549,6 +591,8 @@ function CanvasStyleEditor(): React.ReactElement {
         <Row label="Colour">
           <ColorPicker
             value={c.backgroundColor}
+            onChangeStart={begin}
+            onChangeEnd={end}
             onChange={(backgroundColor) => setCanvas({ backgroundColor })}
             swatches={['#0b0f14', '#111827', '#1f2937', '#f8fafc', '#e2e8f0', '#ffffff']}
           />
@@ -564,7 +608,7 @@ function CanvasStyleEditor(): React.ReactElement {
                 title={g.name}
                 className="grad-swatch"
                 style={{ background: `linear-gradient(135deg, ${g.from}, ${g.to})` }}
-                onClick={() => setCanvas({ gradientFrom: g.from, gradientTo: g.to })}
+                onClick={() => changeCanvas({ gradientFrom: g.from, gradientTo: g.to })}
               />
             ))}
           </div>
@@ -574,6 +618,8 @@ function CanvasStyleEditor(): React.ReactElement {
             min={0}
             max={360}
             suffix="°"
+            onChangeStart={begin}
+            onChangeEnd={end}
             onChange={(gradientAngle) => setCanvas({ gradientAngle })}
           />
         </>
@@ -584,6 +630,8 @@ function CanvasStyleEditor(): React.ReactElement {
         value={c.radius}
         min={0}
         max={64}
+        onChangeStart={begin}
+        onChangeEnd={end}
         onChange={(radius) => setCanvas({ radius })}
       />
       <Slider
@@ -591,6 +639,8 @@ function CanvasStyleEditor(): React.ReactElement {
         value={c.shadowBlur}
         min={0}
         max={160}
+        onChangeStart={begin}
+        onChangeEnd={end}
         onChange={(shadowBlur) => setCanvas({ shadowBlur })}
       />
       {c.shadowBlur > 0 && (
@@ -600,6 +650,8 @@ function CanvasStyleEditor(): React.ReactElement {
           min={5}
           max={100}
           suffix="%"
+          onChangeStart={begin}
+          onChangeEnd={end}
           onChange={(v) => setCanvas({ shadowOpacity: v / 100 })}
         />
       )}
@@ -609,6 +661,8 @@ function CanvasStyleEditor(): React.ReactElement {
         min={0}
         max={12}
         suffix="px"
+        onChangeStart={begin}
+        onChangeEnd={end}
         onChange={(borderWidth) => setCanvas({ borderWidth })}
       />
 
@@ -622,7 +676,7 @@ function CanvasStyleEditor(): React.ReactElement {
             { value: 'macos', label: 'macOS' },
             { value: 'windows', label: 'Windows' }
           ]}
-          onChange={(frame) => setCanvas({ frame })}
+          onChange={(frame) => changeCanvas({ frame })}
         />
       </Row>
       {c.frame !== 'none' && (
@@ -631,6 +685,8 @@ function CanvasStyleEditor(): React.ReactElement {
             className="field"
             value={c.frameTitle ?? ''}
             placeholder="Optional window title"
+            onFocus={begin}
+            onBlur={end}
             onChange={(e) => setCanvas({ frameTitle: e.target.value })}
           />
         </Row>
@@ -640,7 +696,7 @@ function CanvasStyleEditor(): React.ReactElement {
         <select
           className="field"
           value={c.aspect ?? 'auto'}
-          onChange={(e) => setCanvas({ aspect: e.target.value })}
+          onChange={(e) => changeCanvas({ aspect: e.target.value })}
         >
           {ASPECTS.map((a) => (
             <option key={a} value={a}>
@@ -656,6 +712,8 @@ function CanvasStyleEditor(): React.ReactElement {
         min={-24}
         max={24}
         suffix="°"
+        onChangeStart={begin}
+        onChangeEnd={end}
         onChange={(tiltY) => setCanvas({ tiltY })}
       />
       <Slider
@@ -664,6 +722,8 @@ function CanvasStyleEditor(): React.ReactElement {
         min={-24}
         max={24}
         suffix="°"
+        onChangeStart={begin}
+        onChangeEnd={end}
         onChange={(tiltX) => setCanvas({ tiltX })}
       />
     </>
@@ -673,13 +733,21 @@ function CanvasStyleEditor(): React.ReactElement {
 function DocumentInfo(): React.ReactElement {
   const doc = useEditor((s) => s.doc)!
   const setTitle = useEditor((s) => s.setTitle)
+  const begin = useEditor((s) => s.begin)
+  const end = useEditor((s) => s.end)
   const resetCrop = useEditor((s) => s.resetCrop)
   const size = useEditor((s) => s.contentSize)()
 
   return (
     <>
       <Row label="Name">
-        <input className="field" value={doc.title} onChange={(e) => setTitle(e.target.value)} />
+        <input
+          className="field"
+          value={doc.title}
+          onFocus={begin}
+          onBlur={end}
+          onChange={(e) => setTitle(e.target.value)}
+        />
       </Row>
       <div className="insp-facts tiny mono">
         <div>

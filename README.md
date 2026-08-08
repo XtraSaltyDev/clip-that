@@ -1,10 +1,12 @@
 # ClipThat
 
-A modern, cross-platform Snagit replacement. Screen capture, non-destructive annotation,
+A modern, private Snagit replacement. Screen capture, non-destructive annotation,
 screen recording — and a screenshot that knows what's in it.
 
-Runs on **macOS, Windows and Linux**. No account. No cloud. No telemetry. Everything,
-including text recognition, runs offline.
+The currently supported release target is **macOS on Apple silicon**. Windows x64 is an
+experimental package target and Linux is build configuration only; neither has completed
+runtime acceptance. No account. No cloud. No telemetry. Everything, including text
+recognition, runs offline.
 
 ```bash
 npm install
@@ -80,11 +82,13 @@ Full undo/redo, multi-select, a layers panel, snapping alignment guides, and a f
 toolbar that appears at whatever you've selected.
 
 ### Recording
-Screen or window, 15–60 fps, microphone, system audio (Windows/Linux), a circular
+Screen or window, 15–60 fps, microphone, a circular
 **webcam bubble** composited into the video, and **auto-zoom** — a smoothed camera that
 follows your cursor with a dead-zone, so recordings read like produced video instead of a
 raw screen dump. Floating controller with pause/resume, then a
 review step with trimming and export to **MP4 (H.264)**, **GIF** (two-pass palette), or **WebM**.
+Windows/Linux system-audio paths exist in source but are not a supported or runtime-accepted
+feature.
 
 ### Library
 Grid or list, grouped into Today / Yesterday / weekday / date. Tags, favourites, full-text
@@ -148,7 +152,7 @@ src/
 - **ffmpeg** ships with the app via `@ffmpeg-installer`.
 - **No native node modules**, so `npm install` never needs a compiler.
 
-Renderers run with `contextIsolation` on and `nodeIntegration` off, behind a strict CSP.
+Renderers run sandboxed with `contextIsolation` on and `nodeIntegration` off, behind a strict CSP.
 Library files reach the UI through a `clipthat://` protocol handler that refuses any path
 outside the library directory.
 
@@ -156,8 +160,9 @@ outside the library directory.
 
 | | macOS | Windows | Linux |
 |---|---|---|---|
+| Release status | **Supported: Apple silicon** | Experimental x64 candidate; no runtime acceptance | Build configuration only; no runtime acceptance |
 | Capture | `screencapture -R` per display (the full-display forms fail in-process); `desktopCapturer` as fallback only | `desktopCapturer` | `desktopCapturer` (X11), portal picker (Wayland) |
-| System audio | not supported without a virtual audio device — the UI says so | loopback | loopback (PipeWire) |
+| System audio | not supported without a virtual audio device — the UI says so | loopback path, unverified | loopback path, unverified |
 | Permissions | Screen Recording must be granted; the app verifies by actually reading pixels, not by trusting the status flag | — | — |
 
 ---
@@ -167,14 +172,14 @@ outside the library directory.
 ```bash
 npm run dev            # run the app
 npm run build          # typecheck + bundle
-npm run build:mac      # dmg + zip (arm64, x64)
-npm run build:win      # nsis installer + portable
-npm run build:linux    # AppImage, deb, rpm
+npm run build:mac      # Apple-silicon dmg + zip
+npm run build:win      # experimental x64 packages; not runtime acceptance
+npm run build:linux    # unsigned development packages; not runtime acceptance
 node build/gen-icons.mjs   # regenerate the icon set from source, no image deps
 ```
 
 ```bash
-npm test               # 102 unit + regression tests, no Electron needed
+npm test               # unit + regression tests, no Electron needed
 npm run fixture <png>  # regenerate an OCR fixture from a screenshot
 ```
 
@@ -199,7 +204,7 @@ node scripts/extract-check.mjs /tmp/shots/00-source.png
 
 # End-to-end, inside the packaged app with real permissions: latency budget, pin,
 # quick access, pipeline, scrolling capture, and MP4/GIF/auto-zoom recording.
-# Verified 8/8 on macOS.
+# This is the required real-device acceptance gate; a source build is not equivalent.
 CLIPTHAT_SELF_TEST=all /Applications/ClipThat.app/Contents/MacOS/ClipThat
 ```
 
