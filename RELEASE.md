@@ -68,9 +68,11 @@ npm run install:mac      # build → sign → /Applications, keeps the TCC grant
   `https://github.com/XtraSaltyDev/clip-that/releases/ClipThat-arm64.dmg`; the machine-readable
   release record is `https://github.com/XtraSaltyDev/clip-that/releases/latest.json`. Both are
   reachable without an application credential only from a network path that can reach
-  GitHub Releases. The package remains protected by its Developer ID signature and notarization;
-  the manifest records immutable URLs, SHA-256 digests, source commit, and Apple Team ID.
-  This is a manual download channel, not an in-app auto-update implementation.
+  GitHub Releases. A recipient browser must also trust GitHub.s private TLS CA; unmanaged Macs need
+  that CA installed and trusted once before the link is frictionless. The package remains
+  protected by its Developer ID signature and notarization; the manifest records immutable
+  URLs, SHA-256 digests, source commit, and Apple Team ID. This is a manual download
+  channel, not an in-app auto-update implementation.
 - If a machine's permission state gets wedged (capture returns nothing while the toggle
   shows on): `RESET_TCC=1 npm run install:mac`, then re-grant. `killall replayd` clears a
   wedged capture daemon.
