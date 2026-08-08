@@ -50,6 +50,11 @@ fi
 
 for dmg in "${dmgs[@]}"; do
   hdiutil verify "$dmg"
+  codesign --verify --strict --verbose=2 "$dmg"
+  dmg_details=$(codesign -dvvv "$dmg" 2>&1)
+  grep -q 'Authority=Developer ID Application:' <<<"$dmg_details"
+  grep -q "TeamIdentifier=$EXPECTED_TEAM_ID" <<<"$dmg_details"
+  spctl --assess --type open --context context:primary-signature --verbose=2 "$dmg"
   xcrun stapler validate "$dmg"
 done
 

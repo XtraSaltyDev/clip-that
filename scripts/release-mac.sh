@@ -57,6 +57,23 @@ for artifact in "$dmg" "$zip"; do
   fi
 done
 
+signing_identity="${CSC_NAME:-}"
+if [ -z "$signing_identity" ]; then
+  signing_identity=$(security find-identity -v -p codesigning 2>/dev/null \
+    | sed -n 's/.*"\(Developer ID Application:[^"]*\)".*/\1/p' \
+    | head -n 1)
+fi
+if [ -z "$signing_identity" ]; then
+  echo "Cannot find the Developer ID Application identity needed to sign the DMG." >&2
+  echo "Install the identity in the keychain or set CSC_NAME." >&2
+  exit 1
+fi
+
+echo "Developer ID signing delivery image: $dmg"
+codesign --force --sign "$signing_identity" --timestamp \
+  --identifier dev.clipthat.app.dmg "$dmg"
+codesign --verify --verbose=2 "$dmg"
+
 echo "Notarizing delivery image: $dmg"
 xcrun notarytool submit "$dmg" "${notary_args[@]}" --wait
 xcrun stapler staple "$dmg"
