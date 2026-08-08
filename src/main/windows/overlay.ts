@@ -254,7 +254,10 @@ function makeOverlayWindow(): BrowserWindow {
   })
   registerRendererWindow(win, 'overlay')
   win.setAlwaysOnTop(true, 'screen-saver')
-  win.setVisibleOnAllWorkspaces(true, { visibleOnFullScreen: true })
+  win.setVisibleOnAllWorkspaces(true, {
+    visibleOnFullScreen: true,
+    skipTransformProcessType: true
+  })
   loadEntry(win, 'overlay')
   poolReady.set(
     win,

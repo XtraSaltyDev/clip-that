@@ -253,7 +253,7 @@ export default function Recorder(): React.ReactElement {
         quality,
         startMs: hasTrim ? trim[0] : undefined,
         endMs: hasTrim ? trim[1] : undefined,
-        fps: format === 'gif' ? 15 : undefined,
+        fps: format === 'gif' ? 15 : options.fps,
         maxWidth: format === 'gif' ? 900 : undefined
       },
       {
@@ -638,11 +638,16 @@ export default function Recorder(): React.ReactElement {
 
         <Toggle
           label="Auto-zoom"
-          hint="A smooth camera follows your cursor, like a produced video"
+          hint={
+            options.target === 'region'
+              ? 'Auto-zoom is available for Screen and Window recordings'
+              : 'A smooth camera follows your cursor, like a produced video'
+          }
           checked={options.autoZoom}
+          disabled={options.target === 'region'}
           onChange={(autoZoom) => set({ autoZoom })}
         />
-        {options.autoZoom && (
+        {options.autoZoom && options.target !== 'region' && (
           <Slider
             label="Zoom level"
             value={options.zoomLevel}

@@ -2,7 +2,7 @@ import test from 'node:test'
 import assert from 'node:assert/strict'
 import { load } from './helpers.mjs'
 
-const { computeLayout, frameHeight } = await load('layout')
+const { computeLayout, fitScale, frameHeight } = await load('layout')
 
 const doc = (over = {}) => ({
   imageWidth: 1200,
@@ -78,4 +78,19 @@ test('a window frame adds a title bar above the shot', () => {
 test('frame height is clamped for very small and very large captures', () => {
   assert.equal(frameHeight(doc({ imageWidth: 200, canvas: { frame: 'macos' } })), 28)
   assert.equal(frameHeight(doc({ imageWidth: 4000, canvas: { frame: 'macos' } })), 52)
+})
+
+test('fit scale keeps a large image fully inside the available editor viewport', () => {
+  const layout = computeLayout(
+    doc({
+      imageWidth: 2560,
+      imageHeight: 1536,
+      crop: { enabled: false, x: 0, y: 0, width: 2560, height: 1536 }
+    })
+  )
+  const scale = fitScale(layout, 840, 590)
+
+  assert.ok(layout.canvasWidth * scale <= 840 - 64)
+  assert.ok(layout.canvasHeight * scale <= 590 - 64)
+  assert.ok(scale < 1)
 })

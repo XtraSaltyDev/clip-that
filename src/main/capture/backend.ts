@@ -3,7 +3,7 @@ import { promises as fs } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { randomUUID } from 'node:crypto'
-import { desktopCapturer, nativeImage, screen } from 'electron'
+import { app, desktopCapturer, nativeImage, screen } from 'electron'
 import type { DisplaySnapshot, WindowInfo } from '@shared/types'
 import { editorWindows } from '../windows/manager'
 import { displayPixelSize, findDisplay } from './displays'
@@ -22,6 +22,52 @@ function run(cmd: string, args: string[]): Promise<string> {
 
 async function tempPng(): Promise<string> {
   return join(tmpdir(), `clipthat-${randomUUID()}.png`)
+}
+
+function windowInfoHelper(): string {
+  return app.isPackaged
+    ? join(process.resourcesPath, 'build', 'clipthat-window-info')
+    : join(app.getAppPath(), 'build', 'clipthat-window-info')
+}
+
+function overlapArea(a: Electron.Rectangle, b: Electron.Rectangle): number {
+  const width = Math.max(0, Math.min(a.x + a.width, b.x + b.width) - Math.max(a.x, b.x))
+  const height = Math.max(0, Math.min(a.y + a.height, b.y + b.height) - Math.max(a.y, b.y))
+  return width * height
+}
+
+/** Resolve a desktopCapturer window id to global-DIP geometry without Accessibility access. */
+export async function windowInfo(windowId: string): Promise<WindowInfo | undefined> {
+  if (!IS_MAC) return undefined
+  const cgWindowId = windowId.split(':')[1]
+  if (!cgWindowId || !/^\d+$/.test(cgWindowId)) return undefined
+
+  try {
+    const raw = JSON.parse(await run(windowInfoHelper(), [cgWindowId])) as {
+      x: number
+      y: number
+      width: number
+      height: number
+      owner?: string
+      title?: string
+    }
+    const bounds = { x: raw.x, y: raw.y, width: raw.width, height: raw.height }
+    if (![bounds.x, bounds.y, bounds.width, bounds.height].every(Number.isFinite)) return undefined
+    if (bounds.width <= 0 || bounds.height <= 0) return undefined
+    const display = screen.getAllDisplays().sort(
+      (a, b) => overlapArea(b.bounds, bounds) - overlapArea(a.bounds, bounds)
+    )[0]
+    return {
+      id: windowId,
+      title: raw.title?.trim() || raw.owner?.trim() || 'Window',
+      appName: raw.owner?.trim() || 'Window',
+      bounds,
+      displayId: display ? String(display.id) : undefined
+    }
+  } catch (error) {
+    console.warn('[clipthat] window geometry unavailable', (error as Error).message)
+    return undefined
+  }
 }
 
 /**

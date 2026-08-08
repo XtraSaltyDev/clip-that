@@ -158,6 +158,8 @@ export const useEditor = create<EditorState>((set, get) => ({
       liveTextOn: false,
       liveSelection: null,
       panel: 'inspect',
+      zoom: 1,
+      autoFit: true,
       dirty: false
     }),
 

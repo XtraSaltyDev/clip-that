@@ -40,13 +40,34 @@ export function initialCamera(cfg: Pick<CameraConfig, 'width' | 'height'>): Came
 }
 
 /** Keep the viewport fully inside the source frame. */
-export function clampCenter(cx: number, cy: number, z: number, cfg: CameraConfig): { cx: number; cy: number } {
+export function clampCenter(
+  cx: number,
+  cy: number,
+  z: number,
+  cfg: Pick<CameraConfig, 'width' | 'height'>
+): { cx: number; cy: number } {
   const halfW = cfg.width / (2 * z)
   const halfH = cfg.height / (2 * z)
   return {
     cx: Math.min(cfg.width - halfW, Math.max(halfW, cx)),
     cy: Math.min(cfg.height - halfH, Math.max(halfH, cy))
   }
+}
+
+/**
+ * Preserve the camera's relative position when the decoded capture changes size.
+ * `MediaStreamTrack.getSettings()` is negotiated metadata; the video element's
+ * intrinsic size is the authority for pixels that can safely be drawn.
+ */
+export function resizeCamera(
+  cam: CameraState,
+  from: Pick<CameraConfig, 'width' | 'height'>,
+  to: Pick<CameraConfig, 'width' | 'height'>
+): CameraState {
+  const cx = from.width > 0 ? (cam.cx / from.width) * to.width : to.width / 2
+  const cy = from.height > 0 ? (cam.cy / from.height) * to.height : to.height / 2
+  const clamped = clampCenter(cx, cy, cam.z, to)
+  return { cx: clamped.cx, cy: clamped.cy, z: cam.z }
 }
 
 /**
@@ -78,19 +99,29 @@ export function stepCamera(cam: CameraState, cursor: { x: number; y: number } | 
   return { cx: clamped.cx, cy: clamped.cy, z }
 }
 
-/** The source rectangle to draw for the current camera. Always inside the frame. */
+/**
+ * The integer source rectangle to draw for the current camera. Integer edges avoid
+ * floating-point spill at the bottom/right clamp, where `drawImage()` would otherwise
+ * clip the destination and leave pixels from the preceding canvas frame untouched.
+ */
 export function sourceRect(cam: CameraState, cfg: Pick<CameraConfig, 'width' | 'height'>): {
   sx: number
   sy: number
   sw: number
   sh: number
 } {
-  const sw = cfg.width / cam.z
-  const sh = cfg.height / cam.z
+  const width = Math.max(1, Math.floor(cfg.width))
+  const height = Math.max(1, Math.floor(cfg.height))
+  const halfW = width / (2 * cam.z)
+  const halfH = height / (2 * cam.z)
+  const sx = Math.max(0, Math.min(width - 1, Math.floor(cam.cx - halfW)))
+  const sy = Math.max(0, Math.min(height - 1, Math.floor(cam.cy - halfH)))
+  const right = Math.max(sx + 1, Math.min(width, Math.ceil(cam.cx + halfW)))
+  const bottom = Math.max(sy + 1, Math.min(height, Math.ceil(cam.cy + halfH)))
   return {
-    sx: Math.min(cfg.width - sw, Math.max(0, cam.cx - sw / 2)),
-    sy: Math.min(cfg.height - sh, Math.max(0, cam.cy - sh / 2)),
-    sw,
-    sh
+    sx,
+    sy,
+    sw: right - sx,
+    sh: bottom - sy
   }
 }

@@ -310,6 +310,14 @@ const PATHS: Record<string, React.ReactNode> = {
       <path d="M3 21v-5h5" />
     </>
   ),
+  update: (
+    <>
+      <path d="M20 11a8 8 0 1 1-2.3-5.7L20 8" />
+      <path d="M20 4v4h-4" />
+      <path d="M12 7v7" />
+      <path d="M9 11l3 3 3-3" />
+    </>
+  ),
   frame: (
     <>
       <rect x="3" y="4" width="18" height="16" rx="2" />

@@ -460,6 +460,41 @@ export interface Settings {
 }
 
 /* ------------------------------------------------------------------ *
+ * Internal updates
+ * ------------------------------------------------------------------ */
+
+export type AppUpdateStatus =
+  | {
+      state: 'unsupported'
+      currentVersion: string
+    }
+  | {
+      state: 'current'
+      currentVersion: string
+      latestVersion: string
+      checkedAt: string
+    }
+  | {
+      state: 'available'
+      currentVersion: string
+      latestVersion: string
+      publishedAt: string
+      size: number
+      checkedAt: string
+    }
+  | {
+      state: 'unavailable'
+      currentVersion: string
+      reason: 'network' | 'trust' | 'invalid-response'
+      checkedAt: string
+    }
+
+export interface AppUpdateDownloadResult {
+  ok: boolean
+  error?: string
+}
+
+/* ------------------------------------------------------------------ *
  * OCR & redaction
  * ------------------------------------------------------------------ */
 

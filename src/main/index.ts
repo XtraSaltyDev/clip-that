@@ -1,6 +1,5 @@
-import { app, BrowserWindow, clipboard, protocol, net } from 'electron'
+import { app, BrowserWindow, clipboard, protocol } from 'electron'
 import { promises as fs } from 'node:fs'
-import { pathToFileURL } from 'node:url'
 import { IPC } from '@shared/ipc'
 import { installFileLogger, flushLog } from './log'
 import { settings } from './store/settings'
@@ -24,6 +23,7 @@ import { recording } from './recording/session'
 import { indexBacklog, indexCapture, requestOcr } from './ocr'
 import { library } from './store/library'
 import { isRealPathInside } from './store/path-guard'
+import { libraryFileResponse } from './protocol/library-file'
 
 const IS_MAC = process.platform === 'darwin'
 
@@ -38,7 +38,17 @@ if (!app.requestSingleInstanceLock()) {
 
 // Serve library files (thumbnails, recordings) to renderers without exposing `file://`.
 protocol.registerSchemesAsPrivileged([
-  { scheme: 'clipthat', privileges: { standard: true, secure: true, supportFetchAPI: true, stream: true, bypassCSP: false } }
+  {
+    scheme: 'clipthat',
+    privileges: {
+      standard: true,
+      secure: true,
+      supportFetchAPI: true,
+      stream: true,
+      corsEnabled: true,
+      bypassCSP: false
+    }
+  }
 ])
 
 function registerLibraryProtocol(): void {
@@ -54,9 +64,9 @@ function registerLibraryProtocol(): void {
       if (!libraryFile && !recoveryFile) {
         return new Response('forbidden', { status: 403 })
       }
-      const resolved = await fs.realpath(raw)
-      return net.fetch(pathToFileURL(resolved).toString())
-    } catch {
+      return libraryFileResponse(request, await fs.realpath(raw))
+    } catch (error) {
+      console.warn('[clipthat] library protocol failed', (error as Error).message)
       return new Response('bad request', { status: 400 })
     }
   })

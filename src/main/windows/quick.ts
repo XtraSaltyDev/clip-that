@@ -100,7 +100,10 @@ export function showQuickAccess(result: CaptureResult, libraryId?: string): Brow
   registerRendererWindow(win, 'quick')
 
   win.setAlwaysOnTop(true, 'floating')
-  win.setVisibleOnAllWorkspaces(true, { visibleOnFullScreen: true })
+  win.setVisibleOnAllWorkspaces(true, {
+    visibleOnFullScreen: true,
+    skipTransformProcessType: true
+  })
 
   loadEntry(win, 'hud', 'quick')
   win.webContents.once('did-finish-load', () => win.webContents.send(IPC.quickInit, payload))

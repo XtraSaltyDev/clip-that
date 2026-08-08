@@ -5,8 +5,9 @@ screen recording — and a screenshot that knows what's in it.
 
 The currently supported release target is **macOS on Apple silicon**. Windows x64 is an
 experimental package target and Linux is build configuration only; neither has completed
-runtime acceptance. No account. No cloud. No telemetry. Everything, including text
-recognition, runs offline.
+runtime acceptance. No account. No cloud. No telemetry. Capture, recording, text
+recognition and search all run offline. The sole automatic network request is an availability
+check against the fixed public GitHub release manifest; no capture or library content is sent.
 
 ```bash
 npm install

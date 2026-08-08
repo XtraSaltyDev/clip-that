@@ -26,7 +26,10 @@ const ENTRIES = {
   recordingRecovery: 'src/main/recording/recovery-store.ts',
   libraryIndex: 'src/main/store/library-index.ts',
   editorStore: 'src/renderer/editor/store.ts',
-  diagnosticsRedact: 'src/main/diagnostics/redact.ts'
+  diagnosticsRedact: 'src/main/diagnostics/redact.ts',
+  updateContract: 'src/main/update/contract.ts',
+  updateTrust: 'src/main/update/trust.ts',
+  byteRange: 'src/main/protocol/byte-range.ts'
 }
 
 rmSync(outdir, { recursive: true, force: true })

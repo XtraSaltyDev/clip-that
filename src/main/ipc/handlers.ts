@@ -25,6 +25,7 @@ import {
   loadLibraryDocument,
   openInExistingEditor,
   openInEditor,
+  openVideoInEditor,
   performCapture,
   releasePendingDocument,
   routeResult,
@@ -32,10 +33,11 @@ import {
   scrollCaptureConfig,
   startScrollFallback,
   switchEditorToLibraryItem,
-  takePendingDocument
+  takePendingDocument,
+  takePendingVideo
 } from '../capture/service'
 import { closeOverlay, isPendingOverlayWindow, setOverlayEditorsVisible } from '../windows/overlay'
-import { listWindows, windowPreview } from '../capture/backend'
+import { listWindows, windowInfo, windowPreview } from '../capture/backend'
 import { listDisplays } from '../capture/displays'
 import {
   broadcast,
@@ -62,11 +64,13 @@ import {
   startDrag
 } from '../export'
 import { recording } from '../recording/session'
+import { exportLibraryVideo } from '../recording/library-video'
 import { ffmpegAvailable } from '../recording/ffmpeg'
 import { checkPermissions, openScreenRecordingSettings, requestPermission } from '../permissions'
 import { registerHotkeys, hotkeyFailures } from '../hotkeys'
 import { refreshTray, syncTrayVisibility, installAppMenu } from '../tray'
 import { exportDiagnostics } from '../diagnostics/export'
+import { checkForAppUpdate, openAppUpdateDownload } from '../update/service'
 import * as validate from './validation'
 import { rendererRole, secureHandle, secureOn } from './sender'
 import {
@@ -106,6 +110,9 @@ export function registerIpcHandlers(): void {
   secureHandle(IPC.captureWindows, ['overlay'], () => listWindows())
   secureHandle(IPC.captureWindowPreview, ['overlay'], (_e, windowId: string) =>
     windowPreview(validate.idValue(windowId, 'window id'))
+  )
+  secureHandle(IPC.captureWindowInfo, ['hud'], (_e, windowId: string) =>
+    windowInfo(validate.idValue(windowId, 'window id'))
   )
 
   // Overlay renderers report their result here.
@@ -176,6 +183,7 @@ export function registerIpcHandlers(): void {
   /* ---------------- editor ---------------- */
 
   secureHandle(IPC.editorLoad, ['editor'], (e) => takePendingDocument(e.sender.id))
+  secureHandle(IPC.editorLoadVideo, ['editor'], (e) => takePendingVideo(e.sender.id))
   secureOn(IPC.editorClose, ['editor'], (e) => {
     releasePendingDocument(e.sender.id)
     BrowserWindow.fromWebContents(e.sender)?.close()
@@ -210,7 +218,7 @@ export function registerIpcHandlers(): void {
   secureHandle(IPC.startDrag, ['editor'], async (e, dataUrl: string, name: string) => {
     await startDrag(e, validate.imageDataUrl(dataUrl), validate.idValue(name, 'drag name'))
   })
-  secureHandle(IPC.revealFile, ['library'], (_e, filePath: string) => {
+  secureHandle(IPC.revealFile, ['library', 'editor'], (_e, filePath: string) => {
     const path = validate.pathValue(filePath)
     if (!library.ownsPath(path)) throw new TypeError('file is not in the library')
     revealFile(path)
@@ -256,7 +264,7 @@ export function registerIpcHandlers(): void {
       return library.addImage(safePayload)
     }
   )
-  secureHandle(IPC.libraryUpdate, ['library'], (_e, id: string, patch: Partial<LibraryItem>) =>
+  secureHandle(IPC.libraryUpdate, ['library', 'editor'], (_e, id: string, patch: Partial<LibraryItem>) =>
     library.update(validate.idValue(id), validate.libraryPatch(patch))
   )
   secureHandle(IPC.libraryDelete, ['library'], async (_e, ids: string[]) => {
@@ -270,7 +278,7 @@ export function registerIpcHandlers(): void {
     const item = library.get(validate.idValue(id))
     if (!item) return false
     if (item.kind === 'video') {
-      await shell.openPath(item.filePath)
+      openVideoInEditor(item)
       return true
     }
     const doc = await loadLibraryDocument(item.id)
@@ -311,6 +319,24 @@ export function registerIpcHandlers(): void {
     openInEditor(doc)
     return true
   })
+  secureHandle(
+    IPC.libraryExportVideo,
+    ['editor'],
+    async (e, id: unknown, opts: unknown, posterDataUrl?: unknown) => {
+      const poster = posterDataUrl === undefined
+        ? undefined
+        : validate.imageDataUrl(posterDataUrl, 'video poster')
+      const item = await exportLibraryVideo(
+        validate.idValue(id, 'recording id'),
+        validate.videoExportOptions(opts),
+        poster,
+        ({ percent }) => e.sender.send(IPC.recordProgress, { percent })
+      )
+      broadcast(IPC.libraryChanged)
+      refreshTray()
+      return item
+    }
+  )
 
   /* ---------------- recording ---------------- */
 
@@ -341,7 +367,8 @@ export function registerIpcHandlers(): void {
 
   secureHandle(IPC.recordStarted, ['hud'], async () => {
     await recording.markStarted()
-    if (recording.status().options?.autoZoom) startCursorFeed()
+    const options = recording.status().options
+    if (options?.autoZoom && options.target !== 'region') startCursorFeed()
     refreshTray()
     return recording.status()
   })
@@ -531,6 +558,10 @@ export function registerIpcHandlers(): void {
   secureHandle(IPC.exportDiagnostics, ['settings'], (e) =>
     exportDiagnostics(BrowserWindow.fromWebContents(e.sender))
   )
+  secureHandle(IPC.updateCheck, ['library', 'settings'], (_e, unsafeForce: unknown = false) =>
+    checkForAppUpdate(validate.booleanValue(unsafeForce, 'force update check'))
+  )
+  secureHandle(IPC.updateDownload, ['library', 'settings'], () => openAppUpdateDownload())
 
   secureOn(
     IPC.windowControl,

@@ -19,6 +19,7 @@ extraResources:
     to: build
     filter:
       - '*.png'
+      - 'clipthat-window-info'
 
 extraMetadata:
   main: out/main/index.js

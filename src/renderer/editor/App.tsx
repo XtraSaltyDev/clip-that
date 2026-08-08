@@ -11,6 +11,7 @@ import Toolbar, { TOOL_KEYS } from './panels/Toolbar'
 import TopBar from './panels/TopBar'
 import Sidebar from './panels/Sidebar'
 import LibraryStrip from './panels/LibraryStrip'
+import VideoEditor from './VideoEditor'
 import CommandPalette from '../shared/CommandPalette'
 import { editorCommands } from './commands'
 import { orderWords, selectedText } from './canvas/LiveText'
@@ -29,6 +30,7 @@ export default function App(): React.ReactElement {
   const [dropping, setDropping] = useState(false)
   const [paletteOpen, setPaletteOpen] = useState(false)
   const [openingLibraryId, setOpeningLibraryId] = useState<string | null>(null)
+  const [videoItem, setVideoItem] = useState<LibraryItem | null>(null)
   const closeSaving = useRef(false)
   // Rebuilt when the palette opens so disabled states reflect the current selection.
   const commands = useMemo(() => editorCommands(actions), [actions, paletteOpen])
@@ -39,6 +41,9 @@ export default function App(): React.ReactElement {
     let alive = true
     void api.editor.load().then((loaded) => {
       if (alive && loaded) setDoc(loaded, loaded.id)
+    })
+    void api.editor.loadVideo().then((loaded) => {
+      if (alive && loaded) setVideoItem(loaded)
     })
     const off = api.editor.onDocument((incoming) => {
       void (async () => {
@@ -54,12 +59,19 @@ export default function App(): React.ReactElement {
             return
           }
         }
-        if (alive) setDoc(incoming, incoming.id)
+        if (alive) {
+          setVideoItem(null)
+          setDoc(incoming, incoming.id)
+        }
       })()
+    })
+    const offVideo = api.editor.onVideo((incoming) => {
+      if (alive) setVideoItem(incoming)
     })
     return () => {
       alive = false
       off()
+      offVideo()
     }
   }, [actions.render, actions.syncLibrary, setDoc])
 
@@ -242,11 +254,20 @@ export default function App(): React.ReactElement {
   }, [setDoc, settings])
 
   const openLibraryItem = async (item: LibraryItem): Promise<void> => {
-    if (openingLibraryId || item.id === useEditor.getState().libraryId) return
+    const activeId = videoItem?.id ?? useEditor.getState().libraryId
+    if (openingLibraryId || item.id === activeId) return
     setOpeningLibraryId(item.id)
     try {
       if (item.kind === 'video') {
-        await api.library.open(item.id)
+        const current = useEditor.getState()
+        if (current.dirty) {
+          const rendered = await actions.render()
+          if (!rendered) return
+          await actions.syncLibrary(rendered)
+          current.markSaved()
+        }
+        const opened = await api.editor.switchLibraryItem(item.id)
+        if (!opened) toast('error', 'Could not open that recording')
         return
       }
 
@@ -265,6 +286,17 @@ export default function App(): React.ReactElement {
     } finally {
       setOpeningLibraryId(null)
     }
+  }
+
+  if (videoItem) {
+    return (
+      <VideoEditor
+        item={videoItem}
+        openingId={openingLibraryId}
+        onItemChanged={setVideoItem}
+        onOpen={(item) => void openLibraryItem(item)}
+      />
+    )
   }
 
   return (

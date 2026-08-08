@@ -1,5 +1,5 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react'
-import type { LibraryHealth, LibraryItem } from '@shared/types'
+import type { AppUpdateStatus, LibraryHealth, LibraryItem } from '@shared/types'
 import { api } from '../shared/api'
 import { Icon } from '../shared/icons'
 import {
@@ -29,6 +29,8 @@ export default function App(): React.ReactElement {
   const [loading, setLoading] = useState(true)
   const [paletteOpen, setPaletteOpen] = useState(false)
   const [health, setHealth] = useState<LibraryHealth | null>(null)
+  const [update, setUpdate] = useState<AppUpdateStatus | null>(null)
+  const [openingUpdate, setOpeningUpdate] = useState(false)
   const searchRef = useRef<HTMLInputElement>(null)
 
   const refresh = useCallback(async () => {
@@ -64,6 +66,40 @@ export default function App(): React.ReactElement {
       }
     })
   }, [])
+
+  useEffect(() => {
+    let active = true
+    void api.system.checkForUpdate().then((status) => {
+      if (active) setUpdate(status)
+    }).catch(() => {
+      // Update discovery is intentionally quiet when GitHub Releases is unavailable off VPN.
+    })
+    return () => {
+      active = false
+    }
+  }, [])
+
+  const downloadUpdate = useCallback(async () => {
+    if (openingUpdate || update?.state !== 'available') return
+    setOpeningUpdate(true)
+    try {
+      const result = await api.system.downloadUpdate()
+      if (result.ok) {
+        toast(
+          'success',
+          'Update download opened',
+          `ClipThat ${update.latestVersion} will download in your default browser.`
+        )
+      } else {
+        toast('error', 'Could not open the update download', result.error)
+        setUpdate(await api.system.checkForUpdate(true))
+      }
+    } catch (error) {
+      toast('error', 'Could not open the update download', (error as Error).message)
+    } finally {
+      setOpeningUpdate(false)
+    }
+  }, [openingUpdate, update])
 
   const active = useMemo(
     () => (selected.length === 1 ? items.find((i) => i.id === selected[0]) : null),
@@ -213,9 +249,24 @@ export default function App(): React.ReactElement {
           <button className="btn" onClick={() => api.system.window('record')}>
             <Icon name="record" size={11} /> Record
           </button>
+          {update?.state === 'available' && (
+            <button
+              className="btn ghost icon tip focus-ring lib-update"
+              data-tip={`Download ClipThat ${update.latestVersion}`}
+              title={`Download ClipThat ${update.latestVersion}`}
+              aria-label={`Download ClipThat ${update.latestVersion}`}
+              aria-busy={openingUpdate}
+              disabled={openingUpdate}
+              onClick={() => void downloadUpdate()}
+            >
+              <Icon name="update" className={openingUpdate ? 'spin' : undefined} />
+            </button>
+          )}
           <button
-            className="btn ghost icon tip"
+            className="btn ghost icon tip focus-ring"
             data-tip="Settings"
+            title="Settings"
+            aria-label="Settings"
             onClick={() => api.system.window('settings')}
           >
             <Icon name="settings" />
@@ -459,6 +510,7 @@ function Details(props: {
   useEffect(() => setTitle(item.title), [item.id, item.title])
 
   const src = item.thumbnail ? api.library.fileUrl(item.thumbnail) : undefined
+  const videoSrc = item.kind === 'video' ? api.library.fileUrl(item.filePath) : undefined
 
   const commitTitle = async () => {
     if (title.trim() && title !== item.title) {
@@ -478,7 +530,13 @@ function Details(props: {
   return (
     <aside className="lib-details">
       <div className="lib-preview">
-        {src ? <img src={src} alt="" /> : <Icon name="image" size={30} />}
+        {videoSrc ? (
+          <video src={videoSrc} controls preload="metadata" />
+        ) : src ? (
+          <img src={src} alt="" />
+        ) : (
+          <Icon name="image" size={30} />
+        )}
       </div>
 
       <input
@@ -545,7 +603,7 @@ function Details(props: {
       <div className="lib-actions">
         <button className="btn" onClick={() => void api.library.open(item.id)}>
           <Icon name={item.kind === 'video' ? 'play' : 'pen'} size={14} />
-          {item.kind === 'video' ? 'Play' : 'Edit'}
+          {item.kind === 'video' ? 'Edit video' : 'Edit'}
         </button>
         <button className="btn" onClick={props.onCopy}>
           <Icon name="copy" size={14} /> Copy

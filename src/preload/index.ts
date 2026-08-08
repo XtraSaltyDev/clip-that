@@ -1,6 +1,8 @@
 import { contextBridge, ipcRenderer } from 'electron'
 import { IPC } from '@shared/ipc'
 import type {
+  AppUpdateDownloadResult,
+  AppUpdateStatus,
   CaptureEditorVisibility,
   CaptureOverlayUpdate,
   CaptureRequest,
@@ -38,6 +40,8 @@ const api = {
     windows: (): Promise<WindowInfo[]> => ipcRenderer.invoke(IPC.captureWindows),
     windowPreview: (windowId: string): Promise<string | undefined> =>
       ipcRenderer.invoke(IPC.captureWindowPreview, windowId),
+    windowInfo: (windowId: string): Promise<WindowInfo | undefined> =>
+      ipcRenderer.invoke(IPC.captureWindowInfo, windowId),
     fromClipboard: (): Promise<CaptureResult | null> => ipcRenderer.invoke(IPC.captureClipboard),
     scrollConfig: (): Promise<ScrollCaptureConfig | null> =>
       ipcRenderer.invoke(IPC.captureScrollConfig),
@@ -61,7 +65,9 @@ const api = {
   editor: {
     /** Pull the document this window was opened with. */
     load: (): Promise<ClipDocument | null> => ipcRenderer.invoke(IPC.editorLoad),
+    loadVideo: (): Promise<LibraryItem | null> => ipcRenderer.invoke(IPC.editorLoadVideo),
     onDocument: (handler: (doc: ClipDocument) => void) => on(IPC.editorDocument, handler),
+    onVideo: (handler: (item: LibraryItem) => void) => on(IPC.editorVideo, handler),
     switchLibraryItem: (id: string): Promise<boolean> =>
       ipcRenderer.invoke(IPC.editorSwitchLibraryItem, id),
     open: (doc: ClipDocument): Promise<boolean> => ipcRenderer.invoke(IPC.editorOpen, doc),
@@ -106,6 +112,12 @@ const api = {
     open: (id: string): Promise<boolean> => ipcRenderer.invoke(IPC.libraryOpen, id),
     loadProject: (id: string): Promise<ClipDocument | null> =>
       ipcRenderer.invoke(IPC.libraryLoadProject, id),
+    exportVideo: (
+      id: string,
+      options: VideoExportOptions,
+      posterDataUrl?: string
+    ): Promise<LibraryItem> =>
+      ipcRenderer.invoke(IPC.libraryExportVideo, id, options, posterDataUrl),
     health: (): Promise<LibraryHealth> => ipcRenderer.invoke(IPC.libraryHealth),
     onChanged: (handler: () => void) => on(IPC.libraryChanged, handler),
     onIssue: (handler: (health: LibraryHealth) => void) => on(IPC.libraryIssue, handler),
@@ -189,6 +201,10 @@ const api = {
     openExternal: (url: string): Promise<boolean> => ipcRenderer.invoke(IPC.openExternal, url),
     info: (): Promise<Record<string, string>> => ipcRenderer.invoke(IPC.appInfo),
     exportDiagnostics: (): Promise<SaveResult> => ipcRenderer.invoke(IPC.exportDiagnostics),
+    checkForUpdate: (force = false): Promise<AppUpdateStatus> =>
+      ipcRenderer.invoke(IPC.updateCheck, force),
+    downloadUpdate: (): Promise<AppUpdateDownloadResult> =>
+      ipcRenderer.invoke(IPC.updateDownload),
     window: (action: 'minimize' | 'maximize' | 'close' | 'library' | 'settings' | 'record') =>
       ipcRenderer.send(IPC.windowControl, action),
     toast: (toast: Toast) => ipcRenderer.send(IPC.toast, toast),

@@ -2,7 +2,14 @@ import test from 'node:test'
 import assert from 'node:assert/strict'
 import { load } from './helpers.mjs'
 
-const { initialCamera, stepCamera, sourceRect, clampCenter, DEFAULT_CAMERA_CONFIG } = await load('camera')
+const {
+  initialCamera,
+  stepCamera,
+  sourceRect,
+  clampCenter,
+  resizeCamera,
+  DEFAULT_CAMERA_CONFIG
+} = await load('camera')
 
 const cfg = (over = {}) => ({
   width: 1920,
@@ -15,6 +22,19 @@ const cfg = (over = {}) => ({
 const settle = (cam, cursor, c, frames) => {
   for (let i = 0; i < frames; i++) cam = stepCamera(cam, cursor, c)
   return cam
+}
+
+const assertValidRect = (rect, dimensions, label) => {
+  for (const [name, value] of Object.entries(rect)) {
+    assert.ok(Number.isFinite(value), `${label}: ${name} must be finite`)
+    assert.ok(Number.isInteger(value), `${label}: ${name} must be an integer`)
+  }
+  assert.ok(rect.sx >= 0, `${label}: source x must not be negative`)
+  assert.ok(rect.sy >= 0, `${label}: source y must not be negative`)
+  assert.ok(rect.sw > 0, `${label}: source width must be positive`)
+  assert.ok(rect.sh > 0, `${label}: source height must be positive`)
+  assert.ok(rect.sx + rect.sw <= dimensions.width, `${label}: right edge must stay in bounds`)
+  assert.ok(rect.sy + rect.sh <= dimensions.height, `${label}: bottom edge must stay in bounds`)
 }
 
 test('zoom eases from 1 toward the target and converges', () => {
@@ -60,10 +80,58 @@ test('the viewport never leaves the frame, even chasing a corner', () => {
   for (let i = 0; i < 400; i++) {
     cam = stepCamera(cam, { x: 0, y: 0 }, c)
     const r = sourceRect(cam, c)
-    assert.ok(r.sx >= -0.001 && r.sy >= -0.001, `frame ${i}: source rect left the frame (negative)`)
-    assert.ok(r.sx + r.sw <= c.width + 0.001, `frame ${i}: right edge out of bounds`)
-    assert.ok(r.sy + r.sh <= c.height + 0.001, `frame ${i}: bottom edge out of bounds`)
+    assertValidRect(r, c, `frame ${i}`)
   }
+})
+
+test('resizeCamera replaces negotiated geometry with live decoded dimensions', () => {
+  const negotiated = cfg({ width: 1920, height: 1080, zoom: 2.5 })
+  const chased = settle(
+    initialCamera(negotiated),
+    { x: negotiated.width, y: negotiated.height },
+    negotiated,
+    180
+  )
+
+  for (const live of [
+    cfg({ width: 3024, height: 1964, zoom: negotiated.zoom }),
+    cfg({ width: 5120, height: 1440, zoom: negotiated.zoom })
+  ]) {
+    const resized = resizeCamera(chased, negotiated, live)
+    const rect = sourceRect(resized, live)
+    assertValidRect(rect, live, `${negotiated.width}x${negotiated.height} -> ${live.width}x${live.height}`)
+    assert.ok(
+      Math.abs(resized.cx / live.width - chased.cx / negotiated.width) < 1e-12,
+      'horizontal camera position must remain proportional'
+    )
+    assert.ok(
+      Math.abs(resized.cy / live.height - chased.cy / negotiated.height) < 1e-12,
+      'vertical camera position must remain proportional'
+    )
+  }
+})
+
+test('mid-stream decoded resize stays contained while chasing both lower corners', () => {
+  let current = cfg({ width: 3024, height: 1964, zoom: 2.5 })
+  let cam = initialCamera(current)
+
+  for (let frame = 0; frame < 600; frame++) {
+    if (frame === 300) {
+      const resized = cfg({ width: 5120, height: 1440, zoom: current.zoom })
+      cam = resizeCamera(cam, current, resized)
+      current = resized
+    }
+
+    const cursor = frame < 300
+      ? { x: 0, y: current.height }
+      : { x: current.width, y: current.height }
+    cam = stepCamera(cam, cursor, current)
+    assertValidRect(sourceRect(cam, current), current, `frame ${frame} at ${current.width}x${current.height}`)
+  }
+
+  const final = sourceRect(cam, current)
+  assert.equal(final.sx + final.sw, current.width, 'lower-right chase must finish on the right edge')
+  assert.equal(final.sy + final.sh, current.height, 'lower-right chase must finish on the bottom edge')
 })
 
 test('clampCenter pins an out-of-range centre to the legal band', () => {
@@ -80,8 +148,15 @@ test('null cursor settles zoom without panning', () => {
   assert.equal(Math.round(cam.cy), c.height / 2)
 })
 
-test('sourceRect at zoom 1 is the whole frame', () => {
-  const c = cfg()
-  const r = sourceRect(initialCamera(c), c)
-  assert.deepEqual(r, { sx: 0, sy: 0, sw: c.width, sh: c.height })
+test('sourceRect at zoom 1 is exactly the whole live frame', () => {
+  for (const dimensions of [
+    { width: 1920, height: 1080 },
+    { width: 3024, height: 1964 },
+    { width: 5120, height: 1440 }
+  ]) {
+    const c = cfg({ ...dimensions, zoom: 1 })
+    const r = sourceRect(initialCamera(c), c)
+    assert.deepEqual(r, { sx: 0, sy: 0, sw: c.width, sh: c.height })
+    assertValidRect(r, c, `${c.width}x${c.height} at 1x`)
+  }
 })

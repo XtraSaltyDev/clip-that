@@ -356,6 +356,9 @@ export async function runVisualCheck(dir: string): Promise<void> {
   settings.webContents.send(IPC.settingsNavigate, 'general')
   await wait(500)
   await snap(dir, '09b-settings-library-choice', settings)
+  settings.webContents.send(IPC.settingsNavigate, 'about')
+  await wait(1200)
+  await snap(dir, '09c-settings-about', settings)
 
   const hud = showHudWindow()
   await wait(1800)

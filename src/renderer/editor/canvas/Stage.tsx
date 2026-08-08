@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import React, { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import Konva from 'konva'
 import {
   Circle,
@@ -23,7 +23,7 @@ import {
   useEditor
 } from '../store'
 import { ShapeNode, type ShapeContext } from './Shapes'
-import { computeLayout, type Layout } from '../layout'
+import { computeLayout, fitScale, type Layout } from '../layout'
 import { Icon } from '../../shared/icons'
 import LiveText from './LiveText'
 
@@ -75,15 +75,12 @@ export default function EditorStage({
 
   /* ---------- auto-fit ---------- */
 
-  useEffect(() => {
-    if (!layout || !autoFit || containerWidth === 0) return
-    const scale = Math.min(
-      (containerWidth - 64) / layout.canvasWidth,
-      (containerHeight - 64) / layout.canvasHeight,
-      1
-    )
-    setZoom(Math.max(0.05, scale), true)
-  }, [layout, autoFit, containerWidth, containerHeight, setZoom])
+  useLayoutEffect(() => {
+    if (!layout || !autoFit || containerWidth === 0 || containerHeight === 0) return
+    const scale = fitScale(layout, containerWidth, containerHeight)
+    if (Math.abs(zoom - scale) < 0.0001) return
+    setZoom(scale, true)
+  }, [layout, autoFit, containerWidth, containerHeight, setZoom, zoom])
 
   /* ---------- transformer ---------- */
 

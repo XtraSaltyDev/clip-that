@@ -8,7 +8,15 @@ const IS_MAC = process.platform === 'darwin'
 
 const icon = () => join(__dirname, '../../build/icon.png')
 
-function baseOptions(): Electron.BrowserWindowConstructorOptions {
+/** Restore ordinary app-window semantics after transient capture chrome used other Spaces. */
+function showPrimaryWindow(win: BrowserWindow): void {
+  win.setAlwaysOnTop(false)
+  if (IS_MAC) win.setVisibleOnAllWorkspaces(false, { skipTransformProcessType: true })
+  win.show()
+  win.focus()
+}
+
+function baseOptions(backgroundThrottling = true): Electron.BrowserWindowConstructorOptions {
   return {
     show: false,
     backgroundColor: '#0e1116',
@@ -20,7 +28,8 @@ function baseOptions(): Electron.BrowserWindowConstructorOptions {
       contextIsolation: true,
       nodeIntegration: false,
       webSecurity: true,
-      spellcheck: false
+      spellcheck: false,
+      backgroundThrottling
     }
   }
 }
@@ -76,8 +85,9 @@ export function createEditorWindow(): BrowserWindow {
   })
   registerRendererWindow(win, 'editor')
   editors.add(win)
+  const webContentsId = win.webContents.id
   const closeState = { win, ready: false, pending: false, approved: false }
-  editorCloseState.set(win.webContents.id, closeState)
+  editorCloseState.set(webContentsId, closeState)
   win.on('close', (event) => {
     if (closeState.approved || !closeState.ready || win.webContents.isDestroyed()) return
     event.preventDefault()
@@ -87,15 +97,14 @@ export function createEditorWindow(): BrowserWindow {
   })
   win.on('closed', () => {
     editors.delete(win)
-    editorCloseState.delete(win.webContents.id)
+    editorCloseState.delete(webContentsId)
   })
   win.webContents.on('render-process-gone', () => {
     closeState.approved = true
   })
   loadEntry(win, 'editor')
   win.once('ready-to-show', () => {
-    win.show()
-    win.focus()
+    showPrimaryWindow(win)
   })
   return win
 }
@@ -103,8 +112,7 @@ export function createEditorWindow(): BrowserWindow {
 export function showLibraryWindow(): BrowserWindow {
   const existing = getSingleton('library')
   if (existing) {
-    existing.show()
-    existing.focus()
+    showPrimaryWindow(existing)
     return existing
   }
   const win = new BrowserWindow({
@@ -121,15 +129,14 @@ export function showLibraryWindow(): BrowserWindow {
   singletons.set('library', win)
   win.on('closed', () => singletons.delete('library'))
   loadEntry(win, 'library')
-  win.once('ready-to-show', () => win.show())
+  win.once('ready-to-show', () => showPrimaryWindow(win))
   return win
 }
 
 export function showSettingsWindow(section = 'general'): BrowserWindow {
   const existing = getSingleton('settings')
   if (existing) {
-    existing.show()
-    existing.focus()
+    showPrimaryWindow(existing)
     existing.webContents.send(IPC.settingsNavigate, section)
     return existing
   }
@@ -148,7 +155,7 @@ export function showSettingsWindow(section = 'general'): BrowserWindow {
   singletons.set('settings', win)
   win.on('closed', () => singletons.delete('settings'))
   loadEntry(win, 'settings', section)
-  win.once('ready-to-show', () => win.show())
+  win.once('ready-to-show', () => showPrimaryWindow(win))
   return win
 }
 
@@ -163,7 +170,9 @@ export function showHudWindow(hash = ''): BrowserWindow {
     return existing
   }
   const win = new BrowserWindow({
-    ...baseOptions(),
+    // The hidden video/canvas recording compositor lives in this renderer. Letting the
+    // HUD throttle in the background can stall captured frames when focus or Spaces move.
+    ...baseOptions(false),
     width: 440,
     height: 600,
     resizable: false,
@@ -179,7 +188,10 @@ export function showHudWindow(hash = ''): BrowserWindow {
     title: 'ClipThat Recorder'
   })
   win.setAlwaysOnTop(true, 'screen-saver')
-  win.setVisibleOnAllWorkspaces(true, { visibleOnFullScreen: true })
+  win.setVisibleOnAllWorkspaces(true, {
+    visibleOnFullScreen: true,
+    skipTransformProcessType: true
+  })
   registerRendererWindow(win, 'hud')
   singletons.set('hud', win)
   hudDisplayId = screen.getDisplayNearestPoint(screen.getCursorScreenPoint()).id

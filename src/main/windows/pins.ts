@@ -76,7 +76,10 @@ export function createPin(
   registerRendererWindow(win, 'pin')
 
   win.setAlwaysOnTop(true, 'floating')
-  win.setVisibleOnAllWorkspaces(true, { visibleOnFullScreen: true })
+  win.setVisibleOnAllWorkspaces(true, {
+    visibleOnFullScreen: true,
+    skipTransformProcessType: true
+  })
   // Resizing keeps the image's shape — a stretched screenshot is worse than none.
   win.setAspectRatio(width / height)
 

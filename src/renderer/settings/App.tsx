@@ -1,5 +1,5 @@
 import React, { useCallback, useEffect, useState } from 'react'
-import type { Hotkeys, Settings } from '@shared/types'
+import type { AppUpdateStatus, Hotkeys, Settings } from '@shared/types'
 import { api } from '../shared/api'
 import { Icon, type IconName } from '../shared/icons'
 import { ColorPicker, Segmented, Slider, ToastHost, Toggle, toast, useTheme } from '../shared/ui'
@@ -602,9 +602,81 @@ function prettify(accelerator: string): string {
 function About({ version, platform }: { version: string; platform: string }): React.ReactElement {
   const [info, setInfo] = useState<Record<string, string> | null>(null)
   const [exporting, setExporting] = useState(false)
+  const [update, setUpdate] = useState<AppUpdateStatus | null>(null)
+  const [checkingUpdate, setCheckingUpdate] = useState(true)
+  const [updateCheckFailed, setUpdateCheckFailed] = useState(false)
+  const [openingUpdate, setOpeningUpdate] = useState(false)
+
+  const checkForUpdate = useCallback(async (force: boolean) => {
+    setCheckingUpdate(true)
+    setUpdateCheckFailed(false)
+    try {
+      setUpdate(await api.system.checkForUpdate(force))
+    } catch (error) {
+      setUpdateCheckFailed(true)
+      toast('error', 'Update check failed', (error as Error).message)
+    } finally {
+      setCheckingUpdate(false)
+    }
+  }, [])
+
   useEffect(() => {
     void api.system.info().then(setInfo)
-  }, [])
+    void checkForUpdate(false)
+  }, [checkForUpdate])
+
+  const downloadUpdate = useCallback(async () => {
+    if (openingUpdate) return
+    setOpeningUpdate(true)
+    try {
+      const result = await api.system.downloadUpdate()
+      if (result.ok) {
+        toast(
+          'success',
+          'Update download opened',
+          update?.state === 'available'
+            ? `ClipThat ${update.latestVersion} will download in your default browser.`
+            : undefined
+        )
+      } else {
+        toast('error', 'Could not open the update download', result.error)
+        await checkForUpdate(true)
+      }
+    } catch (error) {
+      toast('error', 'Could not open the update download', (error as Error).message)
+    } finally {
+      setOpeningUpdate(false)
+    }
+  }, [checkForUpdate, openingUpdate, update])
+
+  let updateTitle = 'Checking for updates…'
+  let updateDetail = 'Contacting the public GitHub update channel.'
+  if (!checkingUpdate && updateCheckFailed) {
+    updateTitle = 'The update check could not be completed'
+    updateDetail = 'Try again, or confirm ClipThat can reach the public channel.'
+  } else if (!checkingUpdate && update?.state === 'available') {
+    updateTitle = `ClipThat ${update.latestVersion} is available`
+    updateDetail = `You have ${update.currentVersion}. The immutable DMG opens in your default browser.`
+  } else if (!checkingUpdate && update?.state === 'current') {
+    updateTitle = 'No newer release is available'
+    updateDetail = `ClipThat ${update.currentVersion} is current on the public GitHub channel.`
+  } else if (!checkingUpdate && update?.state === 'unsupported') {
+    updateTitle = 'Update checking is unavailable for this build'
+    updateDetail = 'The public channel supports macOS on Apple silicon.'
+  } else if (!checkingUpdate && update?.state === 'unavailable') {
+    updateTitle =
+      update.reason === 'trust'
+        ? "GitHub.s certificate could not be verified"
+        : update.reason === 'invalid-response'
+          ? 'The update response could not be validated'
+          : 'The public update channel is unavailable'
+    updateDetail =
+      update.reason === 'trust'
+        ? 'Do not download a release until the internal certificate is fixed.'
+        : update.reason === 'invalid-response'
+          ? 'Try again later or contact support before downloading a release.'
+          : 'Connect to VPN, then try again.'
+  }
 
   return (
     <>
@@ -619,6 +691,42 @@ function About({ version, platform }: { version: string; platform: string }): Re
           <div className="tiny muted">Supported release: macOS on Apple silicon.</div>
         </div>
       </div>
+
+      <Group title="Updates">
+        <div className="set-update-row">
+          <span className="set-update-mark" aria-hidden="true">
+            <Icon
+              name={checkingUpdate ? 'refresh' : 'update'}
+              className={checkingUpdate ? 'spin' : undefined}
+            />
+          </span>
+          <div className="set-update-copy" aria-live="polite">
+            <div className="set-update-title">{updateTitle}</div>
+            <div className="tiny muted">{updateDetail}</div>
+          </div>
+          {update?.state === 'available' && !checkingUpdate ? (
+            <button
+              className="btn"
+              disabled={openingUpdate}
+              aria-busy={openingUpdate}
+              onClick={() => void downloadUpdate()}
+            >
+              <Icon name="update" size={14} className={openingUpdate ? 'spin' : undefined} />
+              {openingUpdate ? 'Opening…' : `Download ${update.latestVersion}…`}
+            </button>
+          ) : update?.state !== 'unsupported' ? (
+            <button
+              className="btn ghost"
+              disabled={checkingUpdate}
+              aria-busy={checkingUpdate}
+              onClick={() => void checkForUpdate(true)}
+            >
+              <Icon name="refresh" size={14} className={checkingUpdate ? 'spin' : undefined} />
+              {checkingUpdate ? 'Checking…' : 'Check again'}
+            </button>
+          ) : null}
+        </div>
+      </Group>
 
       <Group title="Environment">
         <div className="set-env mono tiny">

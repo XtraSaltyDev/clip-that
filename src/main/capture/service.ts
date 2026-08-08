@@ -5,7 +5,8 @@ import type {
   CaptureResult,
   ClipDocument,
   Rect,
-  ScrollCaptureConfig
+  ScrollCaptureConfig,
+  LibraryItem
 } from '@shared/types'
 import { formatFilename } from '@shared/defaults'
 import { IPC } from '@shared/ipc'
@@ -505,8 +506,10 @@ export async function routeResult(
 }
 
 const pendingDocs = new Map<number, ClipDocument>()
+const pendingVideos = new Map<number, LibraryItem>()
 
 function deliverDocument(win: Electron.BrowserWindow, doc: ClipDocument): void {
+  pendingVideos.delete(win.webContents.id)
   pendingDocs.set(win.webContents.id, doc)
   if (win.webContents.isLoadingMainFrame()) {
     win.webContents.once('did-finish-load', () => {
@@ -519,10 +522,28 @@ function deliverDocument(win: Electron.BrowserWindow, doc: ClipDocument): void {
   win.focus()
 }
 
+function deliverVideo(win: Electron.BrowserWindow, item: LibraryItem): void {
+  pendingDocs.delete(win.webContents.id)
+  pendingVideos.set(win.webContents.id, item)
+  const send = () => {
+    if (!win.isDestroyed()) win.webContents.send(IPC.editorVideo, item)
+  }
+  if (win.webContents.isLoadingMainFrame()) win.webContents.once('did-finish-load', send)
+  else send()
+  win.show()
+  win.focus()
+}
+
 /** Hand a document to a fresh editor window. */
 export function openInEditor(doc: ClipDocument): void {
   const win = createEditorWindow()
   deliverDocument(win, doc)
+}
+
+/** Open a Library recording in ClipThat's own playback and trim workspace. */
+export function openVideoInEditor(item: LibraryItem): void {
+  const win = createEditorWindow()
+  deliverVideo(win, item)
 }
 
 /** Replace the most recently created editor's document and bring that editor forward. */
@@ -549,6 +570,11 @@ export async function switchEditorToLibraryItem(
 ): Promise<boolean> {
   const win = editorWindows().find((candidate) => candidate.webContents.id === webContentsId)
   if (!win) return false
+  const item = library.get(libraryId)
+  if (item?.kind === 'video') {
+    deliverVideo(win, item)
+    return true
+  }
   const doc = await loadLibraryDocument(libraryId)
   if (!doc) return false
   deliverDocument(win, doc)
@@ -561,8 +587,13 @@ export function takePendingDocument(webContentsId: number): ClipDocument | null 
   return doc
 }
 
+export function takePendingVideo(webContentsId: number): LibraryItem | null {
+  return pendingVideos.get(webContentsId) ?? null
+}
+
 export function releasePendingDocument(webContentsId: number): void {
   pendingDocs.delete(webContentsId)
+  pendingVideos.delete(webContentsId)
 }
 
 export { closeOverlay, editorWindows, shell }

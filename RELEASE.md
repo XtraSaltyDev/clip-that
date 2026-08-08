@@ -71,8 +71,10 @@ npm run install:mac      # build → sign → /Applications, keeps the TCC grant
   GitHub Releases. A recipient browser must also trust GitHub.s private TLS CA; unmanaged Macs need
   that CA installed and trusted once before the link is frictionless. The package remains
   protected by its Developer ID signature and notarization; the manifest records immutable
-  URLs, SHA-256 digests, source commit, and Apple Team ID. This is a manual download
-  channel, not an in-app auto-update implementation.
+  URLs, SHA-256 digests, source commit, and Apple Team ID. The app checks this manifest
+  against its bundled public GitHub Releases CA and offers the validated immutable DMG in Library and
+  Settings. The browser must still trust that CA for the download itself. This remains a
+  browser handoff, not an automatic installer.
 - If a machine's permission state gets wedged (capture returns nothing while the toggle
   shows on): `RESET_TCC=1 npm run install:mac`, then re-grant. `killall replayd` clears a
   wedged capture daemon.
@@ -143,9 +145,10 @@ end-to-end checklist below on real hardware.
 ## Versioning
 
 Bump `version` in `package.json` and `package-lock.json`; the artifact names and the About panel follow it.
-No auto-update is wired: `publish: null`. When distribution channels exist, the standard
-route is electron-builder's GitHub provider plus `electron-updater` — it was removed as
-an unused dependency, so re-adding it is deliberate work, not flipping a flag.
+No automatic installation is wired: `publish: null`. The in-app update control checks the
+fixed internal GitHub Releases manifest and opens its validated, immutable DMG in the default browser;
+macOS still handles download, installation, and Gatekeeper verification. Adding a background
+installer such as `electron-updater` remains deliberate work, not flipping a flag.
 
 ## Cleaning generated artifacts
 

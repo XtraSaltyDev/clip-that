@@ -66,7 +66,7 @@ export default function LibraryStrip(props: {
         )}
         {items.map((item) => {
           const thumbnail = item.thumbnail ? api.library.fileUrl(item.thumbnail) : undefined
-          const active = item.kind === 'image' && props.activeId === item.id
+          const active = props.activeId === item.id
           const opening = props.openingId === item.id
           return (
             <button

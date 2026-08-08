@@ -18,6 +18,21 @@ export interface Layout {
   frameHeight: number
 }
 
+/** Scale the complete canvas into the editor viewport without enlarging small images. */
+export function fitScale(
+  layout: Pick<Layout, 'canvasWidth' | 'canvasHeight'>,
+  containerWidth: number,
+  containerHeight: number,
+  gutter = 64
+): number {
+  const availableWidth = Math.max(1, containerWidth - gutter)
+  const availableHeight = Math.max(1, containerHeight - gutter)
+  return Math.max(
+    0.05,
+    Math.min(availableWidth / layout.canvasWidth, availableHeight / layout.canvasHeight, 1)
+  )
+}
+
 /** Height of the fake window title bar, scaled so it looks right on any capture size. */
 export function frameHeight(doc: ClipDocument): number {
   if (doc.canvas.frame === 'none') return 0

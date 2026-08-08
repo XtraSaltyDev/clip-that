@@ -3,6 +3,7 @@ import { api } from '../shared/api'
 import {
   DEFAULT_CAMERA_CONFIG,
   initialCamera,
+  resizeCamera,
   sourceRect,
   stepCamera,
   type CameraConfig
@@ -83,6 +84,31 @@ function playInline(stream: MediaStream): HTMLVideoElement {
   return video
 }
 
+/** Give the first decoded frame a chance to establish its intrinsic dimensions. */
+async function waitForVideoFrame(video: HTMLVideoElement, timeoutMs = 3000): Promise<void> {
+  if (video.readyState >= HTMLMediaElement.HAVE_CURRENT_DATA && video.videoWidth > 0 && video.videoHeight > 0) {
+    return
+  }
+
+  await new Promise<void>((resolve) => {
+    let settled = false
+    const finish = () => {
+      if (settled) return
+      settled = true
+      clearTimeout(timer)
+      video.removeEventListener('loadeddata', ready)
+      video.removeEventListener('resize', ready)
+      resolve()
+    }
+    const ready = () => {
+      if (video.videoWidth > 0 && video.videoHeight > 0) finish()
+    }
+    const timer = setTimeout(finish, timeoutMs)
+    video.addEventListener('loadeddata', ready)
+    video.addEventListener('resize', ready)
+  })
+}
+
 /**
  * Build the recording pipeline.
  *
@@ -139,17 +165,48 @@ export async function startCapture(
 
   const displayTrack = display.getVideoTracks()[0]
   const settings = displayTrack.getSettings()
-  const sourceWidth = settings.width ?? 1920
-  const sourceHeight = settings.height ?? 1080
+  let sourceWidth = settings.width ?? 1920
+  let sourceHeight = settings.height ?? 1080
 
   const mic = options.microphone ? await getMicStream(options.microphoneDeviceId) : null
   const webcam = options.webcam ? await getWebcamStream(options.webcamDeviceId) : null
 
   const cropped = region && region.width > 0 && region.height > 0
   // Auto-zoom needs per-frame reframing, which only the canvas path can do. It applies
-  // to whole-display recordings; a cropped region is already a deliberate framing.
-  const autoZoom = options.autoZoom && options.target === 'display' && !cropped
+  // to whole displays and windows; a cropped region is already deliberate framing.
+  let zoomBounds: Rect | undefined
+  if (options.autoZoom && !cropped) {
+    if (options.target === 'window' && options.windowId) {
+      zoomBounds = (await api.capture.windowInfo(options.windowId))?.bounds
+      if (!zoomBounds) {
+        display.getTracks().forEach((track) => track.stop())
+        mic?.getTracks().forEach((track) => track.stop())
+        webcam?.getTracks().forEach((track) => track.stop())
+        throw new Error(
+          'Auto-zoom could not locate the selected window. Choose Screen or turn Auto-zoom off.'
+        )
+      }
+    } else if (options.target === 'display') {
+      const displays = await api.capture.displays()
+      zoomBounds = (
+        displays.find((d) => d.id === options.displayId) ??
+        displays.find((d) => d.primary) ??
+        displays[0]
+      )?.bounds
+    }
+  }
+  const autoZoom = Boolean(options.autoZoom && !cropped && zoomBounds)
   const needsCanvas = Boolean(webcam) || cropped || autoZoom
+
+  let displayVideo: HTMLVideoElement | null = null
+  let webcamVideo: HTMLVideoElement | null = null
+  if (needsCanvas) {
+    displayVideo = playInline(new MediaStream([displayTrack]))
+    if (webcam) webcamVideo = playInline(webcam)
+    await waitForVideoFrame(displayVideo)
+    sourceWidth = displayVideo.videoWidth || sourceWidth
+    sourceHeight = displayVideo.videoHeight || sourceHeight
+  }
 
   let outWidth = cropped ? Math.round(region!.width) : sourceWidth
   let outHeight = cropped ? Math.round(region!.height) : sourceHeight
@@ -160,15 +217,10 @@ export async function startCapture(
   let videoTrack = displayTrack
   let canvas: HTMLCanvasElement | null = null
   let raf = 0
-  let displayVideo: HTMLVideoElement | null = null
-  let webcamVideo: HTMLVideoElement | null = null
   let offCursor: (() => void) | null = null
   let compositingPaused = false
 
   if (needsCanvas) {
-    displayVideo = playInline(new MediaStream([displayTrack]))
-    if (webcam) webcamVideo = playInline(webcam)
-
     canvas = document.createElement('canvas')
     canvas.width = outWidth
     canvas.height = outHeight
@@ -179,31 +231,37 @@ export async function startCapture(
 
     // ---- auto-zoom camera ----
     let camera = initialCamera({ width: sourceWidth, height: sourceHeight })
-    const cameraCfg: CameraConfig = {
+    let cameraCfg: CameraConfig = {
       width: sourceWidth,
       height: sourceHeight,
       zoom: Math.max(1.1, Math.min(3, options.zoomLevel || 1.6)),
       ...DEFAULT_CAMERA_CONFIG
     }
-    let cursorPx: { x: number; y: number } | null = null
-    if (autoZoom) {
-      // Map global-DIP cursor positions into source-frame pixels.
-      const displays = await api.capture.displays()
-      const display =
-        displays.find((d) => d.id === options.displayId) ??
-        displays.find((d) => d.primary) ??
-        displays[0]
-      if (display) {
-        const px = sourceWidth / display.bounds.width
-        const py = sourceHeight / display.bounds.height
-        offCursor = api.recording.onCursor((point) => {
-          const x = (point.x - display.bounds.x) * px
-          const y = (point.y - display.bounds.y) * py
-          // Cursor on another display: hold the last position rather than yanking.
-          if (x >= 0 && y >= 0 && x <= sourceWidth && y <= sourceHeight) cursorPx = { x, y }
-        })
-      }
+    let cursorRelative: { x: number; y: number } | null = null
+    if (autoZoom && zoomBounds) {
+      // Keep the cursor in source-relative coordinates. It is mapped into pixels from
+      // each decoded frame, so a mid-stream source resize cannot desynchronise the crop.
+      offCursor = api.recording.onCursor((point) => {
+        const x = (point.x - zoomBounds!.x) / zoomBounds!.width
+        const y = (point.y - zoomBounds!.y) / zoomBounds!.height
+        // Cursor outside the captured source: hold the last position rather than yanking.
+        if (x >= 0 && y >= 0 && x <= 1 && y <= 1) cursorRelative = { x, y }
+      })
     }
+
+    let canvasStream = canvas.captureStream(0)
+    let canvasTrack = canvasStream.getVideoTracks()[0] as CanvasCaptureMediaStreamTrack
+    let publishFrame: () => void
+    if (typeof canvasTrack.requestFrame === 'function') {
+      publishFrame = () => canvasTrack.requestFrame()
+    } else {
+      // Old engines without manual frame publication keep the previous timed path.
+      canvasTrack.stop()
+      canvasStream = canvas.captureStream(options.fps)
+      canvasTrack = canvasStream.getVideoTracks()[0] as CanvasCaptureMediaStreamTrack
+      publishFrame = () => undefined
+    }
+    videoTrack = canvasTrack
 
     const frameInterval = 1000 / Math.max(1, options.fps)
     let nextDrawAt = 0
@@ -218,6 +276,7 @@ export async function startCapture(
       if (!displayVideo || displayVideo.readyState < 2) return
 
       if (cropped) {
+        ctx.globalCompositeOperation = 'copy'
         ctx.drawImage(
           displayVideo,
           region!.x,
@@ -230,12 +289,26 @@ export async function startCapture(
           outHeight
         )
       } else if (autoZoom) {
+        const frameWidth = displayVideo.videoWidth || cameraCfg.width
+        const frameHeight = displayVideo.videoHeight || cameraCfg.height
+        if (frameWidth !== cameraCfg.width || frameHeight !== cameraCfg.height) {
+          const nextCfg = { ...cameraCfg, width: frameWidth, height: frameHeight }
+          camera = resizeCamera(camera, cameraCfg, nextCfg)
+          cameraCfg = nextCfg
+        }
+        const cursorPx = cursorRelative
+          ? { x: cursorRelative.x * cameraCfg.width, y: cursorRelative.y * cameraCfg.height }
+          : null
         camera = stepCamera(camera, cursorPx, cameraCfg)
         const { sx, sy, sw, sh } = sourceRect(camera, cameraCfg)
+        ctx.globalCompositeOperation = 'copy'
         ctx.drawImage(displayVideo, sx, sy, sw, sh, 0, 0, outWidth, outHeight)
       } else {
+        ctx.globalCompositeOperation = 'copy'
         ctx.drawImage(displayVideo, 0, 0, outWidth, outHeight)
       }
+
+      ctx.globalCompositeOperation = 'source-over'
 
       if (webcamVideo && webcamVideo.readyState >= 2) {
         const vw = webcamVideo.videoWidth
@@ -271,10 +344,12 @@ export async function startCapture(
         ctx.lineWidth = Math.max(2, bubble * 0.018)
         ctx.stroke()
       }
+
+      // Manual canvas capture has no clock of its own. Publish only after the complete
+      // base frame and optional webcam overlay have reached the canvas.
+      publishFrame()
     }
     raf = requestAnimationFrame(draw)
-
-    videoTrack = canvas.captureStream(options.fps).getVideoTracks()[0]
   }
 
   /* ---------- audio ---------- */
@@ -410,6 +485,7 @@ export async function startCapture(
 export async function posterFromUrl(url: string, atMs = 200): Promise<string | undefined> {
   try {
     const video = document.createElement('video')
+    video.crossOrigin = 'anonymous'
     video.src = url
     video.muted = true
     await new Promise((resolve, reject) => {

@@ -201,6 +201,31 @@ body.mac .set-side {
   gap: 16px;
   margin-bottom: 26px;
 }
+.set-update-row {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+.set-update-mark {
+  display: grid;
+  place-items: center;
+  width: 34px;
+  height: 34px;
+  flex: none;
+  border-radius: 10px;
+  color: var(--accent);
+  background: color-mix(in srgb, var(--accent) 12%, transparent);
+  border: 1px solid color-mix(in srgb, var(--accent) 28%, transparent);
+}
+.set-update-copy {
+  flex: 1;
+  min-width: 0;
+}
+.set-update-title {
+  margin-bottom: 3px;
+  font-weight: 600;
+  color: var(--ink-0);
+}
 .set-env {
   display: grid;
   gap: 4px;

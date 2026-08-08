@@ -9,6 +9,7 @@ export const IPC = {
   captureEditorVisibility: 'capture:editor-visibility',
   captureWindows: 'capture:windows',
   captureWindowPreview: 'capture:window-preview',
+  captureWindowInfo: 'capture:window-info',
   captureDisplays: 'capture:displays',
   captureClipboard: 'capture:clipboard',
   captureScrollConfig: 'capture:scroll-config',
@@ -22,6 +23,8 @@ export const IPC = {
   editorOpen: 'editor:open',
   editorLoad: 'editor:load',
   editorDocument: 'editor:document',
+  editorVideo: 'editor:video',
+  editorLoadVideo: 'editor:load-video',
   editorSwitchLibraryItem: 'editor:switch-library-item',
   editorClose: 'editor:close',
   editorCloseRequested: 'editor:close-requested',
@@ -49,6 +52,7 @@ export const IPC = {
   libraryHealth: 'library:health',
   libraryIssue: 'library:issue',
   libraryLoadProject: 'library:load-project',
+  libraryExportVideo: 'library:export-video',
 
   // recording
   recordConfigure: 'record:configure',
@@ -92,6 +96,8 @@ export const IPC = {
   openExternal: 'system:open-external',
   appInfo: 'system:app-info',
   exportDiagnostics: 'system:export-diagnostics',
+  updateCheck: 'system:update-check',
+  updateDownload: 'system:update-download',
   windowControl: 'system:window-control',
   toast: 'system:toast',
   quit: 'system:quit',

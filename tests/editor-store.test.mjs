@@ -96,3 +96,15 @@ test('a new explicit transaction after undo invalidates the redo branch', () => 
   assert.equal(useEditor.getState().doc.title, 'Original')
   assert.equal(useEditor.getState().doc.canvas.padding, 48)
 })
+
+test('opening another document returns the canvas to fit-to-window mode', () => {
+  let state = useEditor.getState()
+  state.setDoc(document())
+  state.setZoom(2, false)
+
+  state = useEditor.getState()
+  state.setDoc({ ...document(), id: 'doc-2' })
+
+  assert.equal(useEditor.getState().zoom, 1)
+  assert.equal(useEditor.getState().autoFit, true)
+})
