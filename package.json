@@ -25,6 +25,7 @@
     "build:win": "npm run build && electron-builder --win",
     "release:mac": "bash scripts/release-mac.sh",
     "release:publish:mac": "bash scripts/publish-mac-release.sh",
+    "release:publish:spark": "bash scripts/publish-spark-release.sh",
     "release:verify:mac": "bash scripts/verify-mac-release.sh",
     "release:win": "powershell -NoProfile -ExecutionPolicy Bypass -File scripts/release-win.ps1",
     "build:linux": "npm run build && electron-builder --linux",

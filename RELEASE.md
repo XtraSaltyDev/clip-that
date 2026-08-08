@@ -49,6 +49,28 @@ npm run install:mac      # build → sign → /Applications, keeps the TCC grant
 
   Pass `-- --publish` to the second command only when the release should become visible
   immediately. The default is a draft that can be inspected in GitHub first.
+- To publish the same tagged, verified macOS release to the VPN-only GitHub Releases channel:
+
+  ```bash
+  CLIPTHAT_RELEASE_CA_FILE=/path/to/spark-ca.crt \
+    npm run release:publish:spark -- https://github.com/XtraSaltyDev/clip-that
+  ```
+
+  The publisher requires a clean `main` checkout, an existing `v<version>` tag, the
+  verified DMG/ZIP/checksum set in `dist/`, and SSH access to GitHub Releases. It stages an
+  immutable versioned directory, updates stable aliases, then publishes `latest.json`
+  last. Override the defaults with `CLIPTHAT_RELEASE_SSH_TARGET` and
+  `CLIPTHAT_RELEASE_REMOTE_DIRECTORY` when needed. Its delivery-only verification mode
+  reopens both retained artifacts and does not depend on a disposable expanded build
+  directory still being present.
+
+  The shareable macOS link is
+  `https://github.com/XtraSaltyDev/clip-that/releases/ClipThat-arm64.dmg`; the machine-readable
+  release record is `https://github.com/XtraSaltyDev/clip-that/releases/latest.json`. Both are
+  reachable without an application credential only from a network path that can reach
+  GitHub Releases. The package remains protected by its Developer ID signature and notarization;
+  the manifest records immutable URLs, SHA-256 digests, source commit, and Apple Team ID.
+  This is a manual download channel, not an in-app auto-update implementation.
 - If a machine's permission state gets wedged (capture returns nothing while the toggle
   shows on): `RESET_TCC=1 npm run install:mac`, then re-grant. `killall replayd` clears a
   wedged capture daemon.

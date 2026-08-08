@@ -8,8 +8,12 @@ cd "$(dirname "$0")/.."
 
 VERSION=$(node -p "require('./package.json').version")
 EXPECTED_TEAM_ID=${APPLE_TEAM_ID:-ZHK3C6Y5R8}
+mode=${1:---complete}
+if [ "$mode" != "--complete" ] && [ "$mode" != "--delivery-only" ]; then
+  echo "Usage: $0 [--complete|--delivery-only]" >&2
+  exit 1
+fi
 
-apps=(dist/mac-arm64/ClipThat.app)
 dmgs=(dist/ClipThat-"$VERSION"-arm64.dmg)
 zips=(dist/ClipThat-"$VERSION"-arm64-mac.zip)
 
@@ -20,7 +24,8 @@ for artifact in "${dmgs[@]}" "${zips[@]}"; do
   fi
 done
 
-for app_path in "${apps[@]}"; do
+if [ "$mode" = "--complete" ]; then
+  app_path=dist/mac-arm64/ClipThat.app
   if [ ! -d "$app_path" ]; then
     echo "Missing packaged app: $app_path" >&2
     exit 1
@@ -41,9 +46,10 @@ for app_path in "${apps[@]}"; do
 
   spctl --assess --type execute --verbose=2 "$app_path"
   xcrun stapler validate "$app_path"
-done
+fi
 
 for dmg in "${dmgs[@]}"; do
+  hdiutil verify "$dmg"
   xcrun stapler validate "$dmg"
 done
 
@@ -51,8 +57,19 @@ verify_delivery_app() {
   local app_path=$1
   local expected_arch=$2
   codesign --verify --deep --strict --verbose=2 "$app_path"
+  local details
+  details=$(codesign -dvvv "$app_path" 2>&1)
+  grep -q 'Authority=Developer ID Application:' <<<"$details"
+  grep -q "TeamIdentifier=$EXPECTED_TEAM_ID" <<<"$details"
+  grep -q 'flags=0x10000(runtime)' <<<"$details"
   spctl --assess --type execute --verbose=2 "$app_path"
   xcrun stapler validate "$app_path"
+  local actual_version
+  actual_version=$(defaults read "$app_path/Contents/Info.plist" CFBundleShortVersionString)
+  if [ "$actual_version" != "$VERSION" ]; then
+    echo "$app_path has version $actual_version; expected $VERSION." >&2
+    exit 1
+  fi
   local actual_arch
   actual_arch=$(lipo -archs "$app_path/Contents/MacOS/ClipThat")
   if [ "$actual_arch" != "$expected_arch" ]; then
@@ -78,4 +95,4 @@ for index in 0; do
   rm -rf "$zip_dir"
 done
 
-echo "Verified ClipThat $VERSION: Developer ID signature, hardened runtime, notarization, stapling, and Apple-silicon delivery artifacts."
+echo "Verified ClipThat $VERSION: Developer ID signature, Team ID, hardened runtime, notarization, stapling, version, and Apple-silicon delivery artifacts."
