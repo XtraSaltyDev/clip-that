@@ -8,11 +8,25 @@
  */
 export function shouldIncludeWindowSource(
   sourceName: string,
-  visibleEditorTitles: readonly string[]
+  visibleEditorTitles: readonly string[],
+  sourceId?: string,
+  visibleEditorSourceIds: readonly string[] = []
 ): boolean {
   const name = sourceName.trim()
   if (!name) return false
   if (!name.startsWith('ClipThat')) return true
+  if (sourceId) {
+    const nativeId = /^window:(\d+):/.exec(sourceId)?.[1]
+    if (
+      visibleEditorSourceIds.some(
+        (candidate) =>
+          candidate === sourceId ||
+          (nativeId !== undefined && /^window:(\d+):/.exec(candidate)?.[1] === nativeId)
+      )
+    ) {
+      return true
+    }
+  }
 
   return visibleEditorTitles.some((candidate) => {
     const title = candidate.trim()

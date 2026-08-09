@@ -1,7 +1,7 @@
 import { EventEmitter } from 'node:events'
 import { join } from 'node:path'
 import { randomUUID } from 'node:crypto'
-import { desktopCapturer, session as electronSession } from 'electron'
+import { desktopCapturer } from 'electron'
 import type {
   LibraryItem,
   RecoverableRecording,
@@ -30,9 +30,6 @@ class RecordingSession extends EventEmitter {
   private sessionId: string | null = null
   private recoveryStore: RecordingRecoveryStore | null = null
   private displayOverride: string | null = null
-  private screenSources: Electron.DesktopCapturerSource[] = []
-  private screenSourcesAt = 0
-  private screenSourcesPending: Promise<Electron.DesktopCapturerSource[]> | null = null
 
   status(): RecordingStatus {
     return {
@@ -53,69 +50,34 @@ class RecordingSession extends EventEmitter {
     this.emit('status', this.status())
   }
 
+  private async captureSource(): Promise<Electron.DesktopCapturerSource | undefined> {
+    const override = this.displayOverride
+    const opts = this.options
+    if (!override && opts?.target === 'window') {
+      if (!opts.windowId) return undefined
+      const sources = await desktopCapturer.getSources({
+        types: ['window'],
+        thumbnailSize: { width: 0, height: 0 }
+      })
+      // Never silently fall back to a display when the selected window disappeared.
+      // That produces a plausible video of the wrong content and breaks window-relative
+      // auto-zoom geometry.
+      return sources.find((source) => source.id === opts.windowId)
+    }
+
+    const sources = await this.getScreenSources()
+    return this.sourceForDisplay(sources, override ?? opts?.displayId)
+  }
+
   /**
-   * Tell Chromium which source to hand `getDisplayMedia`, so the renderer never
-   * sees the OS picker. Called once at startup.
+   * Resolve the selected source before Chromium opens its media request. ScreenCaptureKit
+   * can stall when desktopCapturer enumeration happens inside the getDisplayMedia handler;
+   * the source ID path is the Electron-supported getUserMedia alternative.
    */
-  installDisplayMediaHandler(): void {
-    electronSession.defaultSession.setDisplayMediaRequestHandler(
-      (_request, callback) => {
-        void (async () => {
-          let responded = false
-          const respond = (result: Parameters<typeof callback>[0]) => {
-            if (responded) return
-            responded = true
-            try {
-              callback(result)
-            } catch (err) {
-              // Chromium can cancel a renderer request while source discovery is still
-              // running. Its one-shot callback then throws; that is cancellation, not a
-              // second response or an application-level unhandled rejection.
-              console.warn(`[clipthat] display source request expired — ${(err as Error).message}`)
-            }
-          }
-
-          const override = this.displayOverride
-          const opts = this.options
-          if (!override && !opts) {
-            respond({})
-            return
-          }
-
-          try {
-            if (!override && opts?.target === 'window' && opts.windowId) {
-              const sources = await desktopCapturer.getSources({
-                types: ['window'],
-                thumbnailSize: { width: 0, height: 0 }
-              })
-              const source = sources.find((s) => s.id === opts.windowId)
-              if (source) {
-                respond({ video: source, audio: this.audioChoice(opts) })
-                return
-              }
-            }
-
-            const displayId = override ?? opts?.displayId
-            const sources = await this.getScreenSources()
-            let source = this.sourceForDisplay(sources, displayId)
-            if (displayId && !source) {
-              // The display layout changed while the five-minute cache was alive.
-              source = this.sourceForDisplay(await this.getScreenSources(true), displayId)
-            }
-            respond(
-              source
-                ? { video: source, audio: override || !opts ? undefined : this.audioChoice(opts) }
-                : {}
-            )
-          } catch (err) {
-            console.warn(`[clipthat] display source discovery failed — ${(err as Error).message}`)
-            respond({})
-          }
-        })()
-      },
-      // Without this the handler is treated as a one-shot on some platforms.
-      { useSystemPicker: false }
-    )
+  async captureSourceId(): Promise<string> {
+    const source = await this.captureSource()
+    if (!source) throw new Error('The selected screen or window is no longer available.')
+    return source.id
   }
 
   private sourceForDisplay(
@@ -130,43 +92,21 @@ class RecordingSession extends EventEmitter {
     })
   }
 
-  private getScreenSources(force = false): Promise<Electron.DesktopCapturerSource[]> {
-    const fresh = Date.now() - this.screenSourcesAt < 5 * 60_000
-    if (!force && fresh && this.screenSources.length > 0) return Promise.resolve(this.screenSources)
-    if (!force && this.screenSourcesPending) return this.screenSourcesPending
-
-    const pending = desktopCapturer
-      .getSources({ types: ['screen'], thumbnailSize: { width: 320, height: 180 } })
-      .then((sources) => {
-        this.screenSources = sources
-        this.screenSourcesAt = Date.now()
-        return sources
-      })
-      .finally(() => {
-        if (this.screenSourcesPending === pending) this.screenSourcesPending = null
-      })
-    this.screenSourcesPending = pending
-    return pending
+  private getScreenSources(): Promise<Electron.DesktopCapturerSource[]> {
+    return desktopCapturer.getSources({
+      types: ['screen'],
+      thumbnailSize: { width: 0, height: 0 }
+    })
   }
 
-  /** Warm and retain display source handles so the first live capture does no enumeration. */
+  /** Warm ScreenCaptureKit discovery, but deliberately discard its short-lived handles. */
   async prewarmDisplaySources(): Promise<void> {
     await this.getScreenSources().then(() => undefined, () => undefined)
   }
 
-  /** Temporarily route getDisplayMedia to the display selected for scrolling capture. */
+  /** Temporarily route source-ID capture to the display selected for scrolling capture. */
   setDisplayOverride(displayId: string | null): void {
     this.displayOverride = displayId
-  }
-
-  /**
-   * Chromium can only loop back system audio on Windows and (via PipeWire) Linux.
-   * macOS has no supported route without a virtual audio device, so we quietly
-   * fall back to no system audio there and the UI says so.
-   */
-  private audioChoice(opts: RecordingOptions): 'loopback' | undefined {
-    if (!opts.systemAudio) return undefined
-    return IS_WIN || IS_LINUX ? 'loopback' : undefined
   }
 
   systemAudioSupported(): boolean {

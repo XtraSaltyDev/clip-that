@@ -124,7 +124,6 @@ app.whenReady().then(async () => {
   registerLibraryProtocol()
   registerIpcHandlers()
   initializeAppUpdates()
-  recording.installDisplayMediaHandler()
 
   const s = settings.get()
   if (IS_MAC && !s.showInDock) app.dock?.hide()

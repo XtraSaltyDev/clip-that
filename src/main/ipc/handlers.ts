@@ -379,6 +379,7 @@ export function registerIpcHandlers(): void {
   secureHandle(IPC.recordConfigure, ['hud'], (_e, options: RecordingOptions) =>
     recording.configure(validate.recordingOptions(options))
   )
+  secureHandle(IPC.recordCaptureSource, ['hud'], () => recording.captureSourceId())
 
   secureHandle(IPC.recordStart, ['hud'], async (_e, options: RecordingOptions) => {
     const safeOptions = validate.recordingOptions(options)

@@ -57,6 +57,7 @@ export const IPC = {
 
   // recording
   recordConfigure: 'record:configure',
+  recordCaptureSource: 'record:capture-source',
   recordStart: 'record:start',
   recordStarted: 'record:started',
   recordStop: 'record:stop',

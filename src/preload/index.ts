@@ -137,6 +137,7 @@ const api = {
     }> => ipcRenderer.invoke(IPC.recordSources),
     configure: (options: RecordingOptions): Promise<RecordingOptions> =>
       ipcRenderer.invoke(IPC.recordConfigure, options),
+    captureSource: (): Promise<string> => ipcRenderer.invoke(IPC.recordCaptureSource),
     start: (options: RecordingOptions): Promise<RecordingStatus> =>
       ipcRenderer.invoke(IPC.recordStart, options),
     started: (): Promise<RecordingStatus> => ipcRenderer.invoke(IPC.recordStarted),

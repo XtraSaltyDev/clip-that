@@ -35,10 +35,17 @@ export default function ScrollHud(): React.ReactElement {
         const config = await api.capture.scrollConfig()
         if (!config || disposed) throw new Error('scroll session is no longer active')
 
-        const request = navigator.mediaDevices.getDisplayMedia({
-          video: { frameRate: { ideal: 10, max: 15 } },
+        const sourceId = await api.recording.captureSource()
+        const request = navigator.mediaDevices.getUserMedia({
+          video: {
+            mandatory: {
+              chromeMediaSource: 'desktop',
+              chromeMediaSourceId: sourceId,
+              maxFrameRate: 15
+            }
+          },
           audio: false
-        } as MediaStreamConstraints)
+        } as unknown as MediaStreamConstraints)
         let expired = false
         let timeoutId: ReturnType<typeof setTimeout> | null = null
         const timeout = new Promise<never>((_, reject) => {

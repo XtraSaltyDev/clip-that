@@ -116,15 +116,34 @@ async function waitForVideoFrame(video: HTMLVideoElement, timeoutMs = 3000): Pro
  * through a canvas and we record `canvas.captureStream()`. Otherwise the display stream is
  * recorded directly, which is materially cheaper on CPU.
  */
-/** The very first getDisplayMedia after launch sometimes hangs while the capture
+/** The very first desktop stream after launch sometimes hangs while the capture
  * service warms up; a bounded attempt with one retry turns a dead recorder into a
  * one-second hiccup. */
 async function getDisplayStream(options: RecordingOptions): Promise<MediaStream> {
-  const attempt = () =>
-    navigator.mediaDevices.getDisplayMedia({
-      video: { frameRate: { ideal: options.fps, max: options.fps } },
+  const attempt = async () => {
+    // Resolve a fresh source immediately before each attempt. Electron documents the
+    // DesktopCapturerSource ID as a chromeMediaSourceId for getUserMedia; this avoids a
+    // ScreenCaptureKit deadlock observed when getSources runs inside the
+    // setDisplayMediaRequestHandler callback on macOS.
+    const sourceId = await api.recording.captureSource()
+    return navigator.mediaDevices.getUserMedia({
+      video: {
+        mandatory: {
+          chromeMediaSource: 'desktop',
+          chromeMediaSourceId: sourceId,
+          maxFrameRate: options.fps
+        }
+      },
       audio: options.systemAudio
-    } as MediaStreamConstraints)
+        ? {
+            mandatory: {
+              chromeMediaSource: 'desktop',
+              chromeMediaSourceId: sourceId
+            }
+          }
+        : false
+    } as unknown as MediaStreamConstraints)
+  }
 
   const bounded = (ms: number) =>
     new Promise<MediaStream>((resolve, reject) => {

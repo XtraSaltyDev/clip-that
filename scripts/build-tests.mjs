@@ -18,6 +18,7 @@ const ENTRIES = {
   stitch: 'src/main/capture/stitch-core.ts',
   layout: 'src/renderer/editor/layout.ts',
   camera: 'src/renderer/hud/zoom-camera.ts',
+  recordingSources: 'src/renderer/hud/recording-sources.ts',
   qr: 'src/renderer/shared/qr.ts',
   libraryOpenPolicy: 'src/main/library/open-policy.ts',
   windowSources: 'src/main/capture/window-sources.ts',

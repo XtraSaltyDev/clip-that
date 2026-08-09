@@ -11,6 +11,7 @@ import { api } from '../shared/api'
 import { Icon } from '../shared/icons'
 import { Segmented, Slider, Toggle, formatDuration, useTheme } from '../shared/ui'
 import { listDevices, posterFromUrl, startCapture, type CaptureHandles } from './pipeline'
+import { reconcileRecordingSources } from './recording-sources'
 import './hud.css'
 
 type Phase = 'setup' | 'recovery' | 'countdown' | 'recording' | 'review' | 'encoding'
@@ -70,14 +71,16 @@ export default function Recorder(): React.ReactElement {
   /* ---------- data ---------- */
 
   useEffect(() => {
-    void api.recording.sources().then((s) => {
-      setSources(s)
-      setOptions((o) => ({
-        ...o,
-        displayId: o.displayId ?? s.displays.find((d) => d.primary)?.id ?? s.displays[0]?.id
-      }))
+    void Promise.all([api.recording.sources(), api.settings.get()]).then(([sourceList, result]) => {
+      setSources(sourceList)
+      setOptions((current) =>
+        reconcileRecordingSources(
+          { ...current, ...result.settings.recording },
+          sourceList.displays,
+          sourceList.windows
+        )
+      )
     })
-    void api.settings.get().then((r) => setOptions((o) => ({ ...r.settings.recording, ...o })))
     void listDevices().then(setDevices)
     void api.recording.recoveries().then((items) => {
       setRecoveries(items)

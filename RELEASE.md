@@ -9,7 +9,7 @@ typecheck and complete test suite before bundling, so a broken extractor cannot 
 |---|---|---|
 | Unit + regression | `npm test` | extraction, stitching maths, layout, filenames — runs anywhere, ~1s |
 | Visual | `CLIPTHAT_VISUAL_CHECK=/tmp/shots npm run dev` | every window renders; annotate → beautify → redact → save round-trips |
-| End-to-end | `CLIPTHAT_SELF_TEST=all <app binary>` | Packaged-app checks for capture latency, retained memory, pin, quick access (including the clipboard), pipeline, scrolling capture, MP4/GIF recording, and a 16-second auto-zoom pixel test over raw WebM and delivery MP4. Needs Screen Recording permission; results appear as `[selftest]` lines in the log. Individual phases: `CLIPTHAT_SELF_TEST=latency,quick,pipeline,zoom` |
+| End-to-end | `CLIPTHAT_SELF_TEST=all <app binary>` | Packaged-app checks for capture latency, retained memory, pin, quick access (including the clipboard), pipeline, scrolling capture, MP4/GIF recording, update-channel reachability, and a 16-second auto-zoom pixel test over raw WebM and delivery MP4. Needs Screen Recording permission; results appear as `[selftest]` lines in the log and the app exits 0 only when every requested phase passes. Individual phases: `CLIPTHAT_SELF_TEST=latency,quick,pipeline,zoom,update` |
 | Display diagnostics | `CLIPTHAT_DIAG_DISPLAYS=1 <app binary>` | per-display capture health, for support |
 
 The log lives at `<userData>/logs/clipthat.log` (shown in Settings → About).

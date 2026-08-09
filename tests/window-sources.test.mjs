@@ -8,6 +8,24 @@ test('keeps visible ClipThat editors in the window picker', () => {
   assert.equal(shouldIncludeWindowSource('ClipThat', ['ClipThat']), true)
   assert.equal(shouldIncludeWindowSource('ClipThat — ClipThat', ['ClipThat']), true)
   assert.equal(shouldIncludeWindowSource('ClipThat — invoice.png', ['invoice.png']), true)
+  assert.equal(
+    shouldIncludeWindowSource(
+      'ClipThat',
+      ['ClipThat Recording Sentinel'],
+      'window:42:0',
+      ['window:42:0']
+    ),
+    true
+  )
+  assert.equal(
+    shouldIncludeWindowSource(
+      'ClipThat',
+      ['ClipThat Recording Sentinel'],
+      'window:42:0',
+      ['window:42:7']
+    ),
+    true
+  )
 })
 
 test('still excludes internal ClipThat windows', () => {
@@ -16,6 +34,12 @@ test('still excludes internal ClipThat windows', () => {
   assert.equal(shouldIncludeWindowSource('ClipThat Library', editorTitles), false)
   assert.equal(shouldIncludeWindowSource('ClipThat Recorder', editorTitles), false)
   assert.equal(shouldIncludeWindowSource('ClipThat Settings', editorTitles), false)
+  assert.equal(
+    shouldIncludeWindowSource('ClipThat', ['ClipThat Recording Sentinel'], 'window:43:0', [
+      'window:42:7'
+    ]),
+    false
+  )
 })
 
 test('keeps other applications and rejects empty sources', () => {

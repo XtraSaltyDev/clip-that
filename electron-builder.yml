@@ -20,6 +20,10 @@ extraResources:
     filter:
       - '*.png'
       - 'clipthat-window-info'
+  # electron-builder only generates this for archive/installer targets. Shipping the
+  # same fixed config explicitly keeps `npm run install:mac` representative too.
+  - from: build/app-update.yml
+    to: app-update.yml
 
 extraMetadata:
   main: out/main/index.js

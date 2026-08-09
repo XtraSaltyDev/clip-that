@@ -163,8 +163,8 @@ export async function snapshotAllDisplays(): Promise<DisplaySnapshot[]> {
    * service, and everything started afterwards contends with it. Racing the two paths
    * made a 0.7s capture take 10s.
    *
-   * macOS leads with `screencapture -R` per display: proven to work in-process, where
-   * the full-display forms fail outright. Elsewhere desktopCapturer is the only option.
+   * macOS leads with `screencapture -R` per display. Elsewhere desktopCapturer is the
+   * only option.
    */
   const path: string[] = []
   if (IS_MAC) {
@@ -257,12 +257,8 @@ export async function beginOverlaySnapshots(primaryDisplayId: string): Promise<{
 /**
  * Capture each display with `screencapture -R <its bounds>`.
  *
- * The full-display forms (`-D<n>`, and multiple output paths) fail from inside this app
- * with "could not create image from display" while succeeding from a shell — the same
- * binary, the same flags. `-R` is the one form that works in-process, which is also why
- * the permission self-check uses it. Region coordinates are global desktop points, so a
- * display at a negative origin is captured correctly, and Retina displays come back at
- * native pixel size.
+ * Region coordinates are global desktop points, so a display at a negative origin is
+ * captured correctly, and Retina displays come back at native pixel size.
  */
 interface CliShot {
   dataUrl: string
@@ -343,14 +339,31 @@ export async function captureDisplay(displayId: string): Promise<DisplaySnapshot
   // path and desktopCapturer is the one that intermittently lies.
   if (IS_MAC) {
     const shot = await cliShotForDisplay(displayId)
-    if (!shot) return null
+    if (shot) {
+      return {
+        displayId,
+        dataUrl: shot.dataUrl,
+        bounds: { ...d.bounds },
+        scaleFactor: d.scaleFactor,
+        pixelWidth: shot.width,
+        pixelHeight: shot.height
+      }
+    }
+
+    // Native region capture is an optimization, not a correctness requirement. Retain
+    // the same ScreenCaptureKit-backed fallback used by the all-display snapshot path.
+    const image = (
+      await grabScreenSources().catch(() => new Map<string, Electron.NativeImage>())
+    ).get(displayId)
+    if (!image) return null
+    const size = image.getSize()
     return {
       displayId,
-      dataUrl: shot.dataUrl,
+      dataUrl: image.toDataURL(),
       bounds: { ...d.bounds },
       scaleFactor: d.scaleFactor,
-      pixelWidth: shot.width,
-      pixelHeight: shot.height
+      pixelWidth: size.width,
+      pixelHeight: size.height
     }
   }
 
@@ -384,9 +397,9 @@ export async function captureDisplay(displayId: string): Promise<DisplaySnapshot
  */
 export async function listWindows(withPreview = true): Promise<WindowInfo[]> {
   const t0 = Date.now()
-  const visibleEditorTitles = editorWindows()
-    .filter((win) => win.isVisible())
-    .map((win) => win.getTitle())
+  const visibleEditors = editorWindows().filter((win) => win.isVisible())
+  const visibleEditorTitles = visibleEditors.map((win) => win.getTitle())
+  const visibleEditorSourceIds = visibleEditors.map((win) => win.getMediaSourceId())
   // On macOS, asking ScreenCaptureKit to materialize every preview can hang the entire
   // enumeration. Return metadata immediately and let the picker request native previews
   // one at a time. Windows and Linux keep the efficient batched compositor path.
@@ -400,8 +413,19 @@ export async function listWindows(withPreview = true): Promise<WindowInfo[]> {
     // adds work to an already fragile ScreenCaptureKit enumeration and yields no icon.
     fetchWindowIcons: batchPreviews
   })
+  if (process.env['CLIPTHAT_SELF_TEST']) {
+    const editorSourceCount = sources.filter((source) =>
+      visibleEditorSourceIds.includes(source.id)
+    ).length
+    console.log(
+      `[selftest] window sources: ${sources.length} available, ` +
+        `${visibleEditors.length} visible ClipThat editors, ${editorSourceCount} matched`
+    )
+  }
   const windows = sources
-    .filter((s) => shouldIncludeWindowSource(s.name, visibleEditorTitles))
+    .filter((s) =>
+      shouldIncludeWindowSource(s.name, visibleEditorTitles, s.id, visibleEditorSourceIds)
+    )
     .map((s) => {
       // Electron reports "AppName — Document" on macOS and just the title elsewhere.
       const [head, ...rest] = s.name.split(' — ')

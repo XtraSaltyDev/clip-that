@@ -1,6 +1,6 @@
 /**
  * End-to-end self-test for the paths that cannot be unit-tested: screen recording
- * (getDisplayMedia → MediaRecorder → ffmpeg) and scrolling capture against a live,
+ * (source-ID getUserMedia → MediaRecorder → ffmpeg) and scrolling capture against a live,
  * genuinely scrolling window.
  *
  * Runs inside the real, packaged, permission-granted app:
@@ -11,7 +11,7 @@
  * records a few seconds of the primary display; all artifacts are deleted afterwards.
  */
 import { BrowserWindow, screen } from 'electron'
-import { execFile } from 'node:child_process'
+import { execFile, spawn, type ChildProcessWithoutNullStreams } from 'node:child_process'
 import { promises as fs } from 'node:fs'
 import { library } from '../store/library'
 import { recording } from '../recording/session'
@@ -35,10 +35,12 @@ import { settings } from '../store/settings'
 import { createPin, pinCount, closeAllPins } from '../windows/pins'
 import { quickWindow } from '../windows/quick'
 import { openOverlay, closeOverlay, overlayVisible } from '../windows/overlay'
+import { checkForAppUpdate } from '../update/service'
 
 const wait = (ms: number) => new Promise((r) => setTimeout(r, ms))
 const log = (line: string) => console.log(`[selftest] ${line}`)
 const fail = (line: string) => console.error(`[selftest] FAIL: ${line}`)
+class SelfTestAbort extends Error {}
 
 async function until(
   what: string,
@@ -153,6 +155,11 @@ const RECORDING_SENTINEL = `<!doctype html><meta charset="utf-8"><title>ClipThat
 async function createRecordingSentinel(): Promise<BrowserWindow> {
   const display = screen.getPrimaryDisplay()
   const win = createEditorWindow()
+  // createEditorWindow begins loading the real editor before returning. Let that
+  // navigation finish so it cannot race and replace the deterministic test page.
+  if (win.webContents.isLoadingMainFrame()) {
+    await new Promise<void>((resolve) => win.webContents.once('did-finish-load', () => resolve()))
+  }
   await win.loadURL(`data:text/html;charset=utf-8,${encodeURIComponent(RECORDING_SENTINEL)}`)
   win.setTitle('ClipThat Recording Sentinel')
   win.setBounds({
@@ -162,6 +169,7 @@ async function createRecordingSentinel(): Promise<BrowserWindow> {
     height: Math.max(650, display.workArea.height - 48)
   })
   win.show()
+  await wait(500)
   return win
 }
 
@@ -177,6 +185,11 @@ async function testRecording(
   log(`recording/${label}: starting`)
   const before = library.list({ kind: 'video', limit: 1000 }).map((i) => i.id)
 
+  // Every case needs a newly loaded setup screen. Reusing the HUD retains its previous
+  // React source list and target choice, which can turn a display test into an attempt
+  // to capture a window that the preceding case already destroyed.
+  closeHudWindow()
+  await wait(250)
   const hud = showHudWindow()
   await new Promise<void>((r) =>
     hud.webContents.isLoading()
@@ -184,6 +197,10 @@ async function testRecording(
       : r()
   )
   await wait(1800) // sources + settings fetch
+
+  // Reliability testing intentionally retains an interrupted raw recording. Do not
+  // delete it, but leave the recovery list so this case can exercise a new capture.
+  if (await clickButton(hud, 'Record new')) await wait(300)
 
   // Countdown to zero so the test doesn't sit through it. The setup screen has exactly
   // one range input (Countdown) while mic/webcam are off.
@@ -197,12 +214,26 @@ async function testRecording(
   })()`)
   await wait(200)
 
+  const target = variant.sentinel ? 'Window' : 'Screen'
+  if (!(await clickButton(hud, target))) {
+    fail(`recording/${label}: ${target} target button not found`)
+    return false
+  }
+  await wait(300)
+
   if (variant.sentinel) {
-    if (!(await clickButton(hud, 'Window'))) {
-      fail(`recording/${label}: Window target button not found`)
-      return false
-    }
-    await wait(300)
+    const offered = await until(
+      `recording/${label} sentinel source`,
+      () =>
+        hud.webContents.executeJavaScript(`
+          [...document.querySelectorAll('select option')].some((option) =>
+            option.textContent.includes('Recording Sentinel')
+          )
+        `),
+      12_000,
+      100
+    )
+    if (!offered) return false
     const selected = await hud.webContents.executeJavaScript(`(() => {
       const select = [...document.querySelectorAll('select')].find((element) =>
         [...element.options].some((option) => option.textContent.includes('Recording Sentinel'))
@@ -217,7 +248,10 @@ async function testRecording(
       return true
     })()`)
     if (!selected) {
-      fail(`recording/${label}: sentinel window was not offered as a recording source`)
+      const offeredCount = await hud.webContents.executeJavaScript(
+        `[...document.querySelectorAll('select option')].length`
+      )
+      fail(`recording/${label}: sentinel window was not offered; ${offeredCount} option(s) found`)
       return false
     }
     await wait(300)
@@ -385,41 +419,149 @@ async function testAutoZoomPixels(): Promise<boolean> {
   }
 }
 
+async function testUpdateChannel(): Promise<boolean> {
+  log('update: starting')
+  const result = await checkForAppUpdate(true)
+  if (result.state === 'unavailable' || result.state === 'unsupported') {
+    fail(`update: ${result.state}${result.state === 'unavailable' ? ` (${result.reason})` : ''}`)
+    return false
+  }
+  log(`update: PASS (${result.state}, current=${result.currentVersion})`)
+  return true
+}
+
 /* ------------------------------------------------------------------ *
  * Scrolling capture
  * ------------------------------------------------------------------ */
 
-const SCROLL_PAGE = `<!doctype html><meta charset="utf-8"><style>
-  body { margin: 0; font: 700 28px ui-monospace, monospace; }
-  .row { height: 60px; display: flex; align-items: center; padding-left: 24px; color: #fff; }
-</style><body>
-${Array.from({ length: 60 })
-  .map(
-    (_, i) =>
-      `<div class="row" style="background:hsl(${(i * 47) % 360} 65% 42%)">ROW ${String(i).padStart(3, '0')} — clipthat scroll self test</div>`
+interface ScrollSentinel {
+  bounds: Electron.Rectangle
+  scrollTo(offset: number): Promise<void>
+  close(): Promise<void>
+}
+
+async function createScrollSentinel(): Promise<ScrollSentinel | null> {
+  if (process.platform !== 'darwin') {
+    const display = screen.getPrimaryDisplay()
+    const win = new BrowserWindow({
+      x: display.workArea.x + 40,
+      y: display.workArea.y + 40,
+      width: 640,
+      height: 480,
+      title: 'ClipThat scroll self-test',
+      webPreferences: { sandbox: true }
+    })
+    const rows = Array.from({ length: 60 })
+      .map(
+        (_, index) =>
+          `<div style="height:60px;background:hsl(${(index * 47) % 360} 65% 42%);color:#fff">` +
+          `ROW ${String(index).padStart(3, '0')} - clipthat scroll self test</div>`
+      )
+      .join('')
+    await win.loadURL(
+      `data:text/html;charset=utf-8,${encodeURIComponent(
+        `<!doctype html><style>body{margin:0;font:700 28px monospace}</style>${rows}`
+      )}`
+    )
+    win.show()
+    win.focus()
+    return {
+      bounds: win.getContentBounds(),
+      scrollTo: (offset) => win.webContents.executeJavaScript(`window.scrollTo(0, ${offset})`),
+      close: async () => {
+        if (!win.isDestroyed()) win.destroy()
+      }
+    }
+  }
+  const helper = app.isPackaged
+    ? join(process.resourcesPath, 'build', 'clipthat-window-info')
+    : join(app.getAppPath(), 'build', 'clipthat-window-info')
+  const display = screen.getPrimaryDisplay()
+  const bounds = {
+    x: display.workArea.x + 40,
+    y: display.workArea.y + 40,
+    width: 640,
+    height: 480
+  }
+  const child = spawn(
+    helper,
+    ['--scroll-sentinel', String(bounds.x), String(bounds.y), String(bounds.width), String(bounds.height)],
+    { stdio: ['pipe', 'pipe', 'pipe'] }
   )
-  .join('')}
-</body>`
+  child.on('error', (error) => console.warn(`[selftest] scroll sentinel: ${error.message}`))
+
+  let buffered = ''
+  const lines: string[] = []
+  const waiters: Array<(line: string) => boolean> = []
+  const publish = (line: string) => {
+    const index = waiters.findIndex((accept) => accept(line))
+    if (index >= 0) waiters.splice(index, 1)
+    else lines.push(line)
+  }
+  child.stdout.setEncoding('utf8')
+  child.stdout.on('data', (chunk: string) => {
+    buffered += chunk
+    const parts = buffered.split('\n')
+    buffered = parts.pop() ?? ''
+    for (const line of parts) publish(line.trim())
+  })
+  child.stderr.on('data', (chunk) => console.warn(`[selftest] scroll sentinel: ${String(chunk).trim()}`))
+
+  const waitForLine = (prefix: string, timeoutMs: number): Promise<string> => {
+    const queued = lines.findIndex((line) => line.startsWith(prefix))
+    if (queued >= 0) return Promise.resolve(lines.splice(queued, 1)[0])
+    return new Promise((resolve, reject) => {
+      const timer = setTimeout(() => {
+        const index = waiters.indexOf(accept)
+        if (index >= 0) waiters.splice(index, 1)
+        reject(new Error(`timed out waiting for scroll sentinel ${prefix}`))
+      }, timeoutMs)
+      const accept = (line: string) => {
+        if (!line.startsWith(prefix)) return false
+        clearTimeout(timer)
+        resolve(line)
+        return true
+      }
+      waiters.push(accept)
+    })
+  }
+
+  const closeChild = async (process: ChildProcessWithoutNullStreams) => {
+    if (process.exitCode !== null || process.signalCode !== null) return
+    const exited = new Promise<void>((resolve) => process.once('exit', () => resolve()))
+    process.stdin.write('QUIT\n')
+    await Promise.race([exited, wait(2000)])
+    if (process.exitCode === null && process.signalCode === null) process.kill('SIGTERM')
+  }
+
+  try {
+    await waitForLine('READY ', 10000)
+  } catch (error) {
+    await closeChild(child)
+    fail(`scroll: external sentinel did not start — ${(error as Error).message}`)
+    return null
+  }
+
+  return {
+    bounds,
+    async scrollTo(offset: number) {
+      child.stdin.write(`${offset}\n`)
+      await waitForLine(`SCROLLED ${offset}`, 5000)
+    },
+    close: () => closeChild(child)
+  }
+}
 
 async function testScroll(): Promise<boolean> {
   log('scroll: starting')
 
   const display = screen.getPrimaryDisplay()
-  const win = new BrowserWindow({
-    x: display.workArea.x + 40,
-    y: display.workArea.y + 40,
-    width: 640,
-    height: 480,
-    alwaysOnTop: true,
-    title: 'ClipThat scroll self-test',
-    webPreferences: { sandbox: true }
-  })
-  await win.loadURL(`data:text/html;charset=utf-8,${encodeURIComponent(SCROLL_PAGE)}`)
-  win.setAlwaysOnTop(true, 'screen-saver')
+  const sentinel = await createScrollSentinel()
+  if (!sentinel) return false
   await wait(800)
 
   try {
-    const content = win.getContentBounds()
+    const content = sentinel.bounds
     const rect = {
       x: (content.x - display.bounds.x) * display.scaleFactor,
       y: (content.y - display.bounds.y) * display.scaleFactor,
@@ -428,13 +570,12 @@ async function testScroll(): Promise<boolean> {
     }
 
     startScrollCapture(String(display.id), rect, content)
-    void recording.prewarmDisplaySources()
     const hud = showHudWindow('scroll')
     await new Promise<void>((resolve) =>
       hud.webContents.isLoading() ? hud.webContents.once('did-finish-load', () => resolve()) : resolve()
     )
 
-    const { scrollFrameCount } = await import('../capture/service')
+    const { scrollFrameCount, scrollFrameEvidence } = await import('../capture/service')
     if (!(await until('first scroll frame', () => scrollFrameCount() >= 1, 40000))) {
       return false
     }
@@ -443,13 +584,14 @@ async function testScroll(): Promise<boolean> {
     // production hand-off instead of assuming a particular compositor frame rate.
     for (let step = 1; step <= 6; step++) {
       const before = scrollFrameCount()
-      await win.webContents.executeJavaScript(`window.scrollTo(0, ${step * 200})`)
+      await sentinel.scrollTo(step * 200)
       if (!(await until(`scroll frame ${step + 1}`, () => scrollFrameCount() > before, 15000, 100))) {
         return false
       }
     }
 
     const frames = scrollFrameCount()
+    const evidence = scrollFrameEvidence()
     log(`scroll: ${frames} frames collected before stitch`)
     if (frames < 4) fail(`scroll: cadence too low — ${frames} frames for 6 scroll steps`)
     const result = await finishScrollCapture()
@@ -469,6 +611,14 @@ async function testScroll(): Promise<boolean> {
     // 6 steps × 200 DIP ≈ 1200 DIP of new content ≈ 2.5 viewports on top of the first.
     if (ratio < 1.5) {
       fail(`scroll: expected the stitch to be ≥1.5x the viewport, got ${ratio.toFixed(2)}x`)
+      const evidenceDir = join(app.getPath('userData'), 'logs')
+      await fs.mkdir(evidenceDir, { recursive: true })
+      await Promise.all(
+        evidence.map((png, index) =>
+          fs.writeFile(join(evidenceDir, `selftest-scroll-${index === 0 ? 'first' : 'last'}.png`), png)
+        )
+      )
+      log('scroll: first/last frame evidence retained in the app logs directory')
       return false
     }
     const img = nativeImage.createFromDataURL(result.dataUrl)
@@ -481,7 +631,7 @@ async function testScroll(): Promise<boolean> {
   } finally {
     cancelScrollCapture()
     closeHudWindow()
-    if (!win.isDestroyed()) win.destroy()
+    await sentinel.close()
   }
 }
 
@@ -742,18 +892,14 @@ function makeTestImage(width: number, height: number): string {
  */
 async function waitForCaptureReady(): Promise<boolean> {
   const t0 = Date.now()
-  const { captureRegionCli, snapshotAllDisplays } = await import('../capture/backend')
+  const { snapshotAllDisplays } = await import('../capture/backend')
   const wanted = screen.getAllDisplays().length
-  // Probe with a tiny region shot — hammering the flapping service with the full
-  // escalation ladder every second keeps it down. Two consecutive light successes,
-  // then one real full-set snapshot to seal it.
-  let streak = 0
+  // Exercise the same complete snapshot path used by actual captures. The macOS
+  // native region optimization is allowed to fail because production falls back
+  // to Electron's ScreenCaptureKit-backed desktop source in that case.
   const ok = await until(
     'capture service to come up',
     async () => {
-      const shot = await captureRegionCli({ x: 0, y: 0, width: 8, height: 8 })
-      streak = shot ? streak + 1 : 0
-      if (streak < 2) return false
       const snaps = await snapshotAllDisplays()
       return snaps.length >= wanted
     },
@@ -767,6 +913,7 @@ async function waitForCaptureReady(): Promise<boolean> {
 export async function runSelfTest(which: string): Promise<void> {
   const parts = which.split(',').map((s) => s.trim().toLowerCase())
   const results: Array<[string, boolean]> = []
+  const existingRecoveryIds = new Set(recording.recoveries().map((item) => item.id))
 
   try {
     const needsStillCapture =
@@ -775,13 +922,28 @@ export async function runSelfTest(which: string): Promise<void> {
       parts.includes('quick') ||
       parts.includes('pipeline')
     if (needsStillCapture && !(await waitForCaptureReady())) {
-      log('SUMMARY: 0/0 — capture service never became ready')
-      return
+      results.push(['capture-ready', false])
+      throw new SelfTestAbort('capture service never became ready')
     }
 
-    // Latency first: it measures the common case — a hotkey press on a quiet system —
-    // not the aftermath of a recording stress marathon. The heavy phases follow, with
-    // settle time between them because the OS capture service needs a beat after each.
+    // Run ScreenCaptureKit's live-stream paths before the still-capture stress phases.
+    // This keeps one exhaustive app launch representative without measuring capture-daemon
+    // exhaustion caused by the harness itself.
+    if (parts.includes('recording') || parts.includes('all')) {
+      results.push(['recording/MP4', await testRecording('MP4')])
+      await wait(1500)
+      results.push(['recording/GIF', await testRecording('GIF')])
+      await wait(1500)
+    }
+    if (parts.includes('zoom') || parts.includes('all')) {
+      results.push(['recording/zoom', await testAutoZoomPixels()])
+      await wait(1500)
+    }
+    if (parts.includes('scroll') || parts.includes('all')) {
+      results.push(['scroll', await testScroll()])
+      await wait(2000)
+    }
+
     if (parts.includes('latency') || parts.includes('all')) {
       results.push(['latency', await testLatency()])
       await wait(2500)
@@ -801,23 +963,48 @@ export async function runSelfTest(which: string): Promise<void> {
       results.push(['pipeline', await testPipeline()])
       await wait(3000)
     }
-    if (parts.includes('scroll') || parts.includes('all')) {
-      results.push(['scroll', await testScroll()])
-      await wait(2000)
-    }
-    if (parts.includes('recording') || parts.includes('all')) {
-      results.push(['recording/MP4', await testRecording('MP4')])
-      await wait(1500)
-      results.push(['recording/GIF', await testRecording('GIF')])
-      await wait(1500)
-    }
-    if (parts.includes('zoom') || parts.includes('all')) {
-      results.push(['recording/zoom', await testAutoZoomPixels()])
+    if (parts.includes('update') || parts.includes('all')) {
+      results.push(['update', await testUpdateChannel()])
     }
   } catch (err) {
-    fail(`unhandled: ${(err as Error).stack ?? err}`)
+    if (!(err instanceof SelfTestAbort)) {
+      fail(`unhandled: ${(err as Error).stack ?? err}`)
+      results.push(['unhandled', false])
+    }
+  }
+
+  const passedBeforeCleanup = results.filter(([, ok]) => ok).length
+  let complete = results.length > 0 && passedBeforeCleanup === results.length
+
+  if (complete) {
+    const createdRecoveries = recording
+      .recoveries()
+      .filter((item) => !existingRecoveryIds.has(item.id))
+    try {
+      await Promise.all(createdRecoveries.map((item) => recording.discardRecovery(item.id)))
+      if (createdRecoveries.length > 0) {
+        log(`cleanup: removed ${createdRecoveries.length} self-test recovery session(s)`)
+      }
+    } catch (error) {
+      fail(`cleanup: could not remove self-test recovery data — ${(error as Error).message}`)
+      results.push(['cleanup', false])
+      complete = false
+    }
+  } else {
+    const retained = recording
+      .recoveries()
+      .filter((item) => !existingRecoveryIds.has(item.id)).length
+    if (retained > 0) log(`cleanup: retained ${retained} failed self-test recovery session(s)`)
   }
 
   const passed = results.filter(([, ok]) => ok).length
-  log(`SUMMARY: ${passed}/${results.length} passed — ${results.map(([n, ok]) => `${n}=${ok ? 'PASS' : 'FAIL'}`).join(', ')}`)
+  log(
+    `SUMMARY: ${passed}/${results.length} passed — ${results
+      .map(([name, ok]) => `${name}=${ok ? 'PASS' : 'FAIL'}`)
+      .join(', ')}`
+  )
+  process.exitCode = complete ? 0 : 1
+  // Use the regular quit path so settings and the log are flushed before the
+  // packaged harness exits. The explicit environment variable makes this safe.
+  setTimeout(() => app.quit(), 100)
 }
