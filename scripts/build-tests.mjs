@@ -31,6 +31,7 @@ const ENTRIES = {
   editorStore: 'src/renderer/editor/store.ts',
   tilt: 'src/renderer/editor/canvas/tilt.ts',
   transforms: 'src/renderer/editor/canvas/transforms.ts',
+  rotationHandle: 'src/renderer/editor/canvas/rotation-handle.ts',
   diagnosticsRedact: 'src/main/diagnostics/redact.ts',
   updateContract: 'src/main/update/contract.ts',
   updateMetadata: 'src/main/update/metadata.ts',

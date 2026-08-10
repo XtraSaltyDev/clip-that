@@ -115,7 +115,7 @@ export function safeFilename(value: string, fallback = 'ClipThat'): string {
     : readable
 }
 
-/** Expands `{yyyy}` style tokens in the filename template. */
+/** Expands known `{yyyy}` style tokens and drops unknown placeholders. */
 export function formatFilename(template: string, date = new Date()): string {
   const pad = (n: number, w = 2) => String(n).padStart(w, '0')
   const map: Record<string, string> = {
@@ -128,6 +128,6 @@ export function formatFilename(template: string, date = new Date()): string {
     ss: pad(date.getSeconds()),
     ms: pad(date.getMilliseconds(), 3)
   }
-  const named = template.replace(/\{(\w+)\}/g, (m, key: string) => map[key] ?? m)
+  const named = template.replace(/\{([^{}]+)\}/g, (_match, key: string) => map[key] ?? '')
   return safeFilename(named)
 }

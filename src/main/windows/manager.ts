@@ -240,15 +240,20 @@ export function dockHud(width: number, height: number): void {
 
 function centerHud(win: BrowserWindow, width: number, height: number): void {
   const remembered =
-    hudDisplayId === null ? undefined : screen.getAllDisplays().find((item) => item.id === hudDisplayId)
+    hudDisplayId === null
+      ? undefined
+      : screen.getAllDisplays().find((item) => item.id === hudDisplayId)
   const display = remembered ?? screen.getDisplayNearestPoint(screen.getCursorScreenPoint())
   const area = display.workArea
-  win.setBounds({
-    x: Math.round(area.x + (area.width - width) / 2),
-    y: Math.round(area.y + (area.height - height) / 2),
-    width: Math.round(width),
-    height: Math.round(height)
-  }, false)
+  win.setBounds(
+    {
+      x: Math.round(area.x + (area.width - width) / 2),
+      y: Math.round(area.y + (area.height - height) / 2),
+      width: Math.round(width),
+      height: Math.round(height)
+    },
+    false
+  )
 }
 
 export function closeHudWindow(): void {
@@ -257,15 +262,52 @@ export function closeHudWindow(): void {
 
 let worker: BrowserWindow | null = null
 
+function waitForWorkerReady(win: BrowserWindow, waitForNavigation = false): Promise<BrowserWindow> {
+  if (!waitForNavigation && !win.webContents.isLoading()) return Promise.resolve(win)
+
+  return new Promise((resolve, reject) => {
+    let settled = false
+    const cleanup = () => {
+      win.webContents.removeListener('did-finish-load', onReady)
+      win.webContents.removeListener('did-fail-load', onFailed)
+      win.webContents.removeListener('render-process-gone', onGone)
+      win.removeListener('closed', onClosed)
+    }
+    const succeed = () => {
+      if (settled) return
+      settled = true
+      cleanup()
+      resolve(win)
+    }
+    const fail = (error: Error) => {
+      if (settled) return
+      settled = true
+      cleanup()
+      if (worker === win) worker = null
+      if (!win.isDestroyed()) win.destroy()
+      reject(error)
+    }
+    const onReady = () => succeed()
+    const onFailed = (_event: Electron.Event, code: number, description: string) =>
+      fail(new Error(`OCR worker failed to load (${code}): ${description}`))
+    const onGone = (_event: Electron.Event, details: Electron.RenderProcessGoneDetails) =>
+      fail(new Error(`OCR worker renderer exited: ${details.reason}`))
+    const onClosed = () => fail(new Error('OCR worker window closed before it was ready'))
+
+    win.webContents.once('did-finish-load', onReady)
+    win.webContents.once('did-fail-load', onFailed)
+    win.webContents.once('render-process-gone', onGone)
+    win.once('closed', onClosed)
+  })
+}
+
 /**
  * Hidden worker window. OCR needs WASM and a DOM canvas, neither of which exists in
  * the main process, so it runs here — invisible, and shared by every caller.
  */
 export function getWorkerWindow(): Promise<BrowserWindow> {
   if (worker && !worker.isDestroyed()) {
-    return worker.webContents.isLoading()
-      ? new Promise((r) => worker!.webContents.once('did-finish-load', () => r(worker!)))
-      : Promise.resolve(worker)
+    return waitForWorkerReady(worker)
   }
 
   const win = new BrowserWindow({
@@ -285,10 +327,9 @@ export function getWorkerWindow(): Promise<BrowserWindow> {
   win.on('closed', () => {
     if (worker === win) worker = null
   })
+  const ready = waitForWorkerReady(win, true)
   loadEntry(win, 'hud', 'worker')
-  return new Promise((resolve) => {
-    win.webContents.once('did-finish-load', () => resolve(win))
-  })
+  return ready
 }
 
 /** Release Tesseract's hidden Chromium/WASM process after an idle spell. */

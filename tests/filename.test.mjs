@@ -2,20 +2,18 @@ import test from 'node:test'
 import assert from 'node:assert/strict'
 import { load } from './helpers.mjs'
 
-const { defaultSettings, formatFilename, migrateAfterCapturePreference, safeFilename } = await load('defaults')
+const { defaultSettings, formatFilename, migrateAfterCapturePreference, safeFilename } =
+  await load('defaults')
 
 const AT = new Date(2026, 7, 6, 9, 4, 5, 70) // 6 Aug 2026, 09:04:05.070
 
 test('expands every date token', () => {
-  assert.equal(
-    formatFilename('{yyyy}-{MM}-{dd} at {HH}.{mm}.{ss}', AT),
-    '2026-08-06 at 09.04.05'
-  )
+  assert.equal(formatFilename('{yyyy}-{MM}-{dd} at {HH}.{mm}.{ss}', AT), '2026-08-06 at 09.04.05')
   assert.equal(formatFilename('{yy}{ms}', AT), '26070')
 })
 
-test('leaves unknown tokens alone', () => {
-  assert.equal(formatFilename('shot-{nope}', AT), 'shot-{nope}')
+test('drops unknown tokens instead of writing placeholder syntax into filenames', () => {
+  assert.equal(formatFilename('shot-{nope}{bad-token}', AT), 'shot-')
 })
 
 test('strips characters that are illegal in a filename on any platform', () => {

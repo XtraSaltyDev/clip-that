@@ -1,9 +1,8 @@
-import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import React, { useCallback, useEffect, useRef, useState } from 'react'
 import type {
   CaptureEditorVisibility,
   CaptureOverlayUpdate,
   DisplaySnapshot,
-  Rect,
   WindowInfo
 } from '@shared/types'
 import { api } from '../shared/api'
@@ -56,9 +55,11 @@ export default function Overlay(): React.ReactElement | null {
   const imageRef = useRef<HTMLImageElement | null>(null)
   const pixelsRef = useRef<CanvasRenderingContext2D | null>(null)
   const dragStart = useRef<{ x: number; y: number } | null>(null)
-  const moveRef = useRef<{ handle: Handle | 'move'; origin: Box; from: { x: number; y: number } } | null>(
-    null
-  )
+  const moveRef = useRef<{
+    handle: Handle | 'move'
+    origin: Box
+    from: { x: number; y: number }
+  } | null>(null)
   const loupeRef = useRef<HTMLCanvasElement | null>(null)
   const previewKnownRef = useRef(new Set<string>())
   const previewInFlightRef = useRef(new Set<string>())
@@ -114,7 +115,13 @@ export default function Overlay(): React.ReactElement | null {
         if (!payload.snapshot) return
         releaseSnapshot()
         setInit((current) =>
-          current ? { ...current, snapshot: payload.snapshot!, editorVisibility: payload.editorVisibility } : current
+          current
+            ? {
+                ...current,
+                snapshot: payload.snapshot!,
+                editorVisibility: payload.editorVisibility
+              }
+            : current
         )
       }),
     [releaseSnapshot]
@@ -156,16 +163,18 @@ export default function Overlay(): React.ReactElement | null {
       previewKnownRef.current.add(id)
       previewOrderRef.current = previewOrderRef.current.filter((item) => item !== id)
       previewOrderRef.current.push(id)
-      const evict = previewOrderRef.current.length > 12 ? previewOrderRef.current.shift() : undefined
+      const evict =
+        previewOrderRef.current.length > 12 ? previewOrderRef.current.shift() : undefined
       if (evict) previewKnownRef.current.delete(evict)
-      setWindows((current) =>
-        current?.map((win) =>
-          win.id === id
-            ? { ...win, thumbnail }
-            : win.id === evict
-              ? { ...win, thumbnail: undefined }
-              : win
-        ) ?? null
+      setWindows(
+        (current) =>
+          current?.map((win) =>
+            win.id === id
+              ? { ...win, thumbnail }
+              : win.id === evict
+                ? { ...win, thumbnail: undefined }
+                : win
+          ) ?? null
       )
     } finally {
       previewInFlightRef.current.delete(id)
@@ -209,7 +218,10 @@ export default function Overlay(): React.ReactElement | null {
     // ScreenCaptureKit is stable when `screencapture -l` requests are serial. Fill
     // the first visible row automatically so the picker is useful immediately, then
     // retain hover/focus loading for the rest without creating a preview storm.
-    for (const item of items.filter((item) => !item.thumbnail).slice(0, 4).reverse()) {
+    for (const item of items
+      .filter((item) => !item.thumbnail)
+      .slice(0, 4)
+      .reverse()) {
       queueWindowPreview(item.id)
     }
   }, [queueWindowPreview])
@@ -335,7 +347,10 @@ export default function Overlay(): React.ReactElement | null {
       let end = point
       // Shift constrains to a square, matching every design tool's muscle memory.
       if (e.shiftKey) {
-        const side = Math.max(Math.abs(point.x - dragStart.current.x), Math.abs(point.y - dragStart.current.y))
+        const side = Math.max(
+          Math.abs(point.x - dragStart.current.x),
+          Math.abs(point.y - dragStart.current.y)
+        )
         end = {
           x: dragStart.current.x + Math.sign(point.x - dragStart.current.x) * side,
           y: dragStart.current.y + Math.sign(point.y - dragStart.current.y) * side
@@ -518,7 +533,11 @@ export default function Overlay(): React.ReactElement | null {
                 onFocus={() => queueWindowPreview(w.id)}
               >
                 <div className="ov-card-shot">
-                  {w.thumbnail ? <img src={w.thumbnail} alt="" /> : <Icon name="window" size={28} />}
+                  {w.thumbnail ? (
+                    <img src={w.thumbnail} alt="" />
+                  ) : (
+                    <Icon name="window" size={28} />
+                  )}
                 </div>
                 <div className="ov-card-meta">
                   {w.icon && <img className="ov-card-icon" src={w.icon} alt="" />}
@@ -552,7 +571,10 @@ export default function Overlay(): React.ReactElement | null {
       {/* Dim everything, then punch a hole for the selection. */}
       <div className="ov-scrim">
         {box && (
-          <div className="ov-hole" style={{ left: box.x, top: box.y, width: box.w, height: box.h }} />
+          <div
+            className="ov-hole"
+            style={{ left: box.x, top: box.y, width: box.w, height: box.h }}
+          />
         )}
       </div>
 

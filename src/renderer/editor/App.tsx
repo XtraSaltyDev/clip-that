@@ -30,7 +30,6 @@ function loadImageDataUrl(dataUrl: string): Promise<HTMLImageElement> {
 export default function App(): React.ReactElement {
   const settings = useTheme()
   const doc = useEditor((s) => s.doc)
-  const zoom = useEditor((s) => s.zoom)
   const libraryId = useEditor((s) => s.libraryId)
   const setDoc = useEditor((s) => s.setDoc)
   const sourceImage = useImage(doc?.image)

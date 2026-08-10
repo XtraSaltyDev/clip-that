@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useRef } from 'react'
+import React, { useEffect, useRef } from 'react'
 import Konva from 'konva'
 import {
   Arrow,
@@ -19,6 +19,7 @@ import type {
   StepShape,
   TextShape
 } from '@shared/types'
+import { pointsCenter } from './geometry'
 
 export interface ShapeContext {
   image: HTMLImageElement
@@ -59,7 +60,13 @@ function common(shape: Shape, props: Props) {
   }
 }
 
-function shadowProps(shape: { shadow?: boolean; shadowColor?: string; shadowBlur?: number; shadowOffsetX?: number; shadowOffsetY?: number }) {
+function shadowProps(shape: {
+  shadow?: boolean
+  shadowColor?: string
+  shadowBlur?: number
+  shadowOffsetX?: number
+  shadowOffsetY?: number
+}) {
   if (!shape.shadow) return {}
   return {
     shadowColor: shape.shadowColor ?? '#000000',
@@ -118,7 +125,9 @@ function FilteredRegion(props: Props & { filter: 'blur' | 'pixelate' }): React.R
       filters={[props.filter === 'blur' ? Konva.Filters.Blur : Konva.Filters.Pixelate]}
       blurRadius={props.filter === 'blur' ? intensity : undefined}
       pixelSize={props.filter === 'pixelate' ? Math.max(2, Math.round(intensity)) : undefined}
-      onDragEnd={(e) => props.onChange(shape.id, { x: e.target.x(), y: e.target.y() } as Partial<Shape>)}
+      onDragEnd={(e) =>
+        props.onChange(shape.id, { x: e.target.x(), y: e.target.y() } as Partial<Shape>)
+      }
     />
   )
 }
@@ -146,7 +155,9 @@ function Magnifier(props: Props): React.ReactElement | null {
       {...common(shape, props)}
       x={x}
       y={y}
-      onDragEnd={(e) => props.onChange(shape.id, { x: e.target.x(), y: e.target.y() } as Partial<Shape>)}
+      onDragEnd={(e) =>
+        props.onChange(shape.id, { x: e.target.x(), y: e.target.y() } as Partial<Shape>)
+      }
     >
       <KonvaImage
         image={props.ctx.image}
@@ -192,11 +203,7 @@ function Spotlight(props: Props): React.ReactElement {
   ]
 
   return (
-    <Group
-      {...common(shape, props)}
-      draggable={false}
-      onDragEnd={undefined}
-    >
+    <Group {...common(shape, props)} draggable={false} onDragEnd={undefined}>
       {bands.map((b, i) => (
         <Rect key={i} {...b} fill="#000000" opacity={dim} listening={false} />
       ))}
@@ -254,7 +261,9 @@ function Callout(props: Props): React.ReactElement {
       x={shape.x}
       y={shape.y}
       onDblClick={() => props.onEditText(shape.id)}
-      onDragEnd={(e) => props.onChange(shape.id, { x: e.target.x(), y: e.target.y() } as Partial<Shape>)}
+      onDragEnd={(e) =>
+        props.onChange(shape.id, { x: e.target.x(), y: e.target.y() } as Partial<Shape>)
+      }
     >
       <Line
         points={[anchor[0], anchor[1], tail.x, tail.y, anchor[2], anchor[3]]}
@@ -298,7 +307,9 @@ function Callout(props: Props): React.ReactElement {
           draggable
           onDragStart={props.onDragStart}
           onDragMove={(e) => {
-            props.onChange(shape.id, { tail: { x: e.target.x(), y: e.target.y() } } as Partial<Shape>)
+            props.onChange(shape.id, {
+              tail: { x: e.target.x(), y: e.target.y() }
+            } as Partial<Shape>)
           }}
           onMouseDown={(e) => {
             e.cancelBubble = true
@@ -312,22 +323,6 @@ function Callout(props: Props): React.ReactElement {
 /* ------------------------------------------------------------------ *
  * Dispatcher
  * ------------------------------------------------------------------ */
-
-function pointsCenter(points: number[]): { x: number; y: number } {
-  if (points.length < 2) return { x: 0, y: 0 }
-
-  let minX = points[0]
-  let maxX = points[0]
-  let minY = points[1]
-  let maxY = points[1]
-  for (let i = 2; i + 1 < points.length; i += 2) {
-    minX = Math.min(minX, points[i])
-    maxX = Math.max(maxX, points[i])
-    minY = Math.min(minY, points[i + 1])
-    maxY = Math.max(maxY, points[i + 1])
-  }
-  return { x: (minX + maxX) / 2, y: (minY + maxY) / 2 }
-}
 
 function ShapeNodeInner(props: Props): React.ReactElement | null {
   const { shape } = props
@@ -343,9 +338,7 @@ function ShapeNodeInner(props: Props): React.ReactElement | null {
       const [x1, y1, x2, y2] = s.points
       const curve = s.curve ?? 0
       const origin =
-        s.type === 'measure'
-          ? { x: (x1 + x2) / 2, y: (y1 + y2) / 2 }
-          : pointsCenter(s.points)
+        s.type === 'measure' ? { x: (x1 + x2) / 2, y: (y1 + y2) / 2 } : pointsCenter(s.points)
       let points = [x1 - origin.x, y1 - origin.y, x2 - origin.x, y2 - origin.y]
       if (curve !== 0) {
         // Bow the line by pushing a midpoint along the perpendicular.
@@ -364,37 +357,36 @@ function ShapeNodeInner(props: Props): React.ReactElement | null {
         ]
       }
       const head = s.strokeWidth * (s.headScale ?? 3)
-      const node = (
-        <Arrow
-          {...common(shape, props)}
-          x={origin.x}
-          y={origin.y}
-          points={points}
-          tension={curve !== 0 ? 0.4 : 0}
-          stroke={s.stroke}
-          strokeWidth={s.strokeWidth}
-          dash={s.dash}
-          fill={s.stroke}
-          lineCap="round"
-          lineJoin="round"
-          pointerLength={s.endHead || s.startHead ? head : 0}
-          pointerWidth={s.endHead || s.startHead ? head * 0.8 : 0}
-          pointerAtBeginning={Boolean(s.startHead)}
-          pointerAtEnding={s.endHead !== false && s.type !== 'line'}
-          hitStrokeWidth={Math.max(18, s.strokeWidth * 3)}
-          {...shadowProps(s)}
-          onDragEnd={(e) => {
-            const dx = e.target.x() - origin.x
-            const dy = e.target.y() - origin.y
-            e.target.position(origin)
-            props.onChange(shape.id, {
-              points: s.points.map((p, i) => (i % 2 === 0 ? p + dx : p + dy))
-            } as Partial<Shape>)
-          }}
-        />
-      )
+      const arrowProps = {
+        x: origin.x,
+        y: origin.y,
+        points,
+        tension: curve !== 0 ? 0.4 : 0,
+        stroke: s.stroke,
+        strokeWidth: s.strokeWidth,
+        dash: s.dash,
+        fill: s.stroke,
+        lineCap: 'round' as const,
+        lineJoin: 'round' as const,
+        pointerLength: s.endHead || s.startHead ? head : 0,
+        pointerWidth: s.endHead || s.startHead ? head * 0.8 : 0,
+        pointerAtBeginning: Boolean(s.startHead),
+        pointerAtEnding: s.endHead !== false && s.type !== 'line',
+        hitStrokeWidth: Math.max(18, s.strokeWidth * 3),
+        ...shadowProps(s)
+      }
+      const onDragEnd = (e: Konva.KonvaEventObject<DragEvent>) => {
+        const dx = e.target.x() - origin.x
+        const dy = e.target.y() - origin.y
+        e.target.position(origin)
+        props.onChange(shape.id, {
+          points: s.points.map((p, i) => (i % 2 === 0 ? p + dx : p + dy))
+        } as Partial<Shape>)
+      }
 
-      if (s.type !== 'measure') return node
+      if (s.type !== 'measure') {
+        return <Arrow {...common(shape, props)} {...arrowProps} onDragEnd={onDragEnd} />
+      }
       const length = Math.round(Math.hypot(x2 - x1, y2 - y1))
       const centerX = (x1 + x2) / 2
       const centerY = (y1 + y2) / 2
@@ -404,32 +396,9 @@ function ShapeNodeInner(props: Props): React.ReactElement | null {
           key={`${shape.id}-m`}
           x={centerX}
           y={centerY}
-          onDragEnd={(e) => {
-            const dx = e.target.x() - centerX
-            const dy = e.target.y() - centerY
-            e.target.position({ x: centerX, y: centerY })
-            props.onChange(shape.id, {
-              points: s.points.map((p, i) => (i % 2 === 0 ? p + dx : p + dy))
-            } as Partial<Shape>)
-          }}
+          onDragEnd={onDragEnd}
         >
-          <Arrow
-            points={points}
-            tension={curve !== 0 ? 0.4 : 0}
-            stroke={s.stroke}
-            strokeWidth={s.strokeWidth}
-            dash={s.dash}
-            fill={s.stroke}
-            lineCap="round"
-            lineJoin="round"
-            pointerLength={s.endHead || s.startHead ? head : 0}
-            pointerWidth={s.endHead || s.startHead ? head * 0.8 : 0}
-            pointerAtBeginning={Boolean(s.startHead)}
-            pointerAtEnding={s.endHead !== false}
-            hitStrokeWidth={Math.max(18, s.strokeWidth * 3)}
-            listening={false}
-            {...shadowProps(s)}
-          />
+          <Arrow {...arrowProps} listening={false} />
           <KonvaText
             x={-40}
             y={-s.strokeWidth * 4}
@@ -558,12 +527,7 @@ function ShapeNodeInner(props: Props): React.ReactElement | null {
       const s = shape as StepShape
       const label = String(s.index)
       return (
-        <Group
-          {...common(shape, props)}
-          x={s.x}
-          y={s.y}
-          onDragEnd={boxDrag(shape.id)}
-        >
+        <Group {...common(shape, props)} x={s.x} y={s.y} onDragEnd={boxDrag(shape.id)}>
           {s.shape === 'square' ? (
             <Rect
               x={-s.radius}

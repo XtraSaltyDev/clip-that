@@ -14,7 +14,8 @@ import {
 } from '../shared/ui'
 import './settings.css'
 
-type SectionId = 'welcome' | 'general' | 'capture' | 'hotkeys' | 'annotation' | 'about' | 'whats-new'
+type SectionId =
+  'welcome' | 'general' | 'capture' | 'hotkeys' | 'annotation' | 'about' | 'whats-new'
 
 const SECTIONS: Array<{ id: SectionId; label: string; icon: IconName }> = [
   { id: 'welcome', label: 'Get started', icon: 'sparkles' },
@@ -27,7 +28,7 @@ const SECTIONS: Array<{ id: SectionId; label: string; icon: IconName }> = [
 ]
 
 export default function App(): React.ReactElement {
-  const live = useTheme()
+  useTheme()
   const [settings, setSettings] = useState<Settings | null>(null)
   const [platform, setPlatform] = useState('')
   const [version, setVersion] = useState('')
@@ -103,7 +104,9 @@ export default function App(): React.ReactElement {
       </nav>
 
       <main className="set-main">
-        {section === 'welcome' && <Welcome platform={platform} onDone={() => setSection('general')} />}
+        {section === 'welcome' && (
+          <Welcome platform={platform} onDone={() => setSection('general')} />
+        )}
         {section === 'general' && <General settings={settings} patch={patch} platform={platform} />}
         {section === 'capture' && <Capture settings={settings} patch={patch} />}
         {section === 'hotkeys' && (
@@ -123,7 +126,11 @@ export default function App(): React.ReactElement {
 
 /* ------------------------------------------------------------------ */
 
-function Group(props: { title: string; hint?: string; children: React.ReactNode }): React.ReactElement {
+function Group(props: {
+  title: string
+  hint?: string
+  children: React.ReactNode
+}): React.ReactElement {
   return (
     <section className="set-group">
       <h2>{props.title}</h2>
@@ -133,7 +140,11 @@ function Group(props: { title: string; hint?: string; children: React.ReactNode 
   )
 }
 
-function Field(props: { label: string; hint?: string; children: React.ReactNode }): React.ReactElement {
+function Field(props: {
+  label: string
+  hint?: string
+  children: React.ReactNode
+}): React.ReactElement {
   return (
     <div className="set-field">
       <div className="set-field-label">
@@ -149,7 +160,13 @@ function Field(props: { label: string; hint?: string; children: React.ReactNode 
  * Welcome / permissions
  * ------------------------------------------------------------------ */
 
-function Welcome({ platform, onDone }: { platform: string; onDone: () => void }): React.ReactElement {
+function Welcome({
+  platform,
+  onDone
+}: {
+  platform: string
+  onDone: () => void
+}): React.ReactElement {
   const [perm, setPerm] = useState<{ screen: string; screenVerified: boolean } | null>(null)
 
   const check = useCallback(async () => {
@@ -169,8 +186,8 @@ function Welcome({ platform, onDone }: { platform: string; onDone: () => void })
     <>
       <h1 className="set-title">Welcome to ClipThat</h1>
       <p className="set-lead">
-        Capture, annotate and record your screen. Everything stays on this machine — no account,
-        no upload, no telemetry.
+        Capture, annotate and record your screen. Everything stays on this machine — no account, no
+        upload, no telemetry.
       </p>
 
       {platform === 'darwin' && (
@@ -201,10 +218,30 @@ function Welcome({ platform, onDone }: { platform: string; onDone: () => void })
         <div className="set-cards">
           {(
             [
-              ['region', 'Capture a region', 'Freeze the screen, drag a box.', () => api.capture.start({ mode: 'region' })],
-              ['window', 'Capture a window', 'Pick from a visual list.', () => api.capture.start({ mode: 'window' })],
-              ['scroll', 'Scrolling capture', 'Stitch a long page together.', () => api.capture.start({ mode: 'scrolling' })],
-              ['video', 'Record the screen', 'MP4 or GIF, with webcam.', () => api.system.window('record')]
+              [
+                'region',
+                'Capture a region',
+                'Freeze the screen, drag a box.',
+                () => api.capture.start({ mode: 'region' })
+              ],
+              [
+                'window',
+                'Capture a window',
+                'Pick from a visual list.',
+                () => api.capture.start({ mode: 'window' })
+              ],
+              [
+                'scroll',
+                'Scrolling capture',
+                'Stitch a long page together.',
+                () => api.capture.start({ mode: 'scrolling' })
+              ],
+              [
+                'video',
+                'Record the screen',
+                'MP4 or GIF, with webcam.',
+                () => api.system.window('record')
+              ]
             ] as Array<[IconName, string, string, () => void]>
           ).map(([icon, title, body, action]) => (
             <button key={title} className="set-card" onClick={action}>
@@ -401,10 +438,7 @@ function Capture({
             <Icon name="folder" size={14} /> Choose…
           </button>
         </Field>
-        <Field
-          label="Filename"
-          hint="Tokens: {yyyy} {MM} {dd} {HH} {mm} {ss}"
-        >
+        <Field label="Filename" hint="Tokens: {yyyy} {MM} {dd} {HH} {mm} {ss}">
           <input
             className="field"
             value={settings.filenameTemplate}
@@ -513,8 +547,8 @@ function HotkeySettings({
     <>
       <h1 className="set-title">Shortcuts</h1>
       <p className="set-lead">
-        These work anywhere, even when ClipThat is in the background. Click a shortcut and press
-        the keys you want.
+        These work anywhere, even when ClipThat is in the background. Click a shortcut and press the
+        keys you want.
       </p>
       {failures.length > 0 && (
         <div className="set-perm warn">
@@ -531,12 +565,17 @@ function HotkeySettings({
             <HotkeyInput
               value={settings.hotkeys[key]}
               invalid={failed.has(key)}
-              onChange={(accelerator) => patch({ hotkeys: { [key]: accelerator } as Partial<Hotkeys> as Hotkeys })}
+              onChange={(accelerator) =>
+                patch({ hotkeys: { [key]: accelerator } as Partial<Hotkeys> as Hotkeys })
+              }
             />
           </Field>
         ))}
       </Group>
-      <button className="btn ghost" onClick={() => void api.settings.reset().then(() => location.reload())}>
+      <button
+        className="btn ghost"
+        onClick={() => void api.settings.reset().then(() => location.reload())}
+      >
         <Icon name="refresh" size={14} /> Reset all settings
       </button>
     </>
@@ -671,7 +710,9 @@ function WhatsNew({
             There are no bundled release notes for ClipThat {version || 'yet'}.
           </p>
           <Group title="Release notes">
-            <p className="tiny muted">Release notes will appear here when this build includes them.</p>
+            <p className="tiny muted">
+              Release notes will appear here when this build includes them.
+            </p>
           </Group>
         </>
       )}
@@ -895,10 +936,13 @@ function About({
           disabled={exporting}
           onClick={() => {
             setExporting(true)
-            void api.system.exportDiagnostics().then((result) => {
-              if (result.ok) toast('success', 'Diagnostics exported', result.filePath)
-              else if (!result.canceled) toast('error', 'Diagnostics export failed', result.error)
-            }).finally(() => setExporting(false))
+            void api.system
+              .exportDiagnostics()
+              .then((result) => {
+                if (result.ok) toast('success', 'Diagnostics exported', result.filePath)
+                else if (!result.canceled) toast('error', 'Diagnostics export failed', result.error)
+              })
+              .finally(() => setExporting(false))
           }}
         >
           <Icon name="download" size={14} /> {exporting ? 'Exporting…' : 'Export diagnostics…'}

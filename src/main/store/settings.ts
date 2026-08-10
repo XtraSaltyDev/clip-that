@@ -35,14 +35,19 @@ class SettingsStore extends EventEmitter {
       }
     }
     this.data = next as unknown as Settings
-    this.scheduleWrite()
+    // Most settings are changed as individual user actions. Persist those immediately so
+    // a crash cannot lose a hotkey, save destination, filename rule, or capture preference.
+    // Canvas presets are the exception: sliders can emit many updates per second, so retain
+    // the debounce for that nested object.
+    if (Object.keys(patch).every((key) => key === 'canvasPreset')) this.scheduleWrite()
+    else this.flush()
     this.emit('changed', this.data)
     return this.data
   }
 
   reset(): Settings {
     this.data = defaultSettings(defaultSaveDirectory())
-    this.scheduleWrite()
+    this.flush()
     this.emit('changed', this.data)
     return this.data
   }

@@ -16,13 +16,7 @@ import { promises as fs } from 'node:fs'
 import { library } from '../store/library'
 import { recording } from '../recording/session'
 import { ffmpegPath } from '../recording/ffmpeg'
-import {
-  closeHudWindow,
-  createEditorWindow,
-  showHudWindow,
-  getSingleton
-} from '../windows/manager'
-import { captureDisplay } from '../capture/backend'
+import { closeHudWindow, createEditorWindow, showHudWindow, getSingleton } from '../windows/manager'
 import {
   cancelScrollCapture,
   startScrollCapture,
@@ -89,8 +83,10 @@ function helperPath(): string {
 
 function moveCursor(x: number, y: number): Promise<void> {
   return new Promise((resolve, reject) => {
-    execFile(helperPath(), ['--move-cursor', String(Math.round(x)), String(Math.round(y))], (error) =>
-      error ? reject(error) : resolve()
+    execFile(
+      helperPath(),
+      ['--move-cursor', String(Math.round(x)), String(Math.round(y))],
+      (error) => (error ? reject(error) : resolve())
     )
   })
 }
@@ -110,9 +106,17 @@ async function analyzeTemporalBands(file: string): Promise<{ ok: boolean; detail
   const height = 36
   const frameBytes = width * height * 3
   const bytes = await ffmpegBytes([
-    '-v', 'error', '-i', file,
-    '-vf', `fps=10,scale=${width}:${height}:flags=neighbor`,
-    '-pix_fmt', 'rgb24', '-f', 'rawvideo', 'pipe:1'
+    '-v',
+    'error',
+    '-i',
+    file,
+    '-vf',
+    `fps=10,scale=${width}:${height}:flags=neighbor`,
+    '-pix_fmt',
+    'rgb24',
+    '-f',
+    'rawvideo',
+    'pipe:1'
   ])
   const frames = Math.floor(bytes.length / frameBytes)
   let compared = 0
@@ -194,9 +198,7 @@ async function testRecording(
   await wait(250)
   const hud = showHudWindow()
   await new Promise<void>((r) =>
-    hud.webContents.isLoading()
-      ? hud.webContents.once('did-finish-load', () => r())
-      : r()
+    hud.webContents.isLoading() ? hud.webContents.once('did-finish-load', () => r()) : r()
   )
   await wait(1800) // sources + settings fetch
 
@@ -279,7 +281,13 @@ async function testRecording(
     return false
   }
 
-  if (!(await until('recorder to reach recording state', () => recording.status().state === 'recording', 25000))) {
+  if (
+    !(await until(
+      'recorder to reach recording state',
+      () => recording.status().state === 'recording',
+      25000
+    ))
+  ) {
     const w = getSingleton('hud')
     const dom = w
       ? await w.webContents
@@ -294,7 +302,12 @@ async function testRecording(
   if (variant.sentinel) {
     const bounds = variant.sentinel.getContentBounds()
     const points = [
-      [0.5, 0.5], [0.1, 0.88], [0.9, 0.88], [0.12, 0.12], [0.88, 0.12], [0.5, 0.92]
+      [0.5, 0.5],
+      [0.1, 0.88],
+      [0.9, 0.88],
+      [0.12, 0.12],
+      [0.88, 0.12],
+      [0.5, 0.92]
     ]
     const started = Date.now()
     let index = 0
@@ -487,7 +500,13 @@ async function createScrollSentinel(): Promise<ScrollSentinel | null> {
   }
   const child = spawn(
     helper,
-    ['--scroll-sentinel', String(bounds.x), String(bounds.y), String(bounds.width), String(bounds.height)],
+    [
+      '--scroll-sentinel',
+      String(bounds.x),
+      String(bounds.y),
+      String(bounds.width),
+      String(bounds.height)
+    ],
     { stdio: ['pipe', 'pipe', 'pipe'] }
   )
   child.on('error', (error) => console.warn(`[selftest] scroll sentinel: ${error.message}`))
@@ -507,7 +526,9 @@ async function createScrollSentinel(): Promise<ScrollSentinel | null> {
     buffered = parts.pop() ?? ''
     for (const line of parts) publish(line.trim())
   })
-  child.stderr.on('data', (chunk) => console.warn(`[selftest] scroll sentinel: ${String(chunk).trim()}`))
+  child.stderr.on('data', (chunk) =>
+    console.warn(`[selftest] scroll sentinel: ${String(chunk).trim()}`)
+  )
 
   const waitForLine = (prefix: string, timeoutMs: number): Promise<string> => {
     const queued = lines.findIndex((line) => line.startsWith(prefix))
@@ -574,7 +595,9 @@ async function testScroll(): Promise<boolean> {
     startScrollCapture(String(display.id), rect, content)
     const hud = showHudWindow('scroll')
     await new Promise<void>((resolve) =>
-      hud.webContents.isLoading() ? hud.webContents.once('did-finish-load', () => resolve()) : resolve()
+      hud.webContents.isLoading()
+        ? hud.webContents.once('did-finish-load', () => resolve())
+        : resolve()
     )
 
     const { scrollFrameCount, scrollFrameEvidence } = await import('../capture/service')
@@ -587,7 +610,9 @@ async function testScroll(): Promise<boolean> {
     for (let step = 1; step <= 6; step++) {
       const before = scrollFrameCount()
       await sentinel.scrollTo(step * 200)
-      if (!(await until(`scroll frame ${step + 1}`, () => scrollFrameCount() > before, 15000, 100))) {
+      if (
+        !(await until(`scroll frame ${step + 1}`, () => scrollFrameCount() > before, 15000, 100))
+      ) {
         return false
       }
     }
@@ -607,7 +632,7 @@ async function testScroll(): Promise<boolean> {
     const ratio = result.height / frameH
     log(
       `scroll: stitched ${result.width}x${result.height} from viewport ${Math.round(rect.width)}x${Math.round(frameH)} ` +
-      `(${ratio.toFixed(2)}x taller)`
+        `(${ratio.toFixed(2)}x taller)`
     )
 
     // 6 steps × 200 DIP ≈ 1200 DIP of new content ≈ 2.5 viewports on top of the first.
@@ -617,7 +642,10 @@ async function testScroll(): Promise<boolean> {
       await fs.mkdir(evidenceDir, { recursive: true })
       await Promise.all(
         evidence.map((png, index) =>
-          fs.writeFile(join(evidenceDir, `selftest-scroll-${index === 0 ? 'first' : 'last'}.png`), png)
+          fs.writeFile(
+            join(evidenceDir, `selftest-scroll-${index === 0 ? 'first' : 'last'}.png`),
+            png
+          )
         )
       )
       log('scroll: first/last frame evidence retained in the app logs directory')
@@ -682,7 +710,8 @@ async function testQuickAccess(): Promise<boolean> {
       fail('quick: Copy button not found')
       return false
     }
-    if (!(await until('clipboard image', () => !clipboard.readImage().isEmpty(), 5000))) return false
+    if (!(await until('clipboard image', () => !clipboard.readImage().isEmpty(), 5000)))
+      return false
 
     // Copy confirms briefly and then dismisses itself.
     if (!(await until('card to self-dismiss', () => quickWindow() === null, 5000))) return false
@@ -733,7 +762,13 @@ async function testPipeline(): Promise<boolean> {
 
   settings.set({
     afterCapture: 'pipeline',
-    pipeline: { copy: true, save: true, pin: true, edit: false, command: `test -f {file} && date > ${JSON.stringify(marker)}` }
+    pipeline: {
+      copy: true,
+      save: true,
+      pin: true,
+      edit: false,
+      command: `test -f {file} && date > ${JSON.stringify(marker)}`
+    }
   })
 
   try {
@@ -744,7 +779,18 @@ async function testPipeline(): Promise<boolean> {
     }
 
     let ok = true
-    if (!(await until('pipeline marker file', () => fs.stat(marker).then(() => true).catch(() => false), 15000))) ok = false
+    if (
+      !(await until(
+        'pipeline marker file',
+        () =>
+          fs
+            .stat(marker)
+            .then(() => true)
+            .catch(() => false),
+        15000
+      ))
+    )
+      ok = false
     if (clipboard.readImage().isEmpty()) {
       fail('pipeline: clipboard is empty after copy step')
       ok = false
@@ -806,7 +852,9 @@ async function testWindowPicker(): Promise<boolean> {
     title: 'Window source self-test',
     webPreferences: { sandbox: true }
   })
-  await target.loadURL('data:text/html,<title>Window source self-test</title><body>capture target</body>')
+  await target.loadURL(
+    'data:text/html,<title>Window source self-test</title><body>capture target</body>'
+  )
   target.show()
   await wait(500)
 
@@ -840,7 +888,8 @@ async function testWindowPicker(): Promise<boolean> {
       rendered &&
       (await until(
         'window source card',
-        () => picker.webContents.executeJavaScript("document.querySelectorAll('.ov-card').length > 0"),
+        () =>
+          picker.webContents.executeJavaScript("document.querySelectorAll('.ov-card').length > 0"),
         10000,
         100
       ))
@@ -861,7 +910,9 @@ async function testWindowPicker(): Promise<boolean> {
     closeOverlay(null)
     await selection
     if (!listReady || !previewReady) return false
-    log(`window: PASS (one picker, ${cards} window card${cards === 1 ? '' : 's'}, lazy preview verified)`)
+    log(
+      `window: PASS (one picker, ${cards} window card${cards === 1 ? '' : 's'}, lazy preview verified)`
+    )
     return true
   } finally {
     closeOverlay(null)
@@ -889,10 +940,18 @@ async function testSnagitImport(): Promise<boolean> {
   if (summary.imported > 0) {
     await Promise.race([changed, wait(5_000)])
   }
-  const imported = library.list({ limit: 100_000 }).filter((item) => !before.has(item.id) && item.importedFrom === 'snagit')
-  const ok = summary.state === 'completed' && imported.length === summary.imported &&
-    progress.some((event) => event.state === 'importing') && progress.some((event) => event.state === 'completed')
-  if (ok) log(`snagit: PASS (${summary.imported} imported, ${summary.skipped} duplicates, progress and Library refresh observed)`)
+  const imported = library
+    .list({ limit: 100_000 })
+    .filter((item) => !before.has(item.id) && item.importedFrom === 'snagit')
+  const ok =
+    summary.state === 'completed' &&
+    imported.length === summary.imported &&
+    progress.some((event) => event.state === 'importing') &&
+    progress.some((event) => event.state === 'completed')
+  if (ok)
+    log(
+      `snagit: PASS (${summary.imported} imported, ${summary.skipped} duplicates, progress and Library refresh observed)`
+    )
   else fail(`snagit: import summary/progress mismatch (${JSON.stringify(summary)})`)
   return ok
 }

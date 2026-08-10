@@ -1,5 +1,13 @@
 import { app } from 'electron'
-import { createWriteStream, existsSync, mkdirSync, renameSync, statSync, type WriteStream } from 'node:fs'
+import {
+  createWriteStream,
+  existsSync,
+  mkdirSync,
+  renameSync,
+  rmSync,
+  statSync,
+  type WriteStream
+} from 'node:fs'
 import { join } from 'node:path'
 
 /**
@@ -11,8 +19,13 @@ import { join } from 'node:path'
  */
 
 const MAX_BYTES = 1_000_000
+const MAX_GENERATIONS = 3
 
 let stream: WriteStream | null = null
+let streamBytes = 0
+let rotating = false
+let loggerClosed = false
+let pendingLines: string[] = []
 
 export function logFilePath(): string {
   const dir = join(app.getPath('userData'), 'logs')
@@ -22,12 +35,67 @@ export function logFilePath(): string {
 
 function rotate(path: string): void {
   try {
-    if (existsSync(path) && statSync(path).size > MAX_BYTES) {
-      renameSync(path, `${path}.1`)
+    for (let generation = MAX_GENERATIONS - 1; generation >= 1; generation -= 1) {
+      const from = generation === 1 ? path : `${path}.${generation - 1}`
+      const to = `${path}.${generation}`
+      if (!existsSync(from)) continue
+      rmSync(to, { force: true })
+      renameSync(from, to)
     }
   } catch {
     /* rotation is best-effort */
   }
+}
+
+function openStream(path: string): void {
+  if (loggerClosed) return
+  stream = createWriteStream(path, { flags: 'a' })
+  streamBytes = existsSync(path) ? statSync(path).size : 0
+  stream.on('error', () => {
+    // Never let a logging failure take the app down.
+    stream = null
+    streamBytes = 0
+  })
+}
+
+function finishRotation(path: string): void {
+  if (loggerClosed) {
+    pendingLines = []
+    rotating = false
+    return
+  }
+  rotate(path)
+  openStream(path)
+  rotating = false
+  const queued = pendingLines
+  pendingLines = []
+  for (const line of queued) append(path, line)
+}
+
+function startRotation(path: string): void {
+  if (rotating) return
+  rotating = true
+  const previous = stream
+  stream = null
+  streamBytes = 0
+  if (previous) previous.end(() => finishRotation(path))
+  else finishRotation(path)
+}
+
+function append(path: string, line: string): void {
+  const bytes = Buffer.byteLength(line, 'utf8')
+  if (rotating) {
+    pendingLines.push(line)
+    return
+  }
+  if (!stream) openStream(path)
+  if (streamBytes + bytes > MAX_BYTES) {
+    pendingLines.push(line)
+    startRotation(path)
+    return
+  }
+  stream?.write(line)
+  streamBytes += bytes
 }
 
 const stamp = () => new Date().toISOString().replace('T', ' ').slice(0, 23)
@@ -50,19 +118,16 @@ function format(args: unknown[]): string {
 export function installFileLogger(): void {
   if (stream) return
 
+  loggerClosed = false
   const path = logFilePath()
-  rotate(path)
-  stream = createWriteStream(path, { flags: 'a' })
-  stream.on('error', () => {
-    // Never let a logging failure take the app down.
-    stream = null
-  })
+  if (existsSync(path) && statSync(path).size > MAX_BYTES) rotate(path)
+  openStream(path)
 
   for (const level of ['log', 'warn', 'error'] as const) {
     const original = console[level].bind(console)
     console[level] = (...args: unknown[]) => {
       original(...args)
-      stream?.write(`${stamp()} [${level}] ${format(args)}\n`)
+      append(path, `${stamp()} [${level}] ${format(args)}\n`)
     }
   }
 
@@ -73,6 +138,9 @@ export function installFileLogger(): void {
 }
 
 export function flushLog(): void {
+  loggerClosed = true
+  pendingLines = []
   stream?.end()
   stream = null
+  streamBytes = 0
 }

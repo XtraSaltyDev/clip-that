@@ -12,7 +12,14 @@ import {
   Text as KonvaText,
   Transformer
 } from 'react-konva'
-import type { CanvasStyle, ClipDocument, CutOutOperation, Shape, TextShape, ToolId } from '@shared/types'
+import type {
+  CanvasStyle,
+  ClipDocument,
+  CutOutOperation,
+  Shape,
+  TextShape,
+  ToolId
+} from '@shared/types'
 import {
   BOX_TOOLS,
   CLICK_TOOLS,
@@ -27,6 +34,13 @@ import { cutOutEdgeAmplitude, cutOutEdgePath, CUT_OUT_MIN_SIZE } from '@shared/c
 import { ShapeNode, type ShapeContext } from './Shapes'
 import { shapeTransformPatch } from './transforms'
 import { canvasTiltTransform } from './tilt'
+import {
+  ROTATE_ICON_SIZE,
+  ROTATE_TOOLBAR_ABOVE_OFFSET,
+  ROTATE_TOOLBAR_BELOW_OFFSET,
+  toolbarIsAbove
+} from './rotation-handle'
+import { useRotateHandle } from './use-rotate-handle'
 import { computeLayout, fitScale, type Layout } from '../layout'
 import { Icon } from '../../shared/icons'
 import LiveText from './LiveText'
@@ -40,10 +54,6 @@ interface Props {
 
 /** Snap threshold in image pixels, scaled so it feels constant on screen. */
 const SNAP_PX = 6
-
-/** Keep the rotation handle below the selection so the floating toolbar cannot cover it. */
-const ROTATE_ANCHOR_GAP = 25
-const ROTATE_ICON_SIZE = 20
 
 export default function EditorStage({
   image,
@@ -72,14 +82,12 @@ export default function EditorStage({
     begin,
     setCropDraft,
     setCutOutDraft
-  } =
-    useEditor.getState()
+  } = useEditor.getState()
 
   const shapesGroupRef = useRef<Konva.Group>(null)
   const artLayerRef = useRef<Konva.Layer>(null)
   const transformerRef = useRef<Konva.Transformer>(null)
   const rotateIconGroupRef = useRef<Konva.Group>(null)
-  const rotateSyncFrame = useRef<number | null>(null)
   const drafting = useRef<{ id: string; origin: { x: number; y: number } } | null>(null)
   const lastPoint = useRef<{ x: number; y: number } | null>(null)
   const [guides, setGuides] = useState<Array<{ x?: number; y?: number }>>([])
@@ -106,65 +114,11 @@ export default function EditorStage({
 
   /* ---------- transformer ---------- */
 
-  const syncRotateIcon = useCallback(() => {
-    const icon = rotateIconGroupRef.current
-    const transformer = transformerRef.current
-    const anchor = transformer?.findOne('.rotater')
-    if (!icon) return
-
-    if (!transformer || transformer.nodes().length === 0 || !anchor || !anchor.visible()) {
-      icon.visible(false)
-      return
-    }
-
-    // The icon is a listening=false sibling of the Transformer. Positioning it from the
-    // actual rotater anchor keeps the visual glyph aligned while the transparent anchor
-    // underneath remains the drag target.
-    icon.absolutePosition(anchor.getAbsolutePosition())
-    icon.rotation(0)
-    icon.visible(true)
-  }, [])
-
-  const syncRotateAnchor = useCallback(() => {
-    const transformer = transformerRef.current
-    if (!transformer || transformer.nodes().length === 0) {
-      syncRotateIcon()
-      return
-    }
-
-    // Konva's rotateAnchorOffset is measured from the top edge. Use the current
-    // selection height to place the handle the same distance below the bottom edge.
-    const height = transformer.height()
-    const direction = height < 0 ? -1 : 1
-    const targetY = height < 0 ? ROTATE_ANCHOR_GAP : height + ROTATE_ANCHOR_GAP
-    const offset = -(targetY + transformer.padding()) * direction
-    if (Math.abs(transformer.rotateAnchorOffset() - offset) >= 0.5) {
-      transformer.rotateAnchorOffset(offset)
-    }
-    syncRotateIcon()
-    transformer.getLayer()?.batchDraw()
-  }, [syncRotateIcon])
-
-  const scheduleRotateAnchorSync = useCallback(() => {
-    if (rotateSyncFrame.current !== null) return
-    rotateSyncFrame.current = window.requestAnimationFrame(() => {
-      rotateSyncFrame.current = null
-      syncRotateAnchor()
-    })
-  }, [syncRotateAnchor])
-
-  const styleTransformerAnchor = useCallback((anchor: Konva.Rect) => {
-    if (!anchor.hasName('rotater')) return
-
-    // Keep a larger, transparent drag target. The visible glyph is a separate Konva group
-    // so it cannot be clipped by a fill pattern or intercept the anchor's drag events.
-    anchor.size({ width: ROTATE_ICON_SIZE, height: ROTATE_ICON_SIZE })
-    anchor.offset({ x: ROTATE_ICON_SIZE / 2, y: ROTATE_ICON_SIZE / 2 })
-    anchor.stroke('transparent')
-    anchor.strokeWidth(0)
-    anchor.fillPriority('color')
-    anchor.fill('transparent')
-  }, [])
+  const { syncRotateAnchor, scheduleRotateAnchorSync, styleTransformerAnchor } = useRotateHandle({
+    stageRef,
+    transformerRef,
+    iconRef: rotateIconGroupRef
+  })
 
   useLayoutEffect(() => {
     const tr = transformerRef.current
@@ -204,7 +158,12 @@ export default function EditorStage({
     if (!doc || !layout) return null
     return doc.cutOuts?.length
       ? { x: 0, y: 0, width: layout.contentWidth, height: layout.contentHeight }
-      : { x: layout.cropX, y: layout.cropY, width: layout.contentWidth, height: layout.contentHeight }
+      : {
+          x: layout.cropX,
+          y: layout.cropY,
+          width: layout.contentWidth,
+          height: layout.contentHeight
+        }
   }, [doc, layout])
 
   const onStageMouseDown = (e: Konva.KonvaEventObject<MouseEvent>) => {
@@ -243,7 +202,13 @@ export default function EditorStage({
     }
 
     const z = doc.shapes.reduce((m, s) => Math.max(m, s.z), 0) + 1
-    const shape = createShape(tool, p, useEditor.getState().style, z, useEditor.getState().nextStepIndex())
+    const shape = createShape(
+      tool,
+      p,
+      useEditor.getState().style,
+      z,
+      useEditor.getState().nextStepIndex()
+    )
     if (!shape) return
 
     if (CLICK_TOOLS.includes(tool)) {
@@ -313,7 +278,9 @@ export default function EditorStage({
       return
     }
     if (LINE_TOOLS.includes(shape.type)) {
-      updateShape(draft.id, { points: [draft.origin.x, draft.origin.y, p.x, p.y] } as Partial<Shape>)
+      updateShape(draft.id, {
+        points: [draft.origin.x, draft.origin.y, p.x, p.y]
+      } as Partial<Shape>)
       return
     }
     if (BOX_TOOLS.includes(shape.type)) {
@@ -427,13 +394,15 @@ export default function EditorStage({
    */
   const onSelectShape = useCallback((id: string, additive: boolean) => {
     const current = useEditor.getState().selectedIds
-    useEditor.getState().select(
-      additive
-        ? current.includes(id)
-          ? current.filter((s) => s !== id)
-          : [...current, id]
-        : [id]
-    )
+    useEditor
+      .getState()
+      .select(
+        additive
+          ? current.includes(id)
+            ? current.filter((s) => s !== id)
+            : [...current, id]
+          : [id]
+      )
   }, [])
 
   const commitShapeChange = useCallback((id: string, patch: Partial<Shape>) => {
@@ -705,7 +674,16 @@ export default function EditorStage({
  * Floating selection toolbar
  * ------------------------------------------------------------------ */
 
-const QUICK_COLOURS = ['#ff3b30', '#ff9500', '#ffcc00', '#34c759', '#4f8cff', '#af52de', '#ffffff', '#000000']
+const QUICK_COLOURS = [
+  '#ff3b30',
+  '#ff9500',
+  '#ffcc00',
+  '#34c759',
+  '#4f8cff',
+  '#af52de',
+  '#ffffff',
+  '#000000'
+]
 
 /**
  * The controls you reach for constantly, put where the cursor already is.
@@ -753,13 +731,13 @@ function FloatingToolbar({
   const width = rawWidth > 0 ? rawWidth : null
 
   // Sit above the selection unless that would clip off the top of the canvas.
-  const above = box.top > 54
+  const above = toolbarIsAbove(box.top)
   return (
     <div
       className="float-bar"
       style={{
         left: Math.max(4, box.left + box.width / 2),
-        top: above ? box.top - 46 : box.top + 8,
+        top: above ? box.top - ROTATE_TOOLBAR_ABOVE_OFFSET : box.top + ROTATE_TOOLBAR_BELOW_OFFSET,
         transform: 'translateX(-50%)'
       }}
       onMouseDown={(e) => e.stopPropagation()}
@@ -1113,14 +1091,16 @@ function CutOutOverlay({
   const length = draft.axis === 'horizontal' ? width : height
   const amplitude = cutOutEdgeAmplitude(draft, length)
   const startPath = cutOutEdgePath(draft.axis, length, draft.start, draft.edge, amplitude)
-  const endPath = cutOutEdgePath(draft.axis, length, draft.start + draft.size, draft.edge, amplitude)
+  const endPath = cutOutEdgePath(
+    draft.axis,
+    length,
+    draft.start + draft.size,
+    draft.edge,
+    amplitude
+  )
 
   return (
-    <Group
-      x={layout.shotX}
-      y={layout.shotY + layout.frameHeight}
-      listening={false}
-    >
+    <Group x={layout.shotX} y={layout.shotY + layout.frameHeight} listening={false}>
       <Rect
         x={draft.axis === 'vertical' ? draft.start : 0}
         y={draft.axis === 'horizontal' ? draft.start : 0}
@@ -1129,8 +1109,24 @@ function CutOutOverlay({
         fill="#000000"
         opacity={0.48}
       />
-      <Line points={startPath} stroke="#ffffff" strokeWidth={2} dash={[7, 5]} shadowColor="#000" shadowBlur={3} shadowOpacity={0.6} />
-      <Line points={endPath} stroke="#ffffff" strokeWidth={2} dash={[7, 5]} shadowColor="#000" shadowBlur={3} shadowOpacity={0.6} />
+      <Line
+        points={startPath}
+        stroke="#ffffff"
+        strokeWidth={2}
+        dash={[7, 5]}
+        shadowColor="#000"
+        shadowBlur={3}
+        shadowOpacity={0.6}
+      />
+      <Line
+        points={endPath}
+        stroke="#ffffff"
+        strokeWidth={2}
+        dash={[7, 5]}
+        shadowColor="#000"
+        shadowBlur={3}
+        shadowOpacity={0.6}
+      />
     </Group>
   )
 }

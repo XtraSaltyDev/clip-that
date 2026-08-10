@@ -25,8 +25,13 @@ function parseTimecode(value: string): number | null {
   const hours = parts.length === 3 ? Number(parts[0]) : 0
   if (
     ![seconds, minutes, hours].every(Number.isFinite) ||
-    seconds < 0 || seconds >= 60 || minutes < 0 || minutes >= 60 || hours < 0
-  ) return null
+    seconds < 0 ||
+    seconds >= 60 ||
+    minutes < 0 ||
+    minutes >= 60 ||
+    hours < 0
+  )
+    return null
   return (hours * 3600 + minutes * 60 + seconds) * 1000
 }
 
@@ -180,7 +185,6 @@ export default function VideoEditor(props: {
       stopped = true
     }
     // A sub-second metadata correction should not regenerate every thumbnail.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [item.id, durationKey])
 
   const update = useCallback(
@@ -194,14 +198,14 @@ export default function VideoEditor(props: {
   const persistDraft = useCallback(async () => {
     if (!draftReady.current || duration <= 0 || trim[1] <= trim[0]) return
     await update({
-        videoEdit: {
-          startMs: trim[0],
-          endMs: trim[1],
-          format,
-          quality,
-          updatedAt: Date.now()
-        }
-      })
+      videoEdit: {
+        startMs: trim[0],
+        endMs: trim[1],
+        format,
+        quality,
+        updatedAt: Date.now()
+      }
+    })
   }, [duration, format, quality, trim, update])
 
   useEffect(() => {
@@ -271,7 +275,8 @@ export default function VideoEditor(props: {
       if (!video) return
       if (event.key === ' ' || event.key.toLowerCase() === 'k') {
         event.preventDefault()
-        video.paused ? void video.play() : video.pause()
+        if (video.paused) void video.play()
+        else video.pause()
       } else if (event.key.toLowerCase() === 'j' || event.key === 'ArrowLeft') {
         event.preventDefault()
         seek(playhead - (event.shiftKey ? 1000 : 100))
@@ -304,10 +309,7 @@ export default function VideoEditor(props: {
     return ratio * duration
   }
 
-  const beginTrimDrag = (
-    edge: 'start' | 'end',
-    event: React.PointerEvent<HTMLButtonElement>
-  ) => {
+  const beginTrimDrag = (edge: 'start' | 'end', event: React.PointerEvent<HTMLButtonElement>) => {
     event.preventDefault()
     event.stopPropagation()
     event.currentTarget.focus()
@@ -315,10 +317,7 @@ export default function VideoEditor(props: {
     updateTrimPoint(edge, pointerTrimValue(event.clientX))
   }
 
-  const moveTrimDrag = (
-    edge: 'start' | 'end',
-    event: React.PointerEvent<HTMLButtonElement>
-  ) => {
+  const moveTrimDrag = (edge: 'start' | 'end', event: React.PointerEvent<HTMLButtonElement>) => {
     if (!event.currentTarget.hasPointerCapture(event.pointerId)) return
     updateTrimPoint(edge, pointerTrimValue(event.clientX))
   }
@@ -369,7 +368,8 @@ export default function VideoEditor(props: {
             </button>
           )}
           <button className="btn primary" disabled={saving} onClick={() => void saveCopy()}>
-            <Icon name="save" size={14} /> {saving ? `Saving ${Math.round(progress)}%` : 'Save copy'}
+            <Icon name="save" size={14} />{' '}
+            {saving ? `Saving ${Math.round(progress)}%` : 'Save copy'}
           </button>
         </div>
       </header>
@@ -402,7 +402,7 @@ export default function VideoEditor(props: {
             onLoadedMetadata={(event) => {
               const ms = Number.isFinite(event.currentTarget.duration)
                 ? event.currentTarget.duration * 1000
-                : item.durationMs ?? 0
+                : (item.durationMs ?? 0)
               if (ms > 0) {
                 setDuration(ms)
                 setTrim(itemTrim(item, ms))
@@ -575,16 +575,33 @@ export default function VideoEditor(props: {
         <aside className="video-inspector">
           <h2>Recording</h2>
           <dl className="video-facts tiny">
-            <div><dt>Size</dt><dd>{item.width} × {item.height}</dd></div>
-            <div><dt>Length</dt><dd>{formatDuration(duration)}</dd></div>
-            <div><dt>File</dt><dd>{formatBytes(item.byteSize)}</dd></div>
-            <div><dt>Created</dt><dd>{new Date(item.createdAt).toLocaleString()}</dd></div>
+            <div>
+              <dt>Size</dt>
+              <dd>
+                {item.width} × {item.height}
+              </dd>
+            </div>
+            <div>
+              <dt>Length</dt>
+              <dd>{formatDuration(duration)}</dd>
+            </div>
+            <div>
+              <dt>File</dt>
+              <dd>{formatBytes(item.byteSize)}</dd>
+            </div>
+            <div>
+              <dt>Created</dt>
+              <dd>{new Date(item.createdAt).toLocaleString()}</dd>
+            </div>
           </dl>
           <div className="divider" />
           <label className="tiny muted">Format</label>
           <Segmented
             value={format}
-            options={[{ value: 'mp4', label: 'MP4' }, { value: 'webm', label: 'WebM' }]}
+            options={[
+              { value: 'mp4', label: 'MP4' },
+              { value: 'webm', label: 'WebM' }
+            ]}
             onChange={setFormat}
           />
           <label className="tiny muted">Quality</label>

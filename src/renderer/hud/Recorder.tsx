@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import React, { useCallback, useEffect, useRef, useState } from 'react'
 import type {
   DisplayInfo,
   RecoverableRecording,
@@ -35,7 +35,10 @@ export default function Recorder(): React.ReactElement {
     systemAudioSupported: boolean
     ffmpeg: boolean
   } | null>(null)
-  const [devices, setDevices] = useState<{ microphones: MediaDeviceInfo[]; cameras: MediaDeviceInfo[] }>({
+  const [devices, setDevices] = useState<{
+    microphones: MediaDeviceInfo[]
+    cameras: MediaDeviceInfo[]
+  }>({
     microphones: [],
     cameras: []
   })
@@ -316,7 +319,11 @@ export default function Recorder(): React.ReactElement {
         <span className={`hud-rec ${paused ? 'paused' : ''}`} />
         <span className="hud-time mono">{formatDuration(elapsed)}</span>
         <span className="spacer" />
-        <button className="hud-btn no-drag" onClick={togglePause} title={paused ? 'Resume' : 'Pause'}>
+        <button
+          className="hud-btn no-drag"
+          onClick={togglePause}
+          title={paused ? 'Resume' : 'Pause'}
+        >
           <Icon name={paused ? 'play' : 'pause'} size={15} />
         </button>
         <button

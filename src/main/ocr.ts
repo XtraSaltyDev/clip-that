@@ -36,17 +36,37 @@ function finishOcrRequest(): void {
  * Run OCR in the hidden worker renderer. The main process has no DOM and no WASM host,
  * so every text-recognition request in the app funnels through here.
  */
-export async function requestOcr(dataUrl: string, rect?: Rect, timeoutMs = 90_000): Promise<string> {
+export async function requestOcr(
+  dataUrl: string,
+  rect?: Rect,
+  timeoutMs = 90_000
+): Promise<string> {
   beginOcrRequest()
   try {
     const worker = await getWorkerWindow()
     const id = `ocr-${++sequence}`
 
-    return await new Promise<string>((resolve) => {
-      const timer = setTimeout(() => {
+    return await new Promise<string>((resolve, reject) => {
+      let settled = false
+      const cleanup = () => {
+        clearTimeout(timer)
         ipcMain.removeListener(IPC.ocrResult, onResult)
-        resolve('')
-      }, timeoutMs)
+        worker.webContents.removeListener('render-process-gone', onGone)
+        worker.removeListener('closed', onClosed)
+      }
+      const succeed = (text: string) => {
+        if (settled) return
+        settled = true
+        cleanup()
+        resolve(text)
+      }
+      const fail = (error: Error) => {
+        if (settled) return
+        settled = true
+        cleanup()
+        reject(error)
+      }
+      const timer = setTimeout(() => succeed(''), timeoutMs)
 
       const onResult = (event: IpcMainEvent, payload: unknown) => {
         let safe: ReturnType<typeof ocrResponse>
@@ -57,13 +77,21 @@ export async function requestOcr(dataUrl: string, rect?: Rect, timeoutMs = 90_00
           return
         }
         if (safe.id !== id) return
-        clearTimeout(timer)
-        ipcMain.removeListener(IPC.ocrResult, onResult)
-        resolve(safe.text)
+        succeed(safe.text)
       }
 
+      const onGone = (_event: Electron.Event, details: Electron.RenderProcessGoneDetails) =>
+        fail(new Error(`OCR worker renderer exited: ${details.reason}`))
+      const onClosed = () => fail(new Error('OCR worker window closed during recognition'))
+
       ipcMain.on(IPC.ocrResult, onResult)
-      worker.webContents.send(IPC.ocrRequest, { id, dataUrl, rect })
+      worker.webContents.once('render-process-gone', onGone)
+      worker.once('closed', onClosed)
+      try {
+        worker.webContents.send(IPC.ocrRequest, { id, dataUrl, rect })
+      } catch (error) {
+        fail(error instanceof Error ? error : new Error(String(error)))
+      }
     })
   } finally {
     finishOcrRequest()

@@ -257,7 +257,8 @@ function fetchManifestBody(): Promise<string> {
       if (settled) return
       settled = true
       if (deadline) clearTimeout(deadline)
-      error ? reject(error) : resolve(body ?? '')
+      if (error) reject(error)
+      else resolve(body ?? '')
     }
     const request = httpsGet(
       UPDATE_MANIFEST_URL,
@@ -301,7 +302,10 @@ function fetchManifestBody(): Promise<string> {
             return
           }
           try {
-            finish(undefined, new TextDecoder('utf-8', { fatal: true }).decode(Buffer.concat(chunks)))
+            finish(
+              undefined,
+              new TextDecoder('utf-8', { fatal: true }).decode(Buffer.concat(chunks))
+            )
           } catch {
             finish(new InvalidUpdateResponse('manifest response is not valid UTF-8'))
           }

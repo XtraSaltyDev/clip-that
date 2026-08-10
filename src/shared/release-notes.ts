@@ -8,7 +8,8 @@ export const RELEASE_NOTES = [
   {
     version: '0.1.6',
     title: 'Capture, edit and save with less friction',
-    summary: 'The latest release keeps new captures close to the editor while making saved stills easier to revisit and update.',
+    summary:
+      'The latest release keeps new captures close to the editor while making saved stills easier to revisit and update.',
     items: [
       {
         title: 'New captures open in the editor',
@@ -27,7 +28,8 @@ export const RELEASE_NOTES = [
   {
     version: '0.1.7',
     title: 'A smoother capture-to-save workflow',
-    summary: 'New captures now stay connected to the Library and editor, while release notes make each update easier to understand.',
+    summary:
+      'New captures now stay connected to the Library and editor, while release notes make each update easier to understand.',
     items: [
       {
         title: 'Captures are saved to the Library first',
@@ -50,7 +52,8 @@ export const RELEASE_NOTES = [
   {
     version: '0.1.8',
     title: 'More capable annotation and import workflows',
-    summary: 'Rotate and reshape annotations, mark up screenshots faster, and bring supported Snagit captures into the Library.',
+    summary:
+      'Rotate and reshape annotations, mark up screenshots faster, and bring supported Snagit captures into the Library.',
     items: [
       {
         title: 'Rotate annotations precisely',
@@ -71,6 +74,26 @@ export const RELEASE_NOTES = [
       {
         title: 'Import supported Snagit captures',
         body: 'Scan a Snagit library, review supported media and duplicates, then import copies into the ClipThat Library without changing the source files.'
+      }
+    ]
+  },
+  {
+    version: '0.1.9',
+    title: 'Rotation polish and reliability hardening',
+    summary:
+      'Keep annotation controls reachable while strengthening saves, diagnostics, OCR recovery, and build checks.',
+    items: [
+      {
+        title: 'Rotate handles stay reachable',
+        body: 'The rotate control now avoids the annotation toolbar and remains available at canvas edges, including rotated selections.'
+      },
+      {
+        title: 'Annotation geometry stays stable',
+        body: 'Text, boxes, arrows, and other annotations retain their position and size through transforms and reopen correctly.'
+      },
+      {
+        title: 'More resilient app sessions',
+        body: 'Long logs rotate safely, ordinary settings save immediately, and OCR workers report failures instead of waiting for the full timeout.'
       }
     ]
   }

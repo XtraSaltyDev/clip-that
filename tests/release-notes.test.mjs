@@ -53,3 +53,11 @@ test('bundles the 0.1.8 editor and import release notes', () => {
   assert.ok(notes.items.some((item) => /Snagit/i.test(item.title)))
   assert.ok(notes.items.some((item) => /Step/i.test(item.title)))
 })
+
+test('bundles the 0.1.9 rotation and reliability release notes', () => {
+  const notes = RELEASE_NOTES.find((entry) => entry.version === '0.1.9')
+  assert.ok(notes)
+  assert.match(notes.title, /Rotation/i)
+  assert.ok(notes.items.some((item) => /Rotate/i.test(item.title)))
+  assert.ok(notes.items.some((item) => /resilient|reliability/i.test(item.title + item.body)))
+})

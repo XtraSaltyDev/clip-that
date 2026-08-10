@@ -12,7 +12,6 @@ import { tempDir } from '../store/paths'
  */
 function resolveFfmpeg(): string | null {
   try {
-    // eslint-disable-next-line @typescript-eslint/no-var-requires
     const installer = require('@ffmpeg-installer/ffmpeg') as { path: string }
     let p = installer.path
     if (app.isPackaged) p = p.replace('app.asar', 'app.asar.unpacked')
@@ -59,7 +58,8 @@ function runFfmpeg(
       if (settled) return
       settled = true
       signal?.removeEventListener('abort', abort)
-      error ? reject(error) : resolve()
+      if (error) reject(error)
+      else resolve()
     }
     const abort = () => {
       cancelled = true
@@ -125,8 +125,12 @@ function availableEncoders(): Promise<Set<string>> {
   encodersPromise = new Promise((resolve) => {
     const child = spawn(bin, ['-hide_banner', '-encoders'], { windowsHide: true })
     let output = ''
-    child.stdout.on('data', (chunk: Buffer) => { output += chunk.toString() })
-    child.stderr.on('data', (chunk: Buffer) => { output += chunk.toString() })
+    child.stdout.on('data', (chunk: Buffer) => {
+      output += chunk.toString()
+    })
+    child.stderr.on('data', (chunk: Buffer) => {
+      output += chunk.toString()
+    })
     child.on('error', () => resolve(new Set()))
     child.on('close', () => {
       const names = new Set<string>()
@@ -144,15 +148,21 @@ interface HardwareEncoder {
 
 function hardwareH264Candidates(quality: VideoExportOptions['quality']): HardwareEncoder[] {
   if (process.platform === 'darwin') {
-    return [{
-      name: 'h264_videotoolbox',
-      args: [
-        '-c:v', 'h264_videotoolbox',
-        '-q:v', VIDEOTOOLBOX_QUALITY[quality],
-        '-allow_sw', '0',
-        '-profile:v', 'high'
-      ]
-    }]
+    return [
+      {
+        name: 'h264_videotoolbox',
+        args: [
+          '-c:v',
+          'h264_videotoolbox',
+          '-q:v',
+          VIDEOTOOLBOX_QUALITY[quality],
+          '-allow_sw',
+          '0',
+          '-profile:v',
+          'high'
+        ]
+      }
+    ]
   }
   if (process.platform === 'win32') {
     const qp = CRF[quality]
@@ -171,8 +181,18 @@ function hardwareH264Candidates(quality: VideoExportOptions['quality']): Hardwar
       {
         name: 'h264_amf',
         args: [
-          '-c:v', 'h264_amf', '-quality', 'quality', '-rc', 'cqp',
-          '-qp_i', qp, '-qp_p', qp, '-qp_b', qp
+          '-c:v',
+          'h264_amf',
+          '-quality',
+          'quality',
+          '-rc',
+          'cqp',
+          '-qp_i',
+          qp,
+          '-qp_p',
+          qp,
+          '-qp_b',
+          qp
         ]
       }
     ]
@@ -208,14 +228,7 @@ export async function toMp4(
   const scale = scaleFilter(opts.maxWidth)
   if (scale) filters.unshift(scale)
 
-  const beforeCodec = [
-    '-y',
-    ...trimArgs(opts),
-    '-i',
-    input,
-    '-vf',
-    filters.join(','),
-  ]
+  const beforeCodec = ['-y', ...trimArgs(opts), '-i', input, '-vf', filters.join(',')]
   const afterCodec = [
     '-movflags',
     '+faststart',
@@ -244,9 +257,12 @@ export async function toMp4(
   await runFfmpeg(
     [
       ...beforeCodec,
-      '-c:v', 'libx264',
-      '-preset', 'veryfast',
-      '-crf', CRF[opts.quality],
+      '-c:v',
+      'libx264',
+      '-preset',
+      'veryfast',
+      '-crf',
+      CRF[opts.quality],
       ...afterCodec
     ],
     totalMs,
