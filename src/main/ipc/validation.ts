@@ -301,7 +301,7 @@ function canvasStyle(value: unknown, current: CanvasStyle): CanvasStyle {
     [
       'padding', 'background', 'backgroundColor', 'gradientFrom', 'gradientTo',
       'gradientAngle', 'backgroundImage', 'radius', 'shadowBlur', 'shadowOpacity',
-      'shadowOffsetY', 'tiltX', 'tiltY', 'borderWidth', 'borderColor', 'frame',
+      'shadowOffsetY', 'tiltX', 'tiltY', 'tiltSemantics', 'borderWidth', 'borderColor', 'frame',
       'frameTitle', 'aspect'
     ],
     'canvas preset'
@@ -323,6 +323,9 @@ function canvasStyle(value: unknown, current: CanvasStyle): CanvasStyle {
     shadowOffsetY: finite(merged.shadowOffsetY, 'canvas shadow offset', -2_000, 2_000),
     tiltX: finite(merged.tiltX, 'canvas tilt x', -30, 30),
     tiltY: finite(merged.tiltY, 'canvas tilt y', -30, 30),
+    tiltSemantics: merged.tiltSemantics === undefined
+      ? undefined
+      : enumValue(merged.tiltSemantics, 'canvas tilt semantics', ['legacy', 'visible-axis'] as const),
     borderWidth: finite(merged.borderWidth, 'canvas border width', 0, 100),
     borderColor: colorValue(merged.borderColor, 'canvas border colour'),
     frame: enumValue(merged.frame, 'canvas frame', ['none', 'macos', 'windows'] as const),
