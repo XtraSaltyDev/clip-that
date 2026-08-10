@@ -287,6 +287,7 @@ class LibraryStore extends EventEmitter {
     if (!current) return undefined
     const item = { ...current, tags: [...current.tags] }
     if (patch.title !== undefined) item.title = patch.title.trim().slice(0, 240) || item.title
+    if (patch.exportPath !== undefined) item.exportPath = patch.exportPath
     if (patch.tags !== undefined) {
       item.tags = [...new Set(patch.tags.map((tag) => tag.trim()).filter(Boolean))].slice(0, 50)
     }

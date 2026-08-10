@@ -131,7 +131,7 @@ export function clipDocument(value: unknown): ClipDocument {
     input,
     [
       'version', 'id', 'title', 'createdAt', 'updatedAt', 'image', 'imageWidth',
-      'imageHeight', 'scaleFactor', 'crop', 'shapes', 'canvas', 'ocrText', 'tags'
+      'imageHeight', 'scaleFactor', 'crop', 'shapes', 'canvas', 'ocrText', 'tags', 'exportPath'
     ],
     'project'
   )
@@ -154,6 +154,7 @@ export function clipDocument(value: unknown): ClipDocument {
   const canvas = record(input.canvas, 'project canvas')
   canvasStyle(canvas, canvas as unknown as CanvasStyle)
   optionalString(input.ocrText, 'project OCR text', 2_000_000)
+  if (input.exportPath !== undefined) pathValue(input.exportPath)
   if (input.tags !== undefined) {
     if (!Array.isArray(input.tags) || input.tags.length > 50) throw new TypeError('project tags are invalid')
     input.tags.forEach((tag, index) => stringValue(tag, `project tag ${index + 1}`, 120))
@@ -165,12 +166,17 @@ export function clipDocument(value: unknown): ClipDocument {
 
 export function saveImageRequest(value: unknown): SaveImageRequest {
   const input = record(value, 'save image request')
-  rejectUnknown(input, ['dataUrl', 'format', 'suggestedName', 'saveAs', 'project'], 'save image request')
+  rejectUnknown(
+    input,
+    ['dataUrl', 'format', 'suggestedName', 'saveAs', 'targetPath', 'project'],
+    'save image request'
+  )
   return {
     dataUrl: imageDataUrl(input.dataUrl),
     format: enumValue(input.format, 'image format', ['png', 'jpg', 'webp'] as const),
     suggestedName: optionalString(input.suggestedName, 'suggested name', 240),
     saveAs: input.saveAs === undefined ? undefined : booleanValue(input.saveAs, 'save as'),
+    targetPath: input.targetPath === undefined ? undefined : pathValue(input.targetPath),
     project: input.project === undefined ? undefined : clipDocument(input.project)
   }
 }
@@ -192,12 +198,13 @@ export function libraryQuery(value: unknown): LibraryQuery {
 
 export function libraryPatch(value: unknown): LibraryItemPatch {
   const input = record(value, 'library patch')
-  const allowed = new Set(['title', 'tags', 'favorite', 'ocrText', 'videoEdit'])
+  const allowed = new Set(['title', 'exportPath', 'tags', 'favorite', 'ocrText', 'videoEdit'])
   for (const key of Object.keys(input)) {
     if (!allowed.has(key)) throw new TypeError(`library field ${key} cannot be changed`)
   }
   const patch: LibraryItemPatch = {}
   if (input.title !== undefined) patch.title = stringValue(input.title, 'title', 240)
+  if (input.exportPath !== undefined) patch.exportPath = pathValue(input.exportPath)
   if (input.tags !== undefined) {
     if (!Array.isArray(input.tags) || input.tags.length > 50) throw new TypeError('tags are invalid')
     patch.tags = input.tags.map((tag, index) => stringValue(tag, `tag ${index + 1}`, 120))
@@ -510,8 +517,23 @@ export function permissionKind(value: unknown): 'microphone' | 'camera' | 'scree
   return enumValue(value, 'permission kind', ['microphone', 'camera', 'screen'] as const)
 }
 
-export function windowAction(value: unknown): 'minimize' | 'maximize' | 'close' | 'library' | 'settings' | 'record' {
-  return enumValue(value, 'window action', ['minimize', 'maximize', 'close', 'library', 'settings', 'record'] as const)
+export function windowAction(value: unknown):
+  | 'minimize'
+  | 'maximize'
+  | 'close'
+  | 'library'
+  | 'settings'
+  | 'settings-whats-new'
+  | 'record' {
+  return enumValue(value, 'window action', [
+    'minimize',
+    'maximize',
+    'close',
+    'library',
+    'settings',
+    'settings-whats-new',
+    'record'
+  ] as const)
 }
 
 export function quickAction(value: unknown): 'copy' | 'save' | 'pin' | 'edit' {

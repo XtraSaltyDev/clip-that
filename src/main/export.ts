@@ -50,6 +50,8 @@ export async function saveImage(req: SaveImageRequest): Promise<SaveResult> {
     })
     if (res.canceled || !res.filePath) return { ok: false, canceled: true }
     target = res.filePath
+  } else if (req.targetPath) {
+    target = req.targetPath
   } else {
     await fs.mkdir(s.saveDirectory, { recursive: true }).catch(() => {})
     target = await uniquePath(s.saveDirectory, name, format)
@@ -64,7 +66,7 @@ export async function saveImage(req: SaveImageRequest): Promise<SaveResult> {
     if (s.copyOnSave && !req.saveAs) {
       clipboard.writeImage(nativeImage.createFromDataURL(req.dataUrl))
     }
-    return { ok: true, filePath: target }
+    return { ok: true, filePath: target, title: basename(target, extname(target)) }
   } catch (err) {
     return { ok: false, error: (err as Error).message }
   }

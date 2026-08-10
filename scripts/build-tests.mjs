@@ -31,7 +31,8 @@ const ENTRIES = {
   updateContract: 'src/main/update/contract.ts',
   updateMetadata: 'src/main/update/metadata.ts',
   updateTrust: 'src/main/update/trust.ts',
-  byteRange: 'src/main/protocol/byte-range.ts'
+  byteRange: 'src/main/protocol/byte-range.ts',
+  releaseNotes: 'src/shared/release-notes.ts'
 }
 
 rmSync(outdir, { recursive: true, force: true })

@@ -91,6 +91,9 @@ export const IPC = {
   settingsReset: 'settings:reset',
   settingsPickDirectory: 'settings:pick-directory',
   settingsNavigate: 'settings:navigate',
+  releaseNotesGet: 'release-notes:get',
+  releaseNotesMarkSeen: 'release-notes:mark-seen',
+  releaseNotesChanged: 'release-notes:changed',
 
   // system
   permissionsCheck: 'system:permissions',

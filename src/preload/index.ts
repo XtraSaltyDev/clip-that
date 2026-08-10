@@ -17,6 +17,7 @@ import type {
   RecoverableRecording,
   RecordingOptions,
   RecordingStatus,
+  ReleaseNotesStatus,
   SaveImageRequest,
   SaveResult,
   ScrollCaptureConfig,
@@ -192,6 +193,13 @@ const api = {
     onNavigate: (handler: (section: string) => void) => on(IPC.settingsNavigate, handler)
   },
 
+  releaseNotes: {
+    get: (): Promise<ReleaseNotesStatus> => ipcRenderer.invoke(IPC.releaseNotesGet),
+    markSeen: (): Promise<ReleaseNotesStatus> => ipcRenderer.invoke(IPC.releaseNotesMarkSeen),
+    onChanged: (handler: (status: ReleaseNotesStatus) => void) =>
+      on(IPC.releaseNotesChanged, handler)
+  },
+
   system: {
     permissions: (): Promise<{
       platform: string
@@ -215,7 +223,16 @@ const api = {
       ipcRenderer.invoke(IPC.updateInstall),
     onUpdateStatus: (handler: (status: AppUpdateStatus) => void) =>
       on(IPC.updateStatus, handler),
-    window: (action: 'minimize' | 'maximize' | 'close' | 'library' | 'settings' | 'record') =>
+    window: (
+      action:
+        | 'minimize'
+        | 'maximize'
+        | 'close'
+        | 'library'
+        | 'settings'
+        | 'settings-whats-new'
+        | 'record'
+    ) =>
       ipcRenderer.send(IPC.windowControl, action),
     toast: (toast: Toast) => ipcRenderer.send(IPC.toast, toast),
     onToast: (handler: (toast: Toast) => void) => on(IPC.toast, handler),

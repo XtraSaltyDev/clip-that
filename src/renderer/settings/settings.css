@@ -60,6 +60,18 @@ body.mac .set-side {
   color: var(--ink-0);
   font-weight: 500;
 }
+.set-nav-label {
+  flex: 1;
+  min-width: 0;
+}
+.set-unread-dot {
+  width: 6px;
+  height: 6px;
+  flex: none;
+  border-radius: 50%;
+  background: var(--accent);
+  box-shadow: 0 0 0 2px color-mix(in srgb, var(--accent) 14%, transparent);
+}
 
 .set-main {
   flex: 1;
@@ -233,6 +245,40 @@ body.mac .set-side {
   gap: 8px;
   padding-top: 10px;
   border-top: 1px solid var(--line);
+}
+
+.set-release-notes {
+  display: grid;
+  gap: 16px;
+}
+.set-release-note {
+  display: grid;
+  grid-template-columns: 28px minmax(0, 1fr);
+  gap: 12px;
+  align-items: start;
+}
+.set-release-note-mark {
+  display: grid;
+  place-items: center;
+  width: 28px;
+  height: 28px;
+  border-radius: 8px;
+  color: var(--accent);
+  background: color-mix(in srgb, var(--accent) 12%, transparent);
+  border: 1px solid color-mix(in srgb, var(--accent) 26%, transparent);
+}
+.set-release-note h3 {
+  margin: 2px 0 4px;
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--ink-0);
+}
+.set-release-note p {
+  margin: 0;
+  max-width: 68ch;
+  color: var(--ink-1);
+  line-height: 1.55;
+  font-size: 12px;
 }
 .set-env {
   display: grid;

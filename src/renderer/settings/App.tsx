@@ -1,5 +1,5 @@
 import React, { useCallback, useEffect, useState } from 'react'
-import type { AppUpdateStatus, Hotkeys, Settings } from '@shared/types'
+import type { AppUpdateStatus, Hotkeys, ReleaseNotesStatus, Settings } from '@shared/types'
 import { api } from '../shared/api'
 import { Icon, type IconName } from '../shared/icons'
 import {
@@ -14,7 +14,7 @@ import {
 } from '../shared/ui'
 import './settings.css'
 
-type SectionId = 'welcome' | 'general' | 'capture' | 'hotkeys' | 'annotation' | 'about'
+type SectionId = 'welcome' | 'general' | 'capture' | 'hotkeys' | 'annotation' | 'about' | 'whats-new'
 
 const SECTIONS: Array<{ id: SectionId; label: string; icon: IconName }> = [
   { id: 'welcome', label: 'Get started', icon: 'sparkles' },
@@ -22,7 +22,8 @@ const SECTIONS: Array<{ id: SectionId; label: string; icon: IconName }> = [
   { id: 'capture', label: 'Capture', icon: 'region' },
   { id: 'hotkeys', label: 'Shortcuts', icon: 'clock' },
   { id: 'annotation', label: 'Annotation', icon: 'pen' },
-  { id: 'about', label: 'About', icon: 'info' }
+  { id: 'about', label: 'About', icon: 'info' },
+  { id: 'whats-new', label: "What's New", icon: 'sparkles' }
 ]
 
 export default function App(): React.ReactElement {
@@ -30,6 +31,7 @@ export default function App(): React.ReactElement {
   const [settings, setSettings] = useState<Settings | null>(null)
   const [platform, setPlatform] = useState('')
   const [version, setVersion] = useState('')
+  const [releaseNotes, setReleaseNotes] = useState<ReleaseNotesStatus | null>(null)
   const [failures, setFailures] = useState<Array<{ action: string; accelerator: string }>>([])
   const [section, setSection] = useState<SectionId>(
     (window.location.hash.replace('#', '') as SectionId) || 'general'
@@ -42,8 +44,25 @@ export default function App(): React.ReactElement {
       setVersion(res.version)
       setFailures(res.hotkeyFailures)
     })
-    return api.settings.onNavigate((s) => setSection(s as SectionId))
+    void api.releaseNotes.get().then(setReleaseNotes)
+    const offNavigate = api.settings.onNavigate((s) => setSection(s as SectionId))
+    const offReleaseNotes = api.releaseNotes.onChanged(setReleaseNotes)
+    return () => {
+      offNavigate()
+      offReleaseNotes()
+    }
   }, [])
+
+  useEffect(() => {
+    if (section !== 'whats-new') return
+    let active = true
+    void api.releaseNotes.markSeen().then((next) => {
+      if (active) setReleaseNotes(next)
+    })
+    return () => {
+      active = false
+    }
+  }, [section])
 
   const patch = useCallback(async (p: Partial<Settings>) => {
     setSettings((s) => (s ? { ...s, ...p } : s))
@@ -69,10 +88,15 @@ export default function App(): React.ReactElement {
             <button
               key={s.id}
               className={`set-nav ${section === s.id ? 'active' : ''}`}
+              aria-current={section === s.id ? 'page' : undefined}
+              aria-label={`${s.label}${s.id === 'whats-new' && releaseNotes?.unread ? ', unread' : ''}`}
               onClick={() => setSection(s.id)}
             >
               <Icon name={s.icon} size={15} />
-              {s.label}
+              <span className="set-nav-label">{s.label}</span>
+              {s.id === 'whats-new' && releaseNotes?.unread && (
+                <span className="set-unread-dot" aria-hidden="true" />
+              )}
             </button>
           ))}
         </div>
@@ -86,7 +110,10 @@ export default function App(): React.ReactElement {
           <HotkeySettings settings={settings} patch={patch} failures={failures} />
         )}
         {section === 'annotation' && <Annotation settings={settings} patch={patch} />}
-        {section === 'about' && <About version={version} platform={platform} />}
+        {section === 'about' && (
+          <About version={version} platform={platform} releaseNotes={releaseNotes} />
+        )}
+        {section === 'whats-new' && <WhatsNew version={version} releaseNotes={releaseNotes} />}
       </main>
 
       <ToastHost />
@@ -311,7 +338,7 @@ function Capture({
             onChange={(e) => patch({ afterCapture: e.target.value as Settings['afterCapture'] })}
           >
             <option value="quickAccess">Show the quick access card</option>
-            <option value="editor">Open the editor</option>
+            <option value="editor">Save to Library and open the editor</option>
             <option value="clipboard">Copy to clipboard</option>
             <option value="file">Save to folder</option>
             <option value="clipboardAndFile">Copy and save</option>
@@ -608,7 +635,62 @@ function prettify(accelerator: string): string {
 
 /* ------------------------------------------------------------------ */
 
-function About({ version, platform }: { version: string; platform: string }): React.ReactElement {
+function WhatsNew({
+  version,
+  releaseNotes
+}: {
+  version: string
+  releaseNotes: ReleaseNotesStatus | null
+}): React.ReactElement {
+  const notes = releaseNotes?.notes
+
+  return (
+    <>
+      <h1 className="set-title">What's New</h1>
+      {notes ? (
+        <>
+          <p className="set-lead">{notes.summary}</p>
+          <Group title={`ClipThat ${notes.version}`} hint={notes.title}>
+            <div className="set-release-notes">
+              {notes.items.map((note) => (
+                <article className="set-release-note" key={note.title}>
+                  <span className="set-release-note-mark" aria-hidden="true">
+                    <Icon name="check" size={14} />
+                  </span>
+                  <div>
+                    <h3>{note.title}</h3>
+                    <p>{note.body}</p>
+                  </div>
+                </article>
+              ))}
+            </div>
+          </Group>
+        </>
+      ) : (
+        <>
+          <p className="set-lead">
+            There are no bundled release notes for ClipThat {version || 'yet'}.
+          </p>
+          <Group title="Release notes">
+            <p className="tiny muted">Release notes will appear here when this build includes them.</p>
+          </Group>
+        </>
+      )}
+    </>
+  )
+}
+
+/* ------------------------------------------------------------------ */
+
+function About({
+  version,
+  platform,
+  releaseNotes
+}: {
+  version: string
+  platform: string
+  releaseNotes: ReleaseNotesStatus | null
+}): React.ReactElement {
   const [info, setInfo] = useState<Record<string, string> | null>(null)
   const [exporting, setExporting] = useState(false)
   const [update, setUpdate] = useState<AppUpdateStatus | null>(null)
@@ -772,6 +854,23 @@ function About({ version, platform }: { version: string; platform: string }): Re
             >
               <Icon name="download" size={13} />
               {openingManualUpdate ? 'Opening…' : 'Open manual DMG'}
+            </button>
+          </div>
+        )}
+        {releaseNotes?.notes && (
+          <div className="set-update-fallback">
+            <span className="tiny muted">
+              {releaseNotes.unread
+                ? `See what is new in ClipThat ${releaseNotes.currentVersion}.`
+                : 'Review the changes included in this release.'}
+            </span>
+            <button
+              className="btn ghost sm"
+              onClick={() => api.system.window('settings-whats-new')}
+            >
+              <Icon name="sparkles" size={13} />
+              What's New
+              {releaseNotes.unread && <span className="set-unread-dot" aria-hidden="true" />}
             </button>
           </div>
         )}

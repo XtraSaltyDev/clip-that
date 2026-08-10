@@ -68,8 +68,8 @@ export function defaultSettings(picturesDir: string): Settings {
       openLibrary: `${mod}+Shift+9`,
       grabText: `${mod}+Shift+T`
     },
-    // The card, not the editor: most captures just need to be somewhere else fast.
-    afterCapture: 'quickAccess',
+    // Index the capture first, then use the editor as the working surface.
+    afterCapture: 'editor',
     libraryOpenBehavior: 'ask',
     pipeline: { copy: true, save: true, pin: false, edit: false, command: '' },
     saveDirectory: picturesDir,

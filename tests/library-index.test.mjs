@@ -107,6 +107,20 @@ test('library index preserves valid video trim drafts and rejects malformed draf
   }
 })
 
+test('library index preserves the external still path metadata', async () => {
+  const root = await mkdtemp(join(tmpdir(), 'clipthat-index-'))
+  try {
+    const primary = join(root, 'index.json')
+    const backup = join(root, 'index.json.bak')
+    const saved = { ...item('saved', 'Renamed'), exportPath: '/tmp/Renamed.png' }
+    await writeFile(primary, JSON.stringify([saved]), 'utf8')
+
+    assert.equal(loadLibraryIndex(primary, backup).items[0].exportPath, saved.exportPath)
+  } finally {
+    await rm(root, { recursive: true, force: true })
+  }
+})
+
 test('library index never turns two unreadable generations into a silent healthy result', async () => {
   const root = await mkdtemp(join(tmpdir(), 'clipthat-index-'))
   try {

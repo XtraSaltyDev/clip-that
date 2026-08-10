@@ -108,3 +108,13 @@ test('opening another document returns the canvas to fit-to-window mode', () => 
   assert.equal(useEditor.getState().zoom, 1)
   assert.equal(useEditor.getState().autoFit, true)
 })
+
+test('keeps the external still path with the active Library document', () => {
+  const state = useEditor.getState()
+  state.setDoc({ ...document(), exportPath: '/tmp/first.png' }, 'library-1')
+  assert.equal(useEditor.getState().exportPath, '/tmp/first.png')
+
+  useEditor.getState().setExportPath('/tmp/renamed.png')
+  assert.equal(useEditor.getState().exportPath, '/tmp/renamed.png')
+  assert.equal(useEditor.getState().doc.exportPath, '/tmp/renamed.png')
+})

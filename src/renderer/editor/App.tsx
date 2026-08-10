@@ -33,6 +33,7 @@ export default function App(): React.ReactElement {
   const [videoItem, setVideoItem] = useState<LibraryItem | null>(null)
   const closeSaving = useRef(false)
   const videoDraftFlush = useRef<(() => Promise<void>) | null>(null)
+  const documentHandoff = useRef(Promise.resolve())
   // Rebuilt when the palette opens so disabled states reflect the current selection.
   const commands = useMemo(() => editorCommands(actions), [actions, paletteOpen])
 
@@ -41,13 +42,14 @@ export default function App(): React.ReactElement {
   useEffect(() => {
     let alive = true
     void api.editor.load().then((loaded) => {
-      if (alive && loaded) setDoc(loaded, loaded.id)
+      if (alive && loaded) setDoc(loaded, loaded.id, loaded.exportPath)
     })
     void api.editor.loadVideo().then((loaded) => {
       if (alive && loaded) setVideoItem(loaded)
     })
     const off = api.editor.onDocument((incoming) => {
-      void (async () => {
+      const handoff = documentHandoff.current.then(async () => {
+        if (!alive) return
         const current = useEditor.getState()
         if (current.doc && current.doc.id !== incoming.id && current.dirty) {
           try {
@@ -62,9 +64,11 @@ export default function App(): React.ReactElement {
         }
         if (alive) {
           setVideoItem(null)
-          setDoc(incoming, incoming.id)
+          setDoc(incoming, incoming.id, incoming.exportPath)
         }
-      })()
+      })
+      documentHandoff.current = handoff.catch(() => {})
+      void handoff
     })
     const offVideo = api.editor.onVideo((incoming) => {
       if (alive) setVideoItem(incoming)

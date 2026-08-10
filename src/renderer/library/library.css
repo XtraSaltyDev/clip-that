@@ -27,6 +27,15 @@ body.mac .lib-top {
   background: color-mix(in srgb, var(--accent) 17%, transparent);
   border-color: color-mix(in srgb, var(--accent) 48%, transparent);
 }
+.btn.lib-whats-new {
+  color: var(--accent);
+  background: color-mix(in srgb, var(--accent) 10%, transparent);
+  border-color: color-mix(in srgb, var(--accent) 30%, transparent);
+}
+.btn.lib-whats-new:hover {
+  background: color-mix(in srgb, var(--accent) 17%, transparent);
+  border-color: color-mix(in srgb, var(--accent) 48%, transparent);
+}
 
 .lib-health {
   display: flex;

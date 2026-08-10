@@ -74,6 +74,7 @@ function isLibraryItem(value: unknown): value is LibraryItem {
     typeof item.byteSize === 'number' &&
     Number.isFinite(item.byteSize) &&
     (item.projectPath === undefined || typeof item.projectPath === 'string') &&
+    (item.exportPath === undefined || typeof item.exportPath === 'string') &&
     (item.ocrText === undefined || typeof item.ocrText === 'string') &&
     (item.durationMs === undefined ||
       (typeof item.durationMs === 'number' && Number.isFinite(item.durationMs))) &&

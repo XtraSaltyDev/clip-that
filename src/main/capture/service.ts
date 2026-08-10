@@ -16,6 +16,7 @@ import { copyImageToClipboard, loadProjectFile, saveImage } from '../export'
 import {
   broadcast,
   createEditorWindow,
+  editorWindowForReuse,
   editorWindows,
   showHudWindow,
   showSettingsWindow,
@@ -81,6 +82,22 @@ export function documentFromCapture(result: CaptureResult): ClipDocument {
     shapes: [],
     canvas: { ...s.canvasPreset }
   }
+}
+
+function captureTitle(result: CaptureResult, filenameTemplate: string): string {
+  return result.title?.trim() || formatFilename(filenameTemplate, new Date(result.createdAt))
+}
+
+async function addCaptureToLibrary(
+  result: CaptureResult,
+  filenameTemplate: string
+): Promise<LibraryItem> {
+  return library.addImage({
+    dataUrl: result.dataUrl,
+    title: captureTitle(result, filenameTemplate),
+    width: result.width,
+    height: result.height
+  })
 }
 
 /* ------------------------------------------------------------------ *
@@ -440,12 +457,12 @@ export async function performCapture(req: CaptureRequest): Promise<CaptureResult
   return result
 }
 
-/** Open a capture in the editor, linked to an existing library item when there is one. */
+/** Open a capture in the editor, linked to an existing Library item when there is one. */
 export function openResultInEditor(result: CaptureResult, libraryId?: string): void {
   const doc = documentFromCapture(result)
-  // The editor keys its save-back-to-library behaviour off the document id.
+  // The editor keys its save-back-to-Library behaviour off the document id.
   if (libraryId) doc.id = libraryId
-  openInEditor(doc)
+  if (!openInExistingEditor(doc)) openInEditor(doc)
 }
 
 /** Apply the user's "after capture" preference and always index into the library. */
@@ -463,13 +480,14 @@ export async function routeResult(
 
   if (action === 'quickAccess') {
     // Library first so nothing is lost even if the card is dismissed unread.
-    const item = await library.addImage({
-      dataUrl: result.dataUrl,
-      title: result.title || formatFilename(s.filenameTemplate),
-      width: result.width,
-      height: result.height
-    })
+    const item = await addCaptureToLibrary(result, s.filenameTemplate)
     showQuickAccess(result, item.id)
+    return
+  }
+
+  if (action === 'editor') {
+    const item = await addCaptureToLibrary(result, s.filenameTemplate)
+    openResultInEditor(result, item.id)
     return
   }
 
@@ -500,12 +518,7 @@ export async function routeResult(
   }
 
   if (action === 'clipboard') {
-    await library.addImage({
-      dataUrl: result.dataUrl,
-      title: result.title || formatFilename(s.filenameTemplate),
-      width: result.width,
-      height: result.height
-    })
+    await addCaptureToLibrary(result, s.filenameTemplate)
     broadcast('system:toast', { kind: 'success', message: 'Copied to clipboard' })
     return
   }
@@ -519,15 +532,17 @@ const pendingVideos = new Map<number, LibraryItem>()
 function deliverDocument(win: Electron.BrowserWindow, doc: ClipDocument): void {
   pendingVideos.delete(win.webContents.id)
   pendingDocs.set(win.webContents.id, doc)
+  const send = () => {
+    if (win.isDestroyed()) return
+    win.webContents.send('editor:document', doc)
+    win.show()
+    win.focus()
+  }
   if (win.webContents.isLoadingMainFrame()) {
-    win.webContents.once('did-finish-load', () => {
-      if (!win.isDestroyed()) win.webContents.send('editor:document', doc)
-    })
+    win.webContents.once('did-finish-load', send)
     return
   }
-  win.webContents.send('editor:document', doc)
-  win.show()
-  win.focus()
+  send()
 }
 
 function deliverVideo(win: Electron.BrowserWindow, item: LibraryItem): void {
@@ -554,10 +569,9 @@ export function openVideoInEditor(item: LibraryItem): void {
   deliverVideo(win, item)
 }
 
-/** Replace the most recently created editor's document and bring that editor forward. */
+/** Replace a reusable editor's document and bring that editor forward. */
 export function openInExistingEditor(doc: ClipDocument): boolean {
-  const windows = editorWindows()
-  const win = windows.find((candidate) => candidate.isFocused()) ?? windows.at(-1)
+  const win = editorWindowForReuse()
   if (!win) return false
   deliverDocument(win, doc)
   return true
@@ -568,7 +582,9 @@ export async function loadLibraryDocument(id: string): Promise<ClipDocument | nu
   const item = library.get(id)
   if (!item || item.kind !== 'image') return null
   const loaded = (await library.loadProject(id)) ?? (await loadProjectFile(item.filePath))
-  return loaded ? { ...loaded, id: item.id, title: item.title } : null
+  return loaded
+    ? { ...loaded, id: item.id, title: item.title, exportPath: item.exportPath }
+    : null
 }
 
 /** Switch only the editor that sent the request; other open editors are left untouched. */

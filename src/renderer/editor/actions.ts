@@ -43,6 +43,10 @@ export function useEditorActions(stageRef: StageRef, settings: Settings | null) 
       ocrText: doc.ocrText,
       replaceId: state.libraryId ?? undefined
     })
+    await api.library.update(
+      item.id,
+      doc.exportPath ? { title: doc.title, exportPath: doc.exportPath } : { title: doc.title }
+    )
     useEditor.setState({ libraryId: item.id })
   }, [])
 
@@ -57,7 +61,8 @@ export function useEditorActions(stageRef: StageRef, settings: Settings | null) 
     async (saveAs: boolean) => {
       const png = await render()
       if (!png) return
-      const doc = useEditor.getState().doc
+      const state = useEditor.getState()
+      const doc = state.doc
       if (!doc) return
 
       const encoded = await encodeAs(png, format, quality)
@@ -65,13 +70,17 @@ export function useEditorActions(stageRef: StageRef, settings: Settings | null) 
         dataUrl: encoded,
         format,
         suggestedName: doc.title,
-        saveAs
+        saveAs,
+        targetPath: saveAs ? undefined : state.exportPath ?? undefined
       })
       if (res.canceled) return
       if (!res.ok) {
         toast('error', 'Save failed', res.error)
         return
       }
+      const current = useEditor.getState()
+      if (saveAs && res.title) current.setTitle(res.title)
+      if (res.filePath) current.setExportPath(res.filePath)
       await syncLibrary(png)
       useEditor.getState().markSaved()
       toast('success', 'Saved', res.filePath)

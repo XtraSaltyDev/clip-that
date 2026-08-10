@@ -44,11 +44,17 @@ export function getSingleton(entry: RendererEntry): BrowserWindow | undefined {
 }
 
 const editors = new Set<BrowserWindow>()
+const editorLastFocused = new Map<BrowserWindow, number>()
+let editorFocusSequence = 0
 const editorCloseState = new Map<
   number,
   { win: BrowserWindow; ready: boolean; pending: boolean; approved: boolean }
 >()
 let editorAppQuitRequested = false
+
+function rememberEditorFocus(win: BrowserWindow): void {
+  editorLastFocused.set(win, ++editorFocusSequence)
+}
 
 export function markEditorAppQuitRequested(): void {
   editorAppQuitRequested = true
@@ -85,6 +91,8 @@ export function createEditorWindow(): BrowserWindow {
   })
   registerRendererWindow(win, 'editor')
   editors.add(win)
+  rememberEditorFocus(win)
+  win.on('focus', () => rememberEditorFocus(win))
   const webContentsId = win.webContents.id
   const closeState = { win, ready: false, pending: false, approved: false }
   editorCloseState.set(webContentsId, closeState)
@@ -97,6 +105,7 @@ export function createEditorWindow(): BrowserWindow {
   })
   win.on('closed', () => {
     editors.delete(win)
+    editorLastFocused.delete(win)
     editorCloseState.delete(webContentsId)
   })
   win.webContents.on('render-process-gone', () => {
@@ -368,6 +377,24 @@ export function broadcast(channel: string, ...args: unknown[]): void {
 
 export function editorWindows(): BrowserWindow[] {
   return [...editors].filter((w) => !w.isDestroyed())
+}
+
+/** Choose the focused editor, or the most recently focused editor when the app is inactive. */
+export function editorWindowForReuse(): BrowserWindow | undefined {
+  const windows = editorWindows()
+  const focused = windows.find((win) => win.isFocused())
+  if (focused) return focused
+
+  let mostRecent: BrowserWindow | undefined
+  let mostRecentSequence = -1
+  for (const win of windows) {
+    const sequence = editorLastFocused.get(win) ?? 0
+    if (sequence > mostRecentSequence) {
+      mostRecent = win
+      mostRecentSequence = sequence
+    }
+  }
+  return mostRecent
 }
 
 /**

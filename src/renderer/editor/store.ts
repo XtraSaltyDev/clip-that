@@ -40,6 +40,8 @@ interface EditorState {
   doc: ClipDocument | null
   /** Library id when this document came from (or was saved to) the library. */
   libraryId: string | null
+  /** External still path last chosen for the current document, when one exists. */
+  exportPath: string | null
   tool: ToolId
   selectedIds: string[]
   editingTextId: string | null
@@ -61,7 +63,8 @@ interface EditorState {
   /** Right-hand panel mode. */
   panel: 'inspect' | 'context' | 'layers'
 
-  setDoc: (doc: ClipDocument, libraryId?: string | null) => void
+  setDoc: (doc: ClipDocument, libraryId?: string | null, exportPath?: string | null) => void
+  setExportPath: (exportPath: string | null) => void
   setTool: (tool: ToolId) => void
   setStyle: (patch: Partial<DrawStyle>) => void
   select: (ids: string[]) => void
@@ -115,6 +118,7 @@ const sameSnapshot = (a: Snapshot, b: Snapshot): boolean =>
 export const useEditor = create<EditorState>((set, get) => ({
   doc: null,
   libraryId: null,
+  exportPath: null,
   tool: 'select',
   selectedIds: [],
   editingTextId: null,
@@ -145,10 +149,11 @@ export const useEditor = create<EditorState>((set, get) => ({
     opacity: 1
   },
 
-  setDoc: (doc, libraryId = null) =>
+  setDoc: (doc, libraryId = null, exportPath = null) =>
     set({
       doc: { ...doc, canvas: { ...DEFAULT_CANVAS, ...doc.canvas } },
       libraryId,
+      exportPath: exportPath ?? doc.exportPath ?? null,
       past: [],
       future: [],
       selectedIds: [],
@@ -162,6 +167,17 @@ export const useEditor = create<EditorState>((set, get) => ({
       autoFit: true,
       dirty: false
     }),
+
+  setExportPath: (exportPath) =>
+    set((s) =>
+      s.doc
+        ? {
+            doc: { ...s.doc, exportPath: exportPath ?? undefined, updatedAt: Date.now() },
+            exportPath,
+            dirty: true
+          }
+        : s
+    ),
 
   setTool: (tool) =>
     set((s) => ({

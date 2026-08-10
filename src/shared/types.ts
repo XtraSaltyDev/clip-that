@@ -277,6 +277,8 @@ export interface ClipDocument {
   /** OCR text, cached for search. */
   ocrText?: string
   tags?: string[]
+  /** External still path last chosen for this document, when one exists. */
+  exportPath?: string
 }
 
 /* ------------------------------------------------------------------ *
@@ -295,6 +297,8 @@ export interface LibraryItem {
   filePath: string
   /** Absolute path of the editable .clipthat project, images only. */
   projectPath?: string
+  /** External still path last chosen for this item, when one exists. */
+  exportPath?: string
   thumbnail: string
   tags: string[]
   favorite: boolean
@@ -312,9 +316,10 @@ export interface VideoEditDraft {
   updatedAt: number
 }
 
-/** The only library fields a renderer is allowed to edit. Paths and identity stay main-owned. */
+/** The only Library fields a renderer is allowed to edit. Internal paths and identity stay main-owned. */
 export interface LibraryItemPatch {
   title?: string
+  exportPath?: string
   tags?: string[]
   favorite?: boolean
   ocrText?: string
@@ -470,6 +475,29 @@ export interface Settings {
 }
 
 /* ------------------------------------------------------------------ *
+ * Bundled release notes
+ * ------------------------------------------------------------------ */
+
+export interface ReleaseNote {
+  title: string
+  body: string
+}
+
+export interface ReleaseNotes {
+  version: string
+  title: string
+  summary: string
+  items: readonly ReleaseNote[]
+}
+
+export interface ReleaseNotesStatus {
+  currentVersion: string
+  lastSeenVersion: string | null
+  notes: ReleaseNotes | null
+  unread: boolean
+}
+
+/* ------------------------------------------------------------------ *
  * Internal updates
  * ------------------------------------------------------------------ */
 
@@ -566,6 +594,8 @@ export interface SaveImageRequest {
   suggestedName?: string
   /** Ask with a dialog instead of using the default directory. */
   saveAs?: boolean
+  /** Existing external still to overwrite when saving without a dialog. */
+  targetPath?: string
   /** Persist the editable project alongside the image. */
   project?: ClipDocument
 }
@@ -573,6 +603,8 @@ export interface SaveImageRequest {
 export interface SaveResult {
   ok: boolean
   filePath?: string
+  /** Base name of the written still without its extension. */
+  title?: string
   canceled?: boolean
   error?: string
 }

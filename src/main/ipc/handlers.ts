@@ -1,6 +1,7 @@
 import { app, BrowserWindow, screen, shell } from 'electron'
 import { dialog } from 'electron'
 import { IPC } from '@shared/ipc'
+import { releaseNotesStatus } from '@shared/release-notes'
 import type {
   CaptureRequest,
   ClipDocument,
@@ -16,6 +17,7 @@ import { quickCache } from '../windows/quick'
 import { openResultInEditor } from '../capture/service'
 import { formatFilename } from '@shared/defaults'
 import { settings } from '../store/settings'
+import { releaseNotesStore } from '../store/release-notes'
 import { library } from '../store/library'
 import {
   cancelScrollCapture,
@@ -551,6 +553,19 @@ export function registerIpcHandlers(): void {
     return res.filePaths[0]
   })
 
+  /* ---------------- bundled release notes ---------------- */
+
+  const currentReleaseNotes = () =>
+    releaseNotesStatus(app.getVersion(), releaseNotesStore.lastSeenVersion())
+
+  secureHandle(IPC.releaseNotesGet, ['library', 'settings'], () => currentReleaseNotes())
+  secureHandle(IPC.releaseNotesMarkSeen, ['library', 'settings'], () => {
+    releaseNotesStore.markSeen(app.getVersion())
+    const next = currentReleaseNotes()
+    broadcast(IPC.releaseNotesChanged, next)
+    return next
+  })
+
   /* ---------------- system ---------------- */
 
   secureHandle(IPC.permissionsCheck, ['settings'], () => checkPermissions())
@@ -606,8 +621,8 @@ export function registerIpcHandlers(): void {
       const role = rendererRole(e)
       const allowedActions = {
         editor: ['minimize', 'maximize', 'close', 'library', 'settings', 'record'],
-        library: ['minimize', 'maximize', 'close', 'settings', 'record'],
-        settings: ['minimize', 'maximize', 'close', 'record'],
+        library: ['minimize', 'maximize', 'close', 'settings', 'settings-whats-new', 'record'],
+        settings: ['minimize', 'maximize', 'close', 'settings-whats-new', 'record'],
         quick: ['close'],
         pin: ['close']
       } as const
@@ -631,6 +646,9 @@ export function registerIpcHandlers(): void {
           break
         case 'settings':
           showSettingsWindow()
+          break
+        case 'settings-whats-new':
+          showSettingsWindow('whats-new')
           break
         case 'record':
           if (recording.status().state === 'idle') showHudWindow()

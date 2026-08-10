@@ -45,3 +45,7 @@ test('caps generated names to a filesystem-friendly length', () => {
 test('asks before replacing an existing editor by default', () => {
   assert.equal(defaultSettings('/tmp').libraryOpenBehavior, 'ask')
 })
+
+test('opens new captures in the editor by default', () => {
+  assert.equal(defaultSettings('/tmp').afterCapture, 'editor')
+})

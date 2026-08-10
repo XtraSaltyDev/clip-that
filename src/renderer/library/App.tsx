@@ -1,5 +1,5 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react'
-import type { AppUpdateStatus, LibraryHealth, LibraryItem } from '@shared/types'
+import type { AppUpdateStatus, LibraryHealth, LibraryItem, ReleaseNotesStatus } from '@shared/types'
 import { api } from '../shared/api'
 import { Icon } from '../shared/icons'
 import {
@@ -30,6 +30,7 @@ export default function App(): React.ReactElement {
   const [paletteOpen, setPaletteOpen] = useState(false)
   const [health, setHealth] = useState<LibraryHealth | null>(null)
   const [update, setUpdate] = useState<AppUpdateStatus | null>(null)
+  const [releaseNotes, setReleaseNotes] = useState<ReleaseNotesStatus | null>(null)
   const [openingUpdate, setOpeningUpdate] = useState(false)
   const searchRef = useRef<HTMLInputElement>(null)
 
@@ -69,6 +70,20 @@ export default function App(): React.ReactElement {
 
   useEffect(() => {
     let active = true
+    void api.releaseNotes.get().then((status) => {
+      if (active) setReleaseNotes(status)
+    })
+    const unsubscribe = api.releaseNotes.onChanged((status) => {
+      if (active) setReleaseNotes(status)
+    })
+    return () => {
+      active = false
+      unsubscribe()
+    }
+  }, [])
+
+  useEffect(() => {
+    let active = true
     void api.system.checkForUpdate().then((status) => {
       if (active) setUpdate(status)
     }).catch(() => {
@@ -104,6 +119,10 @@ export default function App(): React.ReactElement {
   const installUpdate = useCallback(async () => {
     const result = await api.system.installUpdate()
     if (!result.ok) toast('error', 'ClipThat could not restart', result.error)
+  }, [])
+
+  const openWhatsNew = useCallback(() => {
+    api.system.window('settings-whats-new')
   }, [])
 
   const active = useMemo(
@@ -290,6 +309,17 @@ export default function App(): React.ReactElement {
                   openingUpdate || actionableUpdate.state === 'downloading' ? 'spin' : undefined
                 }
               />
+            </button>
+          )}
+          {releaseNotes?.unread && (
+            <button
+              className="btn ghost icon tip focus-ring lib-whats-new"
+              data-tip={`What's New in ClipThat ${releaseNotes.currentVersion}`}
+              title={`What's New in ClipThat ${releaseNotes.currentVersion}`}
+              aria-label={`What's New in ClipThat ${releaseNotes.currentVersion}`}
+              onClick={openWhatsNew}
+            >
+              <Icon name="sparkles" />
             </button>
           )}
           <button

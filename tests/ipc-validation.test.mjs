@@ -69,6 +69,16 @@ test('settings IPC accepts only known, bounded fields', () => {
   assert.throws(() => validation.settingsPatch({ accent: 'url(javascript:1)' }, current), /hex colour/)
 })
 
+test('save requests accept a retained external target path', () => {
+  const request = validation.saveImageRequest({
+    dataUrl: 'data:image/png;base64,AAAA',
+    format: 'png',
+    saveAs: false,
+    targetPath: '/tmp/clipthat-renamed.png'
+  })
+  assert.equal(request.targetPath, '/tmp/clipthat-renamed.png')
+})
+
 test('overlay and system messages reject extra fields and unsafe schemes', () => {
   assert.deepEqual(
     validation.overlaySelection({

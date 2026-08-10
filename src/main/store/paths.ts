@@ -21,6 +21,7 @@ export const tempDir = () => ensure(join(userData(), 'tmp'))
 export const recordingSessionsDir = () => ensure(join(userData(), 'recording-sessions'))
 
 export const settingsFile = () => join(userData(), 'settings.json')
+export const releaseNotesStateFile = () => join(userData(), 'release-notes.json')
 export const libraryIndexFile = () => join(libraryDir(), 'index.json')
 export const libraryIndexBackupFile = () => join(libraryDir(), 'index.json.bak')
 
