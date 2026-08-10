@@ -15,7 +15,17 @@ import VideoEditor from './VideoEditor'
 import CommandPalette from '../shared/CommandPalette'
 import { editorCommands } from './commands'
 import { orderWords, selectedText } from './canvas/LiveText'
+import { renderCutOutImage } from './cut-out-image'
 import './editor.css'
+
+function loadImageDataUrl(dataUrl: string): Promise<HTMLImageElement> {
+  return new Promise((resolve, reject) => {
+    const image = new Image()
+    image.onload = () => resolve(image)
+    image.onerror = () => reject(new Error('The Cut Out preview could not be decoded'))
+    image.src = dataUrl
+  })
+}
 
 export default function App(): React.ReactElement {
   const settings = useTheme()
@@ -23,7 +33,8 @@ export default function App(): React.ReactElement {
   const zoom = useEditor((s) => s.zoom)
   const libraryId = useEditor((s) => s.libraryId)
   const setDoc = useEditor((s) => s.setDoc)
-  const image = useImage(doc?.image)
+  const sourceImage = useImage(doc?.image)
+  const [image, setImage] = useState<HTMLImageElement | null>(null)
   const stageRef = useRef<Konva.Stage | null>(null)
   const [viewportRef, viewport] = useSize<HTMLDivElement>()
   const actions = useEditorActions(stageRef, settings)
@@ -36,6 +47,48 @@ export default function App(): React.ReactElement {
   const documentHandoff = useRef(Promise.resolve())
   // Rebuilt when the palette opens so disabled states reflect the current selection.
   const commands = useMemo(() => editorCommands(actions), [actions, paletteOpen])
+
+  /* ---------- derived Cut Out image ---------- */
+
+  useEffect(() => {
+    let alive = true
+    const operations = doc?.cutOuts ?? []
+    if (!sourceImage) {
+      setImage(null)
+      useEditor.getState().setCutOutRendering(false)
+      return () => {
+        alive = false
+      }
+    }
+    if (operations.length === 0) {
+      setImage(sourceImage)
+      useEditor.getState().setCutOutRendering(false)
+      return () => {
+        alive = false
+      }
+    }
+
+    setImage(null)
+    useEditor.getState().setCutOutRendering(true)
+    void (async () => {
+      let current = sourceImage
+      for (const operation of operations) {
+        current = await loadImageDataUrl(renderCutOutImage(current, operation))
+      }
+      if (!alive) return
+      setImage(current)
+      useEditor.getState().setCutOutRendering(false)
+    })().catch((error) => {
+      if (!alive) return
+      setImage(null)
+      useEditor.getState().setCutOutRendering(false)
+      toast('error', 'Could not render the Cut Out preview', (error as Error).message)
+    })
+
+    return () => {
+      alive = false
+    }
+  }, [doc?.cutOuts, sourceImage])
 
   /* ---------- document loading ---------- */
 
@@ -181,6 +234,9 @@ export default function App(): React.ReactElement {
       enter: () => {
         const s = useEditor.getState()
         if (s.tool === 'crop' && s.cropDraft && s.cropDraft.width > 4) s.applyCrop(s.cropDraft)
+        else if (s.tool === 'cutOut' && s.cutOutDraft && s.cutOutDraft.size >= 4) {
+          s.applyCutOut(s.cutOutDraft)
+        }
       },
       arrowup: (e) => nudge(0, e.shiftKey ? -10 : -1),
       arrowdown: (e) => nudge(0, e.shiftKey ? 10 : 1),

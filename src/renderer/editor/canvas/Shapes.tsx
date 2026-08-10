@@ -599,7 +599,22 @@ function ShapeNodeInner(props: Props): React.ReactElement | null {
  * has to bail out here — otherwise Konva rebuilds (and re-caches) every filter on the
  * canvas on each mouse move.
  */
-export const ShapeNode = React.memo(ShapeNodeInner, (prev, next) => {
+function ShapeNodeWithClip(props: Props): React.ReactElement | null {
+  const rects = props.shape.clipRects
+  if (!rects || rects.length === 0) return ShapeNodeInner(props)
+  return (
+    <Group
+      clipFunc={(context) => {
+        context.beginPath()
+        for (const rect of rects) context.rect(rect.x, rect.y, rect.width, rect.height)
+      }}
+    >
+      {ShapeNodeInner(props)}
+    </Group>
+  )
+}
+
+export const ShapeNode = React.memo(ShapeNodeWithClip, (prev, next) => {
   if (prev.shape !== next.shape) return false
   if (prev.draggable !== next.draggable) return false
   const a = prev.ctx

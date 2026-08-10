@@ -5,6 +5,7 @@ import type { ClipDocument, SaveImageRequest, SaveResult } from '@shared/types'
 import { formatFilename, safeFilename } from '@shared/defaults'
 import { settings } from './store/settings'
 import { tempDir } from './store/paths'
+import { clipDocument } from './ipc/validation'
 
 const EXT_FILTERS: Record<string, Electron.FileFilter> = {
   png: { name: 'PNG image', extensions: ['png'] },
@@ -125,7 +126,7 @@ export async function openProjectDialog(): Promise<ClipDocument | null> {
 export async function loadProjectFile(filePath: string): Promise<ClipDocument | null> {
   try {
     if (extname(filePath).toLowerCase() === '.clipthat') {
-      return JSON.parse(await fs.readFile(filePath, 'utf8')) as ClipDocument
+      return clipDocument(JSON.parse(await fs.readFile(filePath, 'utf8')))
     }
     const image = nativeImage.createFromPath(filePath)
     if (image.isEmpty()) return null

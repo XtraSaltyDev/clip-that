@@ -10,11 +10,23 @@ import { encodeAs, flatten } from './exporting'
 
 type StageRef = React.MutableRefObject<Konva.Stage | null>
 
+async function waitForCutOutImage(): Promise<boolean> {
+  const started = Date.now()
+  while (useEditor.getState().cutOutRendering && Date.now() - started < 5_000) {
+    await new Promise((resolve) => setTimeout(resolve, 24))
+  }
+  return !useEditor.getState().cutOutRendering
+}
+
 export function useEditorActions(stageRef: StageRef, settings: Settings | null) {
   const format = settings?.imageFormat ?? 'png'
   const quality = (settings?.jpegQuality ?? 92) / 100
 
   const render = useCallback(async () => {
+    if (!(await waitForCutOutImage())) {
+      toast('error', 'The Cut Out preview is still rendering')
+      return null
+    }
     const png = await flatten(stageRef.current)
     if (!png) {
       toast('error', 'Could not render the image')

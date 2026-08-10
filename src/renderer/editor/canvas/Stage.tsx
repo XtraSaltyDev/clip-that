@@ -11,7 +11,7 @@ import {
   Text as KonvaText,
   Transformer
 } from 'react-konva'
-import type { CanvasStyle, ClipDocument, Shape, TextShape, ToolId } from '@shared/types'
+import type { CanvasStyle, ClipDocument, CutOutOperation, Shape, TextShape, ToolId } from '@shared/types'
 import {
   BOX_TOOLS,
   CLICK_TOOLS,
@@ -22,6 +22,7 @@ import {
   isTextShape,
   useEditor
 } from '../store'
+import { cutOutEdgeAmplitude, cutOutEdgePath, CUT_OUT_MIN_SIZE } from '@shared/cut-out'
 import { ShapeNode, type ShapeContext } from './Shapes'
 import { shapeTransformPatch } from './transforms'
 import { canvasTiltTransform } from './tilt'
@@ -52,9 +53,21 @@ export default function EditorStage({
   const selectedIds = useEditor((s) => s.selectedIds)
   const editingTextId = useEditor((s) => s.editingTextId)
   const cropDraft = useEditor((s) => s.cropDraft)
+  const cutOutDraft = useEditor((s) => s.cutOutDraft)
+  const cutOutAxis = useEditor((s) => s.cutOutAxis)
+  const cutOutEdge = useEditor((s) => s.cutOutEdge)
   const liveText = useEditor((s) => s.liveTextOn)
 
-  const { addShape, updateShape, select, setEditingText, setZoom, begin, setCropDraft } =
+  const {
+    addShape,
+    updateShape,
+    select,
+    setEditingText,
+    setZoom,
+    begin,
+    setCropDraft,
+    setCutOutDraft
+  } =
     useEditor.getState()
 
   const shapesGroupRef = useRef<Konva.Group>(null)
@@ -72,7 +85,7 @@ export default function EditorStage({
    */
   const layout = useMemo(
     () => (doc ? computeLayout(doc) : null),
-    [doc?.crop, doc?.canvas, doc?.imageWidth, doc?.imageHeight]
+    [doc?.crop, doc?.canvas, doc?.cutOuts, doc?.imageWidth, doc?.imageHeight]
   )
 
   /* ---------- auto-fit ---------- */
@@ -111,6 +124,20 @@ export default function EditorStage({
     return p ? { x: p.x, y: p.y } : null
   }, [])
 
+  /** Cut Out drafts are always expressed from the top-left of the currently visible image. */
+  const cutOutPointer = useCallback(
+    (p: { x: number; y: number }): { x: number; y: number } =>
+      doc?.cutOuts?.length ? p : { x: p.x - (layout?.cropX ?? 0), y: p.y - (layout?.cropY ?? 0) },
+    [doc?.cutOuts, layout?.cropX, layout?.cropY]
+  )
+
+  const cutOutSource = useCallback((): CutOutOperation['source'] | null => {
+    if (!doc || !layout) return null
+    return doc.cutOuts?.length
+      ? { x: 0, y: 0, width: layout.contentWidth, height: layout.contentHeight }
+      : { x: layout.cropX, y: layout.cropY, width: layout.contentWidth, height: layout.contentHeight }
+  }, [doc, layout])
+
   const onStageMouseDown = (e: Konva.KonvaEventObject<MouseEvent>) => {
     if (e.evt.button !== 0) return
     const p = pointer()
@@ -124,6 +151,25 @@ export default function EditorStage({
     if (tool === 'crop') {
       setCropDraft({ enabled: false, x: p.x, y: p.y, width: 0, height: 0 })
       drafting.current = { id: 'crop', origin: p }
+      return
+    }
+
+    if (tool === 'cutOut') {
+      const source = cutOutSource()
+      if (!source) return
+      const local = cutOutPointer(p)
+      const axisValue = cutOutAxis === 'horizontal' ? local.y : local.x
+      const max = cutOutAxis === 'horizontal' ? source.height : source.width
+      const low = Math.min(CUT_OUT_MIN_SIZE, max / 3)
+      const high = Math.max(low, max - low)
+      setCutOutDraft({
+        source,
+        axis: cutOutAxis,
+        edge: cutOutEdge,
+        start: Math.max(low, Math.min(high, axisValue)),
+        size: 0
+      })
+      drafting.current = { id: 'cutOut', origin: local }
       return
     }
 
@@ -165,6 +211,21 @@ export default function EditorStage({
       return
     }
 
+    if (draft.id === 'cutOut') {
+      const current = useEditor.getState().cutOutDraft
+      if (!current) return
+      const local = cutOutPointer(p)
+      const axisValue = current.axis === 'horizontal' ? local.y : local.x
+      const originValue = current.axis === 'horizontal' ? draft.origin.y : draft.origin.x
+      const max = current.axis === 'horizontal' ? current.source.height : current.source.width
+      const low = Math.min(CUT_OUT_MIN_SIZE, max / 3)
+      const high = Math.max(low, max - low)
+      const start = Math.max(low, Math.min(high, Math.min(originValue, axisValue)))
+      const end = Math.max(low, Math.min(high, Math.max(originValue, axisValue)))
+      setCutOutDraft({ ...current, start, size: end - start })
+      return
+    }
+
     const shape = useEditor.getState().doc?.shapes.find((s) => s.id === draft.id)
     if (!shape) return
 
@@ -198,7 +259,7 @@ export default function EditorStage({
     const draft = drafting.current
     drafting.current = null
     lastPoint.current = null
-    if (!draft || draft.id === 'crop') return
+    if (!draft || draft.id === 'crop' || draft.id === 'cutOut') return
 
     const shape = useEditor.getState().doc?.shapes.find((s) => s.id === draft.id)
     if (!shape) return
@@ -388,8 +449,8 @@ export default function EditorStage({
 
   const shapeCtx: ShapeContext = {
     image,
-    cropX: layout.cropX,
-    cropY: layout.cropY,
+    cropX: doc.cutOuts?.length ? 0 : layout.cropX,
+    cropY: doc.cutOuts?.length ? 0 : layout.cropY,
     cropW: layout.contentWidth,
     cropH: layout.contentHeight,
     zoom
@@ -397,6 +458,7 @@ export default function EditorStage({
 
   const editingShape = doc.shapes.find((s) => s.id === editingTextId)
   const sorted = [...doc.shapes].sort((a, b) => a.z - b.z)
+  const shapeOrigin = doc.cutOuts?.length ? 0 : -layout.cropX
 
   return (
     <div style={{ position: 'relative' }}>
@@ -427,7 +489,7 @@ export default function EditorStage({
           <ShotFrame layout={layout} canvas={doc.canvas} clip>
             <Group
               ref={shapesGroupRef}
-              x={-layout.cropX}
+              x={shapeOrigin}
               y={-layout.cropY}
               onDragMove={onDragMove}
               onDragEnd={onDragEnd}
@@ -472,7 +534,7 @@ export default function EditorStage({
         {liveText && (
           <Layer listening={tool === 'select'}>
             <ShotFrame layout={layout} canvas={doc.canvas} clip>
-              <Group x={-layout.cropX} y={-layout.cropY}>
+              <Group x={shapeOrigin} y={-layout.cropY}>
                 <LiveText zoom={zoom} />
               </Group>
             </ShotFrame>
@@ -481,6 +543,7 @@ export default function EditorStage({
 
         <Layer listening={false}>
           {tool === 'crop' && <CropOverlay draft={cropDraft} layout={layout} />}
+          {tool === 'cutOut' && <CutOutOverlay draft={cutOutDraft} layout={layout} />}
           {guides.map((g, i) => (
             <Line
               key={i}
@@ -937,6 +1000,42 @@ function CropOverlay({
         strokeWidth={1.5}
         dash={[6, 4]}
       />
+    </Group>
+  )
+}
+
+function CutOutOverlay({
+  draft,
+  layout
+}: {
+  draft: CutOutOperation | null
+  layout: Layout
+}): React.ReactElement {
+  if (!draft || draft.size <= 0) return <Group listening={false} />
+
+  const width = draft.source.width
+  const height = draft.source.height
+  const length = draft.axis === 'horizontal' ? width : height
+  const amplitude = cutOutEdgeAmplitude(draft, length)
+  const startPath = cutOutEdgePath(draft.axis, length, draft.start, draft.edge, amplitude)
+  const endPath = cutOutEdgePath(draft.axis, length, draft.start + draft.size, draft.edge, amplitude)
+
+  return (
+    <Group
+      x={layout.shotX}
+      y={layout.shotY + layout.frameHeight}
+      listening={false}
+    >
+      <Rect
+        x={draft.axis === 'vertical' ? draft.start : 0}
+        y={draft.axis === 'horizontal' ? draft.start : 0}
+        width={draft.axis === 'vertical' ? draft.size : width}
+        height={draft.axis === 'horizontal' ? draft.size : height}
+        fill="#000000"
+        opacity={0.48}
+      />
+      <Line points={startPath} stroke="#ffffff" strokeWidth={2} dash={[7, 5]} shadowColor="#000" shadowBlur={3} shadowOpacity={0.6} />
+      <Line points={endPath} stroke="#ffffff" strokeWidth={2} dash={[7, 5]} shadowColor="#000" shadowBlur={3} shadowOpacity={0.6} />
     </Group>
   )
 }

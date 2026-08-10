@@ -113,6 +113,7 @@ export interface ScrollCaptureConfig {
 export type ToolId =
   | 'select'
   | 'crop'
+  | 'cutOut'
   | 'arrow'
   | 'line'
   | 'pen'
@@ -138,6 +139,8 @@ export interface BaseShape {
   hidden?: boolean
   opacity?: number
   rotation?: number
+  /** Visible output-space rectangles used when a cut crosses a text-like annotation. */
+  clipRects?: Rect[]
 }
 
 export interface StrokeStyle {
@@ -262,6 +265,18 @@ export interface CropRect extends Rect {
   enabled: boolean
 }
 
+export type CutOutAxis = 'horizontal' | 'vertical'
+export type CutOutEdge = 'straight' | 'zigzag' | 'wave' | 'triangle'
+
+/** A non-destructive band removal. `source` is in the image space at this step. */
+export interface CutOutOperation {
+  source: Rect
+  axis: CutOutAxis
+  start: number
+  size: number
+  edge: CutOutEdge
+}
+
 export interface ClipDocument {
   version: 1
   id: string
@@ -274,6 +289,8 @@ export interface ClipDocument {
   imageHeight: number
   scaleFactor: number
   crop: CropRect
+  /** Ordered Cut Out operations. Each later operation addresses the prior output. */
+  cutOuts?: CutOutOperation[]
   shapes: Shape[]
   canvas: CanvasStyle
   /** OCR text, cached for search. */

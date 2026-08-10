@@ -2,6 +2,7 @@ import type {
   CanvasStyle,
   CaptureRequest,
   ClipDocument,
+  CutOutOperation,
   Hotkeys,
   LibraryItemPatch,
   LibraryQuery,
@@ -131,7 +132,7 @@ export function clipDocument(value: unknown): ClipDocument {
     input,
     [
       'version', 'id', 'title', 'createdAt', 'updatedAt', 'image', 'imageWidth',
-      'imageHeight', 'scaleFactor', 'crop', 'shapes', 'canvas', 'ocrText', 'tags', 'exportPath'
+      'imageHeight', 'scaleFactor', 'crop', 'cutOuts', 'shapes', 'canvas', 'ocrText', 'tags', 'exportPath'
     ],
     'project'
   )
@@ -151,6 +152,19 @@ export function clipDocument(value: unknown): ClipDocument {
   if (!Array.isArray(input.shapes) || input.shapes.length > 20_000) {
     throw new TypeError('project has too many shapes')
   }
+  input.shapes.forEach((shape, index) => validateShapeCutOutFields(shape, index))
+  if (input.cutOuts !== undefined) {
+    if (!Array.isArray(input.cutOuts) || input.cutOuts.length > 32) {
+      throw new TypeError('project Cut Out operations are invalid')
+    }
+    let output = { width: finite(input.imageWidth, 'project image width', 1, 200_000), height: finite(input.imageHeight, 'project image height', 1, 200_000) }
+    input.cutOuts.forEach((operation, index) => {
+      const parsed = cutOutOperation(operation, `project Cut Out ${index + 1}`, output)
+      output = parsed.axis === 'horizontal'
+        ? { width: parsed.source.width, height: parsed.source.height - parsed.size }
+        : { width: parsed.source.width - parsed.size, height: parsed.source.height }
+    })
+  }
   const canvas = record(input.canvas, 'project canvas')
   canvasStyle(canvas, canvas as unknown as CanvasStyle)
   optionalString(input.ocrText, 'project OCR text', 2_000_000)
@@ -162,6 +176,49 @@ export function clipDocument(value: unknown): ClipDocument {
   const serialized = JSON.stringify(input)
   if (serialized.length > MAX_PROJECT_JSON) throw new TypeError('project is too large')
   return value as ClipDocument
+}
+
+export function cutOutOperation(
+  value: unknown,
+  label = 'Cut Out operation',
+  limits = { width: 200_000, height: 200_000 }
+): CutOutOperation {
+  const input = record(value, label)
+  rejectUnknown(input, ['source', 'axis', 'start', 'size', 'edge'], label)
+  const source = rectValue(input.source, `${label}.source`)
+  if (
+    source.x < 0 ||
+    source.y < 0 ||
+    source.width <= 0 ||
+    source.height <= 0 ||
+    source.x + source.width > limits.width ||
+    source.y + source.height > limits.height
+  ) {
+    throw new TypeError(`${label}.source is outside the available image`)
+  }
+  const axis = enumValue(input.axis, `${label}.axis`, ['horizontal', 'vertical'] as const)
+  const edge = enumValue(input.edge, `${label}.edge`, ['straight', 'zigzag', 'wave', 'triangle'] as const)
+  const start = finite(input.start, `${label}.start`, 0, 200_000)
+  const size = finite(input.size, `${label}.size`, 0.0001, 200_000)
+  const axisLength = axis === 'horizontal' ? source.height : source.width
+  if (start <= 0 || start + size >= axisLength) {
+    throw new TypeError(`${label} must remove a band from the middle of the image`)
+  }
+  return { source, axis, start, size, edge }
+}
+
+function validateShapeCutOutFields(value: unknown, index: number): void {
+  const shape = record(value, `project shape ${index + 1}`)
+  if (shape.clipRects === undefined) return
+  if (!Array.isArray(shape.clipRects) || shape.clipRects.length > 4) {
+    throw new TypeError(`project shape ${index + 1} clip rectangles are invalid`)
+  }
+  shape.clipRects.forEach((rect, rectIndex) => {
+    const parsed = rectValue(rect, `project shape ${index + 1} clip ${rectIndex + 1}`)
+    if (parsed.width <= 0 || parsed.height <= 0) {
+      throw new TypeError(`project shape ${index + 1} clip rectangle is empty`)
+    }
+  })
 }
 
 export function saveImageRequest(value: unknown): SaveImageRequest {

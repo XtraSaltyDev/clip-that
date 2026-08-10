@@ -19,6 +19,7 @@ import {
   thumbsDir
 } from './paths'
 import { isPathInside, isRealPathInside } from './path-guard'
+import { clipDocument } from '../ipc/validation'
 import {
   discoverLibraryFiles,
   loadLibraryIndex,
@@ -438,7 +439,7 @@ class LibraryStore extends EventEmitter {
     if (!item?.projectPath) return null
     try {
       if (!(await isRealPathInside(projectsDir(), item.projectPath))) return null
-      return JSON.parse(await fs.readFile(item.projectPath, 'utf8')) as ClipDocument
+      return clipDocument(JSON.parse(await fs.readFile(item.projectPath, 'utf8')))
     } catch {
       return null
     }
@@ -532,7 +533,7 @@ class LibraryStore extends EventEmitter {
       project = await fs
         .readFile(projectCandidate, 'utf8')
         .then(
-          (text) => JSON.parse(text) as ClipDocument,
+          (text) => clipDocument(JSON.parse(text)),
           () => null
         )
         .catch(() => null)
