@@ -12,6 +12,22 @@ export interface TransformNodeLike {
 
 const positiveScale = (value: number) => Math.max(0.01, Math.abs(value || 1))
 
+function pointsCenter(points: number[]): { x: number; y: number } {
+  if (points.length < 2) return { x: 0, y: 0 }
+
+  let minX = points[0]
+  let maxX = points[0]
+  let minY = points[1]
+  let maxY = points[1]
+  for (let i = 2; i + 1 < points.length; i += 2) {
+    minX = Math.min(minX, points[i])
+    maxX = Math.max(maxX, points[i])
+    minY = Math.min(minY, points[i + 1])
+    maxY = Math.max(maxY, points[i + 1])
+  }
+  return { x: (minX + maxX) / 2, y: (minY + maxY) / 2 }
+}
+
 /** Bake a Konva transform into document geometry and retain rotation as shape state. */
 export function shapeTransformPatch(shape: Shape, node: TransformNodeLike): Partial<Shape> {
   const sx = positiveScale(node.scaleX())
@@ -19,26 +35,14 @@ export function shapeTransformPatch(shape: Shape, node: TransformNodeLike): Part
   const rotation = node.rotation()
 
   if ('points' in shape) {
-    if (shape.type === 'measure') {
-      const [x1, y1, x2, y2] = shape.points
-      const cx = (x1 + x2) / 2
-      const cy = (y1 + y2) / 2
-      const dx = node.x() - cx
-      const dy = node.y() - cy
-      return {
-        points: shape.points.map((value, index) => {
-          const base = index % 2 === 0 ? cx : cy
-          const factor = index % 2 === 0 ? sx : sy
-          return base + (value - base) * factor + (index % 2 === 0 ? dx : dy)
-        }),
-        rotation
-      }
-    }
+    const center = pointsCenter(shape.points)
 
     return {
       points: shape.points.map((value, index) => {
         const factor = index % 2 === 0 ? sx : sy
-        return value * factor + (index % 2 === 0 ? node.x() : node.y())
+        const origin = index % 2 === 0 ? center.x : center.y
+        const position = index % 2 === 0 ? node.x() : node.y()
+        return (value - origin) * factor + position
       }),
       rotation
     }

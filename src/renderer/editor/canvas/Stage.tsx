@@ -6,6 +6,7 @@ import {
   Image as KonvaImage,
   Layer,
   Line,
+  Path,
   Rect,
   Stage,
   Text as KonvaText,
@@ -40,6 +41,10 @@ interface Props {
 /** Snap threshold in image pixels, scaled so it feels constant on screen. */
 const SNAP_PX = 6
 
+/** Keep the rotation handle below the selection so the floating toolbar cannot cover it. */
+const ROTATE_ANCHOR_GAP = 25
+const ROTATE_ICON_SIZE = 20
+
 export default function EditorStage({
   image,
   containerWidth,
@@ -73,6 +78,8 @@ export default function EditorStage({
   const shapesGroupRef = useRef<Konva.Group>(null)
   const artLayerRef = useRef<Konva.Layer>(null)
   const transformerRef = useRef<Konva.Transformer>(null)
+  const rotateIconGroupRef = useRef<Konva.Group>(null)
+  const rotateSyncFrame = useRef<number | null>(null)
   const drafting = useRef<{ id: string; origin: { x: number; y: number } } | null>(null)
   const lastPoint = useRef<{ x: number; y: number } | null>(null)
   const [guides, setGuides] = useState<Array<{ x?: number; y?: number }>>([])
@@ -99,12 +106,73 @@ export default function EditorStage({
 
   /* ---------- transformer ---------- */
 
-  useEffect(() => {
+  const syncRotateIcon = useCallback(() => {
+    const icon = rotateIconGroupRef.current
+    const transformer = transformerRef.current
+    const anchor = transformer?.findOne('.rotater')
+    if (!icon) return
+
+    if (!transformer || transformer.nodes().length === 0 || !anchor || !anchor.visible()) {
+      icon.visible(false)
+      return
+    }
+
+    // The icon is a listening=false sibling of the Transformer. Positioning it from the
+    // actual rotater anchor keeps the visual glyph aligned while the transparent anchor
+    // underneath remains the drag target.
+    icon.absolutePosition(anchor.getAbsolutePosition())
+    icon.rotation(0)
+    icon.visible(true)
+  }, [])
+
+  const syncRotateAnchor = useCallback(() => {
+    const transformer = transformerRef.current
+    if (!transformer || transformer.nodes().length === 0) {
+      syncRotateIcon()
+      return
+    }
+
+    // Konva's rotateAnchorOffset is measured from the top edge. Use the current
+    // selection height to place the handle the same distance below the bottom edge.
+    const height = transformer.height()
+    const direction = height < 0 ? -1 : 1
+    const targetY = height < 0 ? ROTATE_ANCHOR_GAP : height + ROTATE_ANCHOR_GAP
+    const offset = -(targetY + transformer.padding()) * direction
+    if (Math.abs(transformer.rotateAnchorOffset() - offset) >= 0.5) {
+      transformer.rotateAnchorOffset(offset)
+    }
+    syncRotateIcon()
+    transformer.getLayer()?.batchDraw()
+  }, [syncRotateIcon])
+
+  const scheduleRotateAnchorSync = useCallback(() => {
+    if (rotateSyncFrame.current !== null) return
+    rotateSyncFrame.current = window.requestAnimationFrame(() => {
+      rotateSyncFrame.current = null
+      syncRotateAnchor()
+    })
+  }, [syncRotateAnchor])
+
+  const styleTransformerAnchor = useCallback((anchor: Konva.Rect) => {
+    if (!anchor.hasName('rotater')) return
+
+    // Keep a larger, transparent drag target. The visible glyph is a separate Konva group
+    // so it cannot be clipped by a fill pattern or intercept the anchor's drag events.
+    anchor.size({ width: ROTATE_ICON_SIZE, height: ROTATE_ICON_SIZE })
+    anchor.offset({ x: ROTATE_ICON_SIZE / 2, y: ROTATE_ICON_SIZE / 2 })
+    anchor.stroke('transparent')
+    anchor.strokeWidth(0)
+    anchor.fillPriority('color')
+    anchor.fill('transparent')
+  }, [])
+
+  useLayoutEffect(() => {
     const tr = transformerRef.current
     const layer = artLayerRef.current
     if (!tr || !layer) return
     if (tool !== 'select' || selectedIds.length === 0) {
       tr.nodes([])
+      rotateIconGroupRef.current?.visible(false)
       layer.batchDraw()
       return
     }
@@ -112,8 +180,9 @@ export default function EditorStage({
       .map((id) => layer.findOne(`#${id}`))
       .filter((n): n is Konva.Node => Boolean(n))
     tr.nodes(nodes)
+    syncRotateAnchor()
     layer.batchDraw()
-  }, [selectedIds, tool, doc?.shapes])
+  }, [selectedIds, tool, doc?.shapes, syncRotateAnchor])
 
   /* ---------- pointer → image coordinates ---------- */
 
@@ -525,12 +594,36 @@ export default function EditorStage({
             anchorStroke="#4f8cff"
             anchorFill="#ffffff"
             padding={2}
+            anchorStyleFunc={styleTransformerAnchor}
             boundBoxFunc={(oldBox, newBox) =>
               newBox.width < 6 || newBox.height < 6 ? oldBox : newBox
             }
+            onTransform={scheduleRotateAnchorSync}
             onTransformStart={begin}
             onTransformEnd={commitTransform}
           />
+
+          <Group
+            ref={rotateIconGroupRef}
+            listening={false}
+            visible={tool === 'select' && selectedIds.length > 0}
+          >
+            <Circle
+              radius={ROTATE_ICON_SIZE / 2}
+              fill="#121a29"
+              opacity={0.96}
+              stroke="#4f8cff"
+              strokeWidth={1.2}
+            />
+            <Path
+              data="M 4.9 -1.9 A 5.4 5.4 0 1 0 5 2.7 M 4.9 -5.2 V -1.9 H 1.3"
+              stroke="#ffffff"
+              strokeWidth={1.7}
+              lineCap="round"
+              lineJoin="round"
+              fillEnabled={false}
+            />
+          </Group>
         </Layer>
 
         {liveText && (

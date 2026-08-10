@@ -313,6 +313,22 @@ function Callout(props: Props): React.ReactElement {
  * Dispatcher
  * ------------------------------------------------------------------ */
 
+function pointsCenter(points: number[]): { x: number; y: number } {
+  if (points.length < 2) return { x: 0, y: 0 }
+
+  let minX = points[0]
+  let maxX = points[0]
+  let minY = points[1]
+  let maxY = points[1]
+  for (let i = 2; i + 1 < points.length; i += 2) {
+    minX = Math.min(minX, points[i])
+    maxX = Math.max(maxX, points[i])
+    minY = Math.min(minY, points[i + 1])
+    maxY = Math.max(maxY, points[i + 1])
+  }
+  return { x: (minX + maxX) / 2, y: (minY + maxY) / 2 }
+}
+
 function ShapeNodeInner(props: Props): React.ReactElement | null {
   const { shape } = props
 
@@ -326,20 +342,33 @@ function ShapeNodeInner(props: Props): React.ReactElement | null {
       const s = shape as ArrowShape
       const [x1, y1, x2, y2] = s.points
       const curve = s.curve ?? 0
-      let points = [x1, y1, x2, y2]
+      const origin =
+        s.type === 'measure'
+          ? { x: (x1 + x2) / 2, y: (y1 + y2) / 2 }
+          : pointsCenter(s.points)
+      let points = [x1 - origin.x, y1 - origin.y, x2 - origin.x, y2 - origin.y]
       if (curve !== 0) {
         // Bow the line by pushing a midpoint along the perpendicular.
-        const mx = (x1 + x2) / 2
-        const my = (y1 + y2) / 2
+        const mx = (x1 + x2) / 2 - origin.x
+        const my = (y1 + y2) / 2 - origin.y
         const len = Math.hypot(x2 - x1, y2 - y1) || 1
         const nx = -(y2 - y1) / len
         const ny = (x2 - x1) / len
-        points = [x1, y1, mx + nx * curve, my + ny * curve, x2, y2]
+        points = [
+          x1 - origin.x,
+          y1 - origin.y,
+          mx + nx * curve,
+          my + ny * curve,
+          x2 - origin.x,
+          y2 - origin.y
+        ]
       }
       const head = s.strokeWidth * (s.headScale ?? 3)
       const node = (
         <Arrow
           {...common(shape, props)}
+          x={origin.x}
+          y={origin.y}
           points={points}
           tension={curve !== 0 ? 0.4 : 0}
           stroke={s.stroke}
@@ -355,9 +384,9 @@ function ShapeNodeInner(props: Props): React.ReactElement | null {
           hitStrokeWidth={Math.max(18, s.strokeWidth * 3)}
           {...shadowProps(s)}
           onDragEnd={(e) => {
-            const dx = e.target.x()
-            const dy = e.target.y()
-            e.target.position({ x: 0, y: 0 })
+            const dx = e.target.x() - origin.x
+            const dy = e.target.y() - origin.y
+            e.target.position(origin)
             props.onChange(shape.id, {
               points: s.points.map((p, i) => (i % 2 === 0 ? p + dx : p + dy))
             } as Partial<Shape>)
@@ -385,7 +414,7 @@ function ShapeNodeInner(props: Props): React.ReactElement | null {
           }}
         >
           <Arrow
-            points={points.map((value, index) => value - (index % 2 === 0 ? centerX : centerY))}
+            points={points}
             tension={curve !== 0 ? 0.4 : 0}
             stroke={s.stroke}
             strokeWidth={s.strokeWidth}
@@ -419,10 +448,13 @@ function ShapeNodeInner(props: Props): React.ReactElement | null {
     case 'pen':
     case 'highlighter': {
       const s = shape as FreehandShape
+      const origin = pointsCenter(s.points)
       return (
         <Line
           {...common(shape, props)}
-          points={s.points}
+          x={origin.x}
+          y={origin.y}
+          points={s.points.map((value, index) => value - (index % 2 === 0 ? origin.x : origin.y))}
           stroke={s.stroke}
           strokeWidth={s.strokeWidth}
           tension={0.4}
@@ -431,9 +463,9 @@ function ShapeNodeInner(props: Props): React.ReactElement | null {
           globalCompositeOperation={s.type === 'highlighter' ? 'multiply' : undefined}
           hitStrokeWidth={Math.max(18, s.strokeWidth)}
           onDragEnd={(e) => {
-            const dx = e.target.x()
-            const dy = e.target.y()
-            e.target.position({ x: 0, y: 0 })
+            const dx = e.target.x() - origin.x
+            const dy = e.target.y() - origin.y
+            e.target.position(origin)
             props.onChange(shape.id, {
               points: s.points.map((p, i) => (i % 2 === 0 ? p + dx : p + dy))
             } as Partial<Shape>)

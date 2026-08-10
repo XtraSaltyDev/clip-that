@@ -38,11 +38,18 @@ test('rotation patch applies to every shape family without requiring a rotation 
   }
 })
 
-test('point transforms bake transient scale and translation while retaining rotation', () => {
+test('point transforms scale around the shape center while retaining rotation', () => {
   const shape = { type: 'line', points: [1, 2, 3, 4] }
   const patch = shapeTransformPatch(shape, node({ x: 10, y: 20, scaleX: 2, scaleY: 3, rotation: 15 }))
-  assert.deepEqual(patch.points, [12, 26, 16, 32])
+  assert.deepEqual(patch.points, [8, 17, 12, 23])
   assert.equal(patch.rotation, 15)
+})
+
+test('point rotation keeps the shape centered instead of moving it off canvas', () => {
+  const shape = { type: 'arrow', points: [200, 300, 500, 400] }
+  const patch = shapeTransformPatch(shape, node({ x: 350, y: 350, rotation: 131 }))
+  assert.deepEqual(patch.points, [200, 300, 500, 400])
+  assert.equal(patch.rotation, 131)
 })
 
 test('spotlight rotation does not replace its nested annotation geometry', () => {

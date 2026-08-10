@@ -1,0 +1,102 @@
+name: Windows Candidate Build
+
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - agent/windows-initial-build
+
+permissions:
+  contents: read
+
+concurrency:
+  group: windows-candidate-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  package:
+    runs-on: windows-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 22
+          cache: npm
+
+      # A normal install is intentional here: @ffmpeg-installer/ffmpeg must resolve
+      # the Windows x64 executable before electron-builder packages the app.
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Run source gates
+        run: npm run build
+
+      - name: Package unsigned Windows x64 candidate
+        run: npx electron-builder --win --x64 --publish never
+
+      - name: Verify package contents and write checksums
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $version = (node -p "require('./package.json').version").Trim()
+          $artifacts = @(
+            "dist/ClipThat-$version-x64-setup.exe",
+            "dist/ClipThat-$version-x64-portable.exe",
+            "dist/ClipThat-$version-x64.zip"
+          )
+
+          foreach ($artifact in $artifacts) {
+            if (-not (Test-Path -LiteralPath $artifact -PathType Leaf)) {
+              throw "Missing Windows candidate artifact: $artifact"
+            }
+          }
+
+          $extractDir = Join-Path $env:RUNNER_TEMP ("clipthat-windows-$version")
+          New-Item -ItemType Directory -Path $extractDir -Force | Out-Null
+          try {
+            Expand-Archive -LiteralPath $artifacts[2] -DestinationPath $extractDir -Force
+
+            $packedExecutable = Get-ChildItem -Path $extractDir -Filter 'ClipThat.exe' -File -Recurse |
+              Select-Object -First 1
+            if ($null -eq $packedExecutable) {
+              throw "$($artifacts[2]) does not contain ClipThat.exe"
+            }
+
+            $packedFfmpeg = Get-ChildItem -Path $extractDir -Filter 'ffmpeg.exe' -File -Recurse |
+              Where-Object { $_.FullName -match '@ffmpeg-installer[\\/]win32-x64' } |
+              Select-Object -First 1
+            if ($null -eq $packedFfmpeg) {
+              throw "$($artifacts[2]) does not contain the Windows x64 FFmpeg binary"
+            }
+
+            & $packedFfmpeg.FullName -version | Select-Object -First 1
+            if ($LASTEXITCODE -ne 0) {
+              throw 'Bundled Windows FFmpeg did not run successfully'
+            }
+          } finally {
+            if (Test-Path -LiteralPath $extractDir) {
+              Remove-Item -LiteralPath $extractDir -Recurse -Force
+            }
+          }
+
+          $checksumPath = "dist/ClipThat-$version-windows-SHA256SUMS.txt"
+          $checksums = foreach ($artifact in $artifacts) {
+            $hash = Get-FileHash -Algorithm SHA256 -LiteralPath $artifact
+            "$($hash.Hash.ToLowerInvariant())  $([IO.Path]::GetFileName($artifact))"
+          }
+          Set-Content -LiteralPath $checksumPath -Value $checksums -Encoding ascii
+          Write-Host "Verified unsigned Windows x64 candidate for ClipThat $version"
+
+      - name: Upload Windows candidate artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: ClipThat-windows-x64-${{ github.sha }}
+          if-no-files-found: error
+          retention-days: 14
+          path: |
+            dist/ClipThat-*-x64-setup.exe
+            dist/ClipThat-*-x64-portable.exe
+            dist/ClipThat-*-x64.zip
+            dist/ClipThat-*-windows-SHA256SUMS.txt
