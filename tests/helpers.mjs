@@ -1,11 +1,11 @@
 import { readFileSync } from 'node:fs'
 import { dirname, join, resolve } from 'node:path'
-import { fileURLToPath } from 'node:url'
+import { fileURLToPath, pathToFileURL } from 'node:url'
 
 const here = dirname(fileURLToPath(import.meta.url))
 const root = resolve(here, '..')
 
-export const load = (name) => import(join(root, '.cache/test', `${name}.js`))
+export const load = (name) => import(pathToFileURL(join(root, '.cache/test', `${name}.js`)).href)
 
 export const fixture = (name) =>
   JSON.parse(readFileSync(join(here, 'fixtures', `${name}.json`), 'utf8'))
