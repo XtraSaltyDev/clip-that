@@ -1,0 +1,13 @@
+# Keep source and configuration files in the same LF form on macOS and Windows.
+* text=auto eol=lf
+
+# Binary delivery files must never be rewritten by Git.
+*.dmg binary
+*.gif binary
+*.icns binary
+*.ico binary
+*.jpg binary
+*.jpeg binary
+*.mp4 binary
+*.png binary
+*.zip binary
