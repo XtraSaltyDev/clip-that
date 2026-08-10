@@ -179,7 +179,9 @@ export default function EditorStage({
 
     if (CLICK_TOOLS.includes(tool)) {
       addShape(shape)
-      useEditor.getState().setTool('select')
+      // Step is intentionally repeatable: keep placing the next number until the
+      // user presses Escape or chooses another tool. Other click tools remain one-shot.
+      if (tool !== 'step') useEditor.getState().setTool('select')
       return
     }
     if (TEXT_TOOLS.includes(tool)) {

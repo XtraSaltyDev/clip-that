@@ -2,7 +2,7 @@ import test from 'node:test'
 import assert from 'node:assert/strict'
 import { load } from './helpers.mjs'
 
-const { useEditor } = await load('editorStore')
+const { createShape, useEditor } = await load('editorStore')
 
 function document() {
   return {
@@ -37,6 +37,34 @@ function document() {
     }
   }
 }
+
+test('step placements continue with the next number and undo one placement at a time', () => {
+  const state = useEditor.getState()
+  state.setDoc(document())
+
+  for (let index = 0; index < 3; index += 1) {
+    const shape = createShape(
+      'step',
+      { x: 10 + index * 20, y: 20 },
+      state.style,
+      index,
+      useEditor.getState().nextStepIndex()
+    )
+    assert.ok(shape)
+    useEditor.getState().addShape(shape)
+  }
+
+  assert.deepEqual(
+    useEditor.getState().doc.shapes.map((shape) => shape.index),
+    [1, 2, 3]
+  )
+
+  useEditor.getState().undo()
+  assert.deepEqual(
+    useEditor.getState().doc.shapes.map((shape) => shape.index),
+    [1, 2]
+  )
+})
 
 test('title edits are one explicit undo transaction', () => {
   const state = useEditor.getState()
