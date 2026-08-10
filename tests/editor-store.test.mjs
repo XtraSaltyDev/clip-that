@@ -118,3 +118,38 @@ test('keeps the external still path with the active Library document', () => {
   assert.equal(useEditor.getState().exportPath, '/tmp/renamed.png')
   assert.equal(useEditor.getState().doc.exportPath, '/tmp/renamed.png')
 })
+
+test('persists optional shape rotation through setDoc and undo/redo', () => {
+  const state = useEditor.getState()
+  const shape = {
+    id: 'rotated-rect',
+    type: 'rect',
+    z: 0,
+    x: 10,
+    y: 12,
+    width: 30,
+    height: 20,
+    stroke: '#f00',
+    strokeWidth: 2,
+    rotation: 37
+  }
+  state.setDoc({ ...document(), shapes: [shape] })
+  assert.equal(useEditor.getState().doc.shapes[0].rotation, 37)
+
+  state.begin()
+  state.updateShape(shape.id, { rotation: 82 })
+  state.end()
+  state.undo()
+  assert.equal(useEditor.getState().doc.shapes[0].rotation, 37)
+  state.redo()
+  assert.equal(useEditor.getState().doc.shapes[0].rotation, 82)
+})
+
+test('marks documents without tilt semantics as legacy without changing their values', () => {
+  const state = useEditor.getState()
+  state.setDoc({ ...document(), canvas: { ...document().canvas, tiltX: 9, tiltY: -14 } })
+  const canvas = useEditor.getState().doc.canvas
+  assert.equal(canvas.tiltX, 9)
+  assert.equal(canvas.tiltY, -14)
+  assert.equal(canvas.tiltSemantics, 'legacy')
+})

@@ -24,6 +24,7 @@ export const DEFAULT_CANVAS: CanvasStyle = {
   shadowOffsetY: 18,
   tiltX: 0,
   tiltY: 0,
+  tiltSemantics: 'visible-axis',
   borderWidth: 0,
   borderColor: '#ffffff22',
   frame: 'none',

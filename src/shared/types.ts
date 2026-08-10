@@ -246,6 +246,8 @@ export interface CanvasStyle {
   /** Perspective tilt in degrees, -30..30. */
   tiltX: number
   tiltY: number
+  /** Omitted on legacy version-1 documents that use the original axis mapping. */
+  tiltSemantics?: 'legacy' | 'visible-axis'
   /** Inset hairline border around the screenshot. */
   borderWidth: number
   borderColor: string

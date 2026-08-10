@@ -708,23 +708,27 @@ function CanvasStyleEditor(): React.ReactElement {
 
       <Slider
         label="Tilt horizontal"
-        value={c.tiltY}
+        value={c.tiltSemantics === 'visible-axis' ? c.tiltX : c.tiltY}
         min={-24}
         max={24}
         suffix="°"
         onChangeStart={begin}
         onChangeEnd={end}
-        onChange={(tiltY) => setCanvas({ tiltY })}
+        onChange={(value) =>
+          setCanvas(c.tiltSemantics === 'visible-axis' ? { tiltX: value } : { tiltY: value })
+        }
       />
       <Slider
         label="Tilt vertical"
-        value={c.tiltX}
+        value={c.tiltSemantics === 'visible-axis' ? c.tiltY : c.tiltX}
         min={-24}
         max={24}
         suffix="°"
         onChangeStart={begin}
         onChangeEnd={end}
-        onChange={(tiltX) => setCanvas({ tiltX })}
+        onChange={(value) =>
+          setCanvas(c.tiltSemantics === 'visible-axis' ? { tiltY: value } : { tiltX: value })
+        }
       />
     </>
   )

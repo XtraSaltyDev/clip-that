@@ -151,7 +151,16 @@ export const useEditor = create<EditorState>((set, get) => ({
 
   setDoc: (doc, libraryId = null, exportPath = null) =>
     set({
-      doc: { ...doc, canvas: { ...DEFAULT_CANVAS, ...doc.canvas } },
+      doc: {
+        ...doc,
+        canvas: {
+          ...DEFAULT_CANVAS,
+          ...doc.canvas,
+          // Version-1 documents without the marker used the old Inspector labels:
+          // horizontal was stored in tiltY and vertical in tiltX.
+          tiltSemantics: doc.canvas.tiltSemantics ?? 'legacy'
+        }
+      },
       libraryId,
       exportPath: exportPath ?? doc.exportPath ?? null,
       past: [],

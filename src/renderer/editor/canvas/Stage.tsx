@@ -23,6 +23,8 @@ import {
   useEditor
 } from '../store'
 import { ShapeNode, type ShapeContext } from './Shapes'
+import { shapeTransformPatch } from './transforms'
+import { canvasTiltTransform } from './tilt'
 import { computeLayout, fitScale, type Layout } from '../layout'
 import { Icon } from '../../shared/icons'
 import LiveText from './LiveText'
@@ -308,6 +310,34 @@ export default function EditorStage({
     state.end()
   }, [])
 
+  const commitTransform = useCallback(() => {
+    const transformer = transformerRef.current
+    const state = useEditor.getState()
+    const current = state.doc
+    if (!transformer || !current) return
+
+    for (const node of transformer.nodes()) {
+      const shape = current.shapes.find((candidate) => candidate.id === node.id())
+      if (!shape) continue
+      const patch = shapeTransformPatch(shape, node)
+      state.updateShape(shape.id, patch)
+
+      // Point-based nodes keep their geometry in the document, so clear Konva's transient
+      // translation as well as its scale. Measurement groups keep their midpoint as origin.
+      if ('points' in shape && shape.type !== 'measure') {
+        node.position({ x: 0, y: 0 })
+      } else if (shape.type === 'measure' && 'points' in patch) {
+        const points = patch.points as number[]
+        node.position({ x: (points[0] + points[2]) / 2, y: (points[1] + points[3]) / 2 })
+      }
+      node.scaleX(1)
+      node.scaleY(1)
+    }
+    // Always close the transaction, including rotation-only and multi-selection transforms.
+    state.end()
+    transformer.getLayer()?.batchDraw()
+  }, [])
+
   /* ---------- floating toolbar position ---------- */
 
   useEffect(() => {
@@ -435,6 +465,7 @@ export default function EditorStage({
               newBox.width < 6 || newBox.height < 6 ? oldBox : newBox
             }
             onTransformStart={begin}
+            onTransformEnd={commitTransform}
           />
         </Layer>
 
@@ -677,6 +708,7 @@ function ShotFrame({
 }): React.ReactElement {
   const tilted = canvas.tiltX !== 0 || canvas.tiltY !== 0
   const frameH = layout.frameHeight
+  const tilt = canvasTiltTransform(canvas)
 
   const outer = tilted
     ? {
@@ -686,10 +718,10 @@ function ShotFrame({
         offsetY: (layout.contentHeight + frameH) / 2,
         // Konva has no perspective camera, so tilt is a skew + foreshortening pair —
         // the same trick design tools use for "3D" mockups.
-        skewY: canvas.tiltY * 0.012,
-        skewX: -canvas.tiltX * 0.012,
-        scaleX: Math.cos(rad(Math.abs(canvas.tiltY) * 0.6)),
-        scaleY: Math.cos(rad(Math.abs(canvas.tiltX) * 0.6))
+        skewY: tilt.skewY,
+        skewX: tilt.skewX,
+        scaleX: tilt.scaleX,
+        scaleY: tilt.scaleY
       }
     : { x: layout.shotX, y: layout.shotY }
 

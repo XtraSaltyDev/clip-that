@@ -1,0 +1,84 @@
+import type { Shape } from '@shared/types'
+
+export interface TransformNodeLike {
+  x(): number
+  y(): number
+  width(): number
+  height(): number
+  scaleX(): number
+  scaleY(): number
+  rotation(): number
+}
+
+const positiveScale = (value: number) => Math.max(0.01, Math.abs(value || 1))
+
+/** Bake a Konva transform into document geometry and retain rotation as shape state. */
+export function shapeTransformPatch(shape: Shape, node: TransformNodeLike): Partial<Shape> {
+  const sx = positiveScale(node.scaleX())
+  const sy = positiveScale(node.scaleY())
+  const rotation = node.rotation()
+
+  if ('points' in shape) {
+    if (shape.type === 'measure') {
+      const [x1, y1, x2, y2] = shape.points
+      const cx = (x1 + x2) / 2
+      const cy = (y1 + y2) / 2
+      const dx = node.x() - cx
+      const dy = node.y() - cy
+      return {
+        points: shape.points.map((value, index) => {
+          const base = index % 2 === 0 ? cx : cy
+          const factor = index % 2 === 0 ? sx : sy
+          return base + (value - base) * factor + (index % 2 === 0 ? dx : dy)
+        }),
+        rotation
+      }
+    }
+
+    return {
+      points: shape.points.map((value, index) => {
+        const factor = index % 2 === 0 ? sx : sy
+        return value * factor + (index % 2 === 0 ? node.x() : node.y())
+      }),
+      rotation
+    }
+  }
+
+  if (shape.type === 'ellipse') {
+    const width = Math.max(2, Math.abs(shape.width) * sx)
+    const height = Math.max(2, Math.abs(shape.height) * sy)
+    return { x: node.x() - width / 2, y: node.y() - height / 2, width, height, rotation }
+  }
+
+  if (shape.type === 'text') {
+    return { x: node.x(), y: node.y(), width: Math.max(30, Math.abs(shape.width) * sx), rotation }
+  }
+
+  if (shape.type === 'callout') {
+    return {
+      x: node.x(),
+      y: node.y(),
+      width: Math.max(60, Math.abs(shape.width) * sx),
+      height: Math.max(36, Math.abs(shape.height ?? 80) * sy),
+      rotation
+    }
+  }
+
+  if (shape.type === 'step') return { x: node.x(), y: node.y(), rotation }
+
+  // Spotlight's selectable root owns full-canvas dimming bands; its annotation rectangle is
+  // nested inside, so the root node's x/y/size are not the shape geometry.
+  if (shape.type === 'spotlight') return { rotation }
+
+  if ('width' in shape && 'height' in shape) {
+    return {
+      x: node.x(),
+      y: node.y(),
+      width: Math.max(1, Math.abs(shape.width) * sx),
+      height: Math.max(1, Math.abs(shape.height ?? 1) * sy),
+      rotation
+    }
+  }
+
+  return { rotation }
+}

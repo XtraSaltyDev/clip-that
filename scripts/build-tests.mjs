@@ -27,6 +27,8 @@ const ENTRIES = {
   recordingRecovery: 'src/main/recording/recovery-store.ts',
   libraryIndex: 'src/main/store/library-index.ts',
   editorStore: 'src/renderer/editor/store.ts',
+  tilt: 'src/renderer/editor/canvas/tilt.ts',
+  transforms: 'src/renderer/editor/canvas/transforms.ts',
   diagnosticsRedact: 'src/main/diagnostics/redact.ts',
   updateContract: 'src/main/update/contract.ts',
   updateMetadata: 'src/main/update/metadata.ts',

@@ -119,18 +119,6 @@ function FilteredRegion(props: Props & { filter: 'blur' | 'pixelate' }): React.R
       blurRadius={props.filter === 'blur' ? intensity : undefined}
       pixelSize={props.filter === 'pixelate' ? Math.max(2, Math.round(intensity)) : undefined}
       onDragEnd={(e) => props.onChange(shape.id, { x: e.target.x(), y: e.target.y() } as Partial<Shape>)}
-      onTransformEnd={(e) => {
-        const node = e.target
-        props.onChange(shape.id, {
-          x: node.x(),
-          y: node.y(),
-          width: Math.max(1, node.width() * node.scaleX()),
-          height: Math.max(1, node.height() * node.scaleY()),
-          rotation: node.rotation()
-        } as Partial<Shape>)
-        node.scaleX(1)
-        node.scaleY(1)
-      }}
     />
   )
 }
@@ -159,17 +147,6 @@ function Magnifier(props: Props): React.ReactElement | null {
       x={x}
       y={y}
       onDragEnd={(e) => props.onChange(shape.id, { x: e.target.x(), y: e.target.y() } as Partial<Shape>)}
-      onTransformEnd={(e) => {
-        const node = e.target
-        props.onChange(shape.id, {
-          x: node.x(),
-          y: node.y(),
-          width: Math.max(8, w * node.scaleX()),
-          height: Math.max(8, h * node.scaleY())
-        } as Partial<Shape>)
-        node.scaleX(1)
-        node.scaleY(1)
-      }}
     >
       <KonvaImage
         image={props.ctx.image}
@@ -278,17 +255,6 @@ function Callout(props: Props): React.ReactElement {
       y={shape.y}
       onDblClick={() => props.onEditText(shape.id)}
       onDragEnd={(e) => props.onChange(shape.id, { x: e.target.x(), y: e.target.y() } as Partial<Shape>)}
-      onTransformEnd={(e) => {
-        const node = e.target
-        props.onChange(shape.id, {
-          x: node.x(),
-          y: node.y(),
-          width: Math.max(60, w * node.scaleX()),
-          height: Math.max(36, h * node.scaleY())
-        } as Partial<Shape>)
-        node.scaleX(1)
-        node.scaleY(1)
-      }}
     >
       <Line
         points={[anchor[0], anchor[1], tail.x, tail.y, anchor[2], anchor[3]]}
@@ -401,12 +367,43 @@ function ShapeNodeInner(props: Props): React.ReactElement | null {
 
       if (s.type !== 'measure') return node
       const length = Math.round(Math.hypot(x2 - x1, y2 - y1))
+      const centerX = (x1 + x2) / 2
+      const centerY = (y1 + y2) / 2
       return (
-        <Group listening={false} key={`${shape.id}-m`}>
-          {node}
+        <Group
+          {...common(shape, props)}
+          key={`${shape.id}-m`}
+          x={centerX}
+          y={centerY}
+          onDragEnd={(e) => {
+            const dx = e.target.x() - centerX
+            const dy = e.target.y() - centerY
+            e.target.position({ x: centerX, y: centerY })
+            props.onChange(shape.id, {
+              points: s.points.map((p, i) => (i % 2 === 0 ? p + dx : p + dy))
+            } as Partial<Shape>)
+          }}
+        >
+          <Arrow
+            points={points.map((value, index) => value - (index % 2 === 0 ? centerX : centerY))}
+            tension={curve !== 0 ? 0.4 : 0}
+            stroke={s.stroke}
+            strokeWidth={s.strokeWidth}
+            dash={s.dash}
+            fill={s.stroke}
+            lineCap="round"
+            lineJoin="round"
+            pointerLength={s.endHead || s.startHead ? head : 0}
+            pointerWidth={s.endHead || s.startHead ? head * 0.8 : 0}
+            pointerAtBeginning={Boolean(s.startHead)}
+            pointerAtEnding={s.endHead !== false}
+            hitStrokeWidth={Math.max(18, s.strokeWidth * 3)}
+            listening={false}
+            {...shadowProps(s)}
+          />
           <KonvaText
-            x={(x1 + x2) / 2 - 40}
-            y={(y1 + y2) / 2 - s.strokeWidth * 4}
+            x={-40}
+            y={-s.strokeWidth * 4}
             width={80}
             align="center"
             text={`${length} px`}
@@ -465,18 +462,6 @@ function ShapeNodeInner(props: Props): React.ReactElement | null {
           fillEnabled={Boolean(s.fill)}
           {...shadowProps(s)}
           onDragEnd={boxDrag(shape.id)}
-          onTransformEnd={(e) => {
-            const node = e.target
-            props.onChange(shape.id, {
-              x: node.x(),
-              y: node.y(),
-              width: Math.max(1, w * node.scaleX()),
-              height: Math.max(1, h * node.scaleY()),
-              rotation: node.rotation()
-            } as Partial<Shape>)
-            node.scaleX(1)
-            node.scaleY(1)
-          }}
         />
       )
     }
@@ -506,20 +491,6 @@ function ShapeNodeInner(props: Props): React.ReactElement | null {
               y: e.target.y() - h / 2
             } as Partial<Shape>)
           }}
-          onTransformEnd={(e) => {
-            const node = e.target
-            const nw = Math.max(2, w * node.scaleX())
-            const nh = Math.max(2, h * node.scaleY())
-            props.onChange(shape.id, {
-              x: node.x() - nw / 2,
-              y: node.y() - nh / 2,
-              width: nw,
-              height: nh,
-              rotation: node.rotation()
-            } as Partial<Shape>)
-            node.scaleX(1)
-            node.scaleY(1)
-          }}
         />
       )
     }
@@ -538,17 +509,6 @@ function ShapeNodeInner(props: Props): React.ReactElement | null {
           cornerRadius={s.cornerRadius ?? 2}
           fill={s.fill ?? '#000000'}
           onDragEnd={boxDrag(shape.id)}
-          onTransformEnd={(e) => {
-            const node = e.target
-            props.onChange(shape.id, {
-              x: node.x(),
-              y: node.y(),
-              width: Math.max(1, w * node.scaleX()),
-              height: Math.max(1, h * node.scaleY())
-            } as Partial<Shape>)
-            node.scaleX(1)
-            node.scaleY(1)
-          }}
         />
       )
     }
@@ -625,17 +585,6 @@ function ShapeNodeInner(props: Props): React.ReactElement | null {
           {...shadowProps(s)}
           onDblClick={() => props.onEditText(shape.id)}
           onDragEnd={boxDrag(shape.id)}
-          onTransformEnd={(e) => {
-            const node = e.target
-            props.onChange(shape.id, {
-              x: node.x(),
-              y: node.y(),
-              width: Math.max(30, node.width() * node.scaleX()),
-              rotation: node.rotation()
-            } as Partial<Shape>)
-            node.scaleX(1)
-            node.scaleY(1)
-          }}
         />
       )
     }
