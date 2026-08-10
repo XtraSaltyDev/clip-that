@@ -121,6 +121,28 @@ test('library index preserves the external still path metadata', async () => {
   }
 })
 
+test('library index preserves backward-compatible Snagit import metadata', async () => {
+  const root = await mkdtemp(join(tmpdir(), 'clipthat-index-'))
+  try {
+    const primary = join(root, 'index.json')
+    const backup = join(root, 'index.json.bak')
+    const imported = {
+      ...item('imported', 'capture.png'),
+      importedFrom: 'snagit',
+      contentHash: 'a'.repeat(64)
+    }
+    await writeFile(primary, JSON.stringify([imported]), 'utf8')
+    assert.equal(loadLibraryIndex(primary, backup).items[0].importedFrom, 'snagit')
+    assert.equal(loadLibraryIndex(primary, backup).items[0].contentHash, imported.contentHash)
+
+    imported.contentHash = 'not-a-hash'
+    await writeFile(primary, JSON.stringify([imported]), 'utf8')
+    assert.equal(loadLibraryIndex(primary, backup).items.length, 0)
+  } finally {
+    await rm(root, { recursive: true, force: true })
+  }
+})
+
 test('library index never turns two unreadable generations into a silent healthy result', async () => {
   const root = await mkdtemp(join(tmpdir(), 'clipthat-index-'))
   try {

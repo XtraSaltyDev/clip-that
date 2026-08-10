@@ -231,6 +231,12 @@ export function libraryPatch(value: unknown): LibraryItemPatch {
   return patch
 }
 
+export function snagitPlanId(value: unknown): string {
+  const id = stringValue(value, 'Snagit import plan id', 128)
+  if (!/^[0-9a-f-]{20,128}$/i.test(id)) throw new TypeError('Snagit import plan id is invalid')
+  return id
+}
+
 function canvasStyle(value: unknown, current: CanvasStyle): CanvasStyle {
   const input = record(value, 'canvas preset')
   rejectUnknown(

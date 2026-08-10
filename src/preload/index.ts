@@ -20,6 +20,9 @@ import type {
   ReleaseNotesStatus,
   SaveImageRequest,
   SaveResult,
+  SnagitImportPreview,
+  SnagitImportProgress,
+  SnagitImportSummary,
   ScrollCaptureConfig,
   Settings,
   Toast,
@@ -122,6 +125,14 @@ const api = {
       ipcRenderer.invoke(IPC.libraryExportVideo, id, options, posterDataUrl),
     cancelVideoExport: (): Promise<boolean> =>
       ipcRenderer.invoke(IPC.libraryCancelVideoExport),
+    scanSnagit: (): Promise<SnagitImportPreview | null> =>
+      ipcRenderer.invoke(IPC.librarySnagitScan),
+    importSnagit: (planId: string): Promise<SnagitImportSummary> =>
+      ipcRenderer.invoke(IPC.librarySnagitImport, planId),
+    cancelSnagit: (planId: string): Promise<boolean> =>
+      ipcRenderer.invoke(IPC.librarySnagitCancel, planId),
+    onSnagitProgress: (handler: (progress: SnagitImportProgress) => void) =>
+      on(IPC.librarySnagitProgress, handler),
     health: (): Promise<LibraryHealth> => ipcRenderer.invoke(IPC.libraryHealth),
     onChanged: (handler: () => void) => on(IPC.libraryChanged, handler),
     onIssue: (handler: (health: LibraryHealth) => void) => on(IPC.libraryIssue, handler),

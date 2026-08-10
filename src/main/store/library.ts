@@ -48,6 +48,20 @@ interface AddVideoInput {
   posterDataUrl?: string
 }
 
+export interface LibraryBatchImportEntry {
+  stagedPath: string
+  stagedThumbnail: string
+  title: string
+  kind: 'image' | 'video'
+  width: number
+  height: number
+  durationMs?: number
+  createdAt: number
+  updatedAt: number
+  contentHash: string
+  importedFrom: 'snagit'
+}
+
 class LibraryStore extends EventEmitter {
   private items: LibraryItem[] | null = null
   private loadResult: LibraryIndexLoadResult | null = null
@@ -252,6 +266,60 @@ class LibraryStore extends EventEmitter {
 
     this.commit([item, ...this.load()])
     return item
+  }
+
+  /** Import already-validated, ClipThat-staged files with one durable index write. */
+  async importBatch(entries: LibraryBatchImportEntry[], stageRoot: string): Promise<LibraryItem[]> {
+    if (entries.length === 0) return []
+    const targets: Array<{ entry: LibraryBatchImportEntry; id: string; filePath: string; thumbnail: string }> = []
+    const moved: string[] = []
+    try {
+      for (const entry of entries) {
+        const id = randomUUID()
+        const extension = entry.kind === 'image' ? '.png' : '.mp4'
+        const filePath = join(entry.kind === 'image' ? capturesDir() : recordingsDir(), `${id}${extension}`)
+        const thumbnail = join(thumbsDir(), `${id}.png`)
+        targets.push({ entry, id, filePath, thumbnail })
+      }
+
+      for (const target of targets) {
+        if (!isPathInside(stageRoot, target.entry.stagedPath) || !isPathInside(stageRoot, target.entry.stagedThumbnail)) {
+          throw new Error('staged import file is outside the import workspace')
+        }
+        await fs.rename(target.entry.stagedPath, target.filePath)
+        moved.push(target.filePath)
+        await fs.rename(target.entry.stagedThumbnail, target.thumbnail)
+        moved.push(target.thumbnail)
+      }
+
+      const now = Date.now()
+      const imported = targets.map(({ entry, id, filePath, thumbnail }) => ({
+        id,
+        title: entry.title,
+        createdAt: entry.createdAt || now,
+        updatedAt: entry.updatedAt || entry.createdAt || now,
+        kind: entry.kind,
+        width: entry.width,
+        height: entry.height,
+        filePath,
+        thumbnail,
+        tags: [],
+        favorite: false,
+        durationMs: entry.durationMs,
+        byteSize: 0,
+        importedFrom: entry.importedFrom,
+        contentHash: entry.contentHash
+      } satisfies LibraryItem))
+      for (const item of imported) {
+        item.byteSize = (await fs.stat(item.filePath)).size
+      }
+      this.commit([...imported, ...this.load()])
+      for (const item of imported) this.emit('added', item)
+      return imported
+    } catch (error) {
+      await Promise.all(moved.map((path) => fs.rm(path, { force: true }).catch(() => undefined)))
+      throw error
+    }
   }
 
   /** Overwrite an existing item's pixels and project after a re-edit. */

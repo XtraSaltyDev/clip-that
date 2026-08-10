@@ -110,3 +110,9 @@ test('path containment does not accept sibling prefixes or traversal', () => {
   assert.equal(isPathInside(root, resolve(root, '..', 'outside.png')), false)
   assert.equal(isPathInside(root, 'relative.png'), false)
 })
+
+test('Snagit import plans are opaque, bounded IDs', () => {
+  assert.equal(validation.snagitPlanId('019febb0-7ee5-7742-8ae1-08944d22255a').length, 36)
+  assert.throws(() => validation.snagitPlanId('/Users/me/Pictures/Snagit'), /plan id is invalid/)
+  assert.throws(() => validation.snagitPlanId('short'), /plan id is invalid/)
+})

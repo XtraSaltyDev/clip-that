@@ -76,6 +76,8 @@ function isLibraryItem(value: unknown): value is LibraryItem {
     (item.projectPath === undefined || typeof item.projectPath === 'string') &&
     (item.exportPath === undefined || typeof item.exportPath === 'string') &&
     (item.ocrText === undefined || typeof item.ocrText === 'string') &&
+    (item.importedFrom === undefined || item.importedFrom === 'snagit') &&
+    (item.contentHash === undefined || (typeof item.contentHash === 'string' && /^[0-9a-f]{64}$/i.test(item.contentHash))) &&
     (item.durationMs === undefined ||
       (typeof item.durationMs === 'number' && Number.isFinite(item.durationMs))) &&
     (item.videoEdit === undefined || isVideoEditDraft(item.videoEdit))

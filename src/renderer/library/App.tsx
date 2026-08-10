@@ -1,5 +1,13 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react'
-import type { AppUpdateStatus, LibraryHealth, LibraryItem, ReleaseNotesStatus } from '@shared/types'
+import type {
+  AppUpdateStatus,
+  LibraryHealth,
+  LibraryItem,
+  ReleaseNotesStatus,
+  SnagitImportPreview,
+  SnagitImportProgress,
+  SnagitImportSummary
+} from '@shared/types'
 import { api } from '../shared/api'
 import { Icon } from '../shared/icons'
 import {
@@ -32,6 +40,10 @@ export default function App(): React.ReactElement {
   const [update, setUpdate] = useState<AppUpdateStatus | null>(null)
   const [releaseNotes, setReleaseNotes] = useState<ReleaseNotesStatus | null>(null)
   const [openingUpdate, setOpeningUpdate] = useState(false)
+  const [snagitPreview, setSnagitPreview] = useState<SnagitImportPreview | null>(null)
+  const [snagitProgress, setSnagitProgress] = useState<SnagitImportProgress | null>(null)
+  const [snagitSummary, setSnagitSummary] = useState<SnagitImportSummary | null>(null)
+  const [snagitScanning, setSnagitScanning] = useState(false)
   const searchRef = useRef<HTMLInputElement>(null)
 
   const refresh = useCallback(async () => {
@@ -57,6 +69,8 @@ export default function App(): React.ReactElement {
   }, [refresh])
 
   useEffect(() => api.library.onChanged(() => void refresh()), [refresh])
+
+  useEffect(() => api.library.onSnagitProgress(setSnagitProgress), [])
 
   useEffect(() => {
     void api.library.health().then(setHealth)
@@ -124,6 +138,41 @@ export default function App(): React.ReactElement {
   const openWhatsNew = useCallback(() => {
     api.system.window('settings-whats-new')
   }, [])
+
+  const beginSnagitImport = useCallback(async () => {
+    if (snagitScanning || snagitProgress?.state === 'importing') return
+    setSnagitScanning(true)
+    setSnagitSummary(null)
+    setSnagitProgress(null)
+    try {
+      const preview = await api.library.scanSnagit()
+      if (preview) setSnagitPreview(preview)
+    } catch (error) {
+      toast('error', 'Could not scan the Snagit folder', (error as Error).message)
+    } finally {
+      setSnagitScanning(false)
+    }
+  }, [snagitProgress?.state, snagitScanning])
+
+  const importSnagit = useCallback(async () => {
+    if (!snagitPreview || snagitProgress?.state === 'importing') return
+    try {
+      const summary = await api.library.importSnagit(snagitPreview.planId)
+      setSnagitSummary(summary)
+      await refresh()
+      if (summary.state === 'completed') {
+        toast('success', `Imported ${summary.imported} Snagit item${summary.imported === 1 ? '' : 's'}`)
+      } else {
+        toast('info', 'Snagit import cancelled', `${summary.imported} item${summary.imported === 1 ? '' : 's'} imported`)
+      }
+    } catch (error) {
+      toast('error', 'Snagit import failed', (error as Error).message)
+    }
+  }, [refresh, snagitPreview, snagitProgress?.state])
+
+  const cancelSnagit = useCallback(() => {
+    if (snagitPreview) void api.library.cancelSnagit(snagitPreview.planId)
+  }, [snagitPreview])
 
   const active = useMemo(
     () => (selected.length === 1 ? items.find((i) => i.id === selected[0]) : null),
@@ -206,6 +255,7 @@ export default function App(): React.ReactElement {
       { id: 'cap.screen', title: 'Capture screen', group: 'Capture', icon: 'monitor', run: () => void api.capture.start({ mode: 'display' }) },
       { id: 'cap.scroll', title: 'Scrolling capture', group: 'Capture', icon: 'scroll', run: () => void api.capture.start({ mode: 'scrolling' }) },
       { id: 'cap.record', title: 'Record screen', group: 'Capture', icon: 'record', run: () => api.system.window('record') },
+      { id: 'library.import-snagit', title: 'Import Snagit library', group: 'Library', icon: 'download', keywords: 'snagit folder screenshots recordings', run: () => void beginSnagitImport() },
       { id: 'view.all', title: 'Show all captures', group: 'View', icon: 'layers', run: () => { setFilter('all'); setTag(null) } },
       { id: 'view.images', title: 'Show images only', group: 'View', icon: 'image', run: () => { setFilter('image'); setTag(null) } },
       { id: 'view.videos', title: 'Show recordings only', group: 'View', icon: 'video', run: () => { setFilter('video'); setTag(null) } },
@@ -226,7 +276,7 @@ export default function App(): React.ReactElement {
       { id: 'item.delete', title: 'Delete selection', group: 'Selection', icon: 'trash', disabled: selected.length === 0, run: () => void remove() },
       { id: 'app.settings', title: 'Open settings', group: 'App', icon: 'settings', run: () => api.system.window('settings') }
     ],
-    [active, copy, refresh, remove, selected.length, tags]
+    [active, beginSnagitImport, copy, refresh, remove, selected.length, tags]
   )
 
   const toggleSelect = (id: string, e: React.MouseEvent) => {
@@ -276,6 +326,9 @@ export default function App(): React.ReactElement {
           </button>
           <button className="btn" onClick={() => api.system.window('record')}>
             <Icon name="record" size={11} /> Record
+          </button>
+          <button className="btn" onClick={() => void beginSnagitImport()} disabled={snagitScanning}>
+            <Icon name="download" size={14} /> {snagitScanning ? 'Scanning…' : 'Import Snagit'}
           </button>
           {actionableUpdate && (
             <button
@@ -476,7 +529,76 @@ export default function App(): React.ReactElement {
         placeholder="Search captures, filters and actions…"
       />
 
+      {snagitPreview && (
+        <div className="snagit-scrim" role="presentation">
+          <section className="snagit-dialog" role="dialog" aria-modal="true" aria-labelledby="snagit-title">
+            <div className="row">
+              <div>
+                <h2 id="snagit-title">{snagitSummary ? (snagitSummary.state === 'cancelled' ? 'Snagit import cancelled' : 'Snagit import complete') : 'Import Snagit library'}</h2>
+                <div className="tiny muted">{snagitPreview.rootName} · source files are never changed</div>
+              </div>
+              <div className="spacer" />
+              {!snagitProgress || snagitProgress.state !== 'importing' ? (
+                <button className="btn ghost icon" aria-label="Close" onClick={() => { cancelSnagit(); setSnagitPreview(null); setSnagitSummary(null); setSnagitProgress(null) }}>
+                  <Icon name="close" size={14} />
+                </button>
+              ) : null}
+            </div>
+
+            {snagitSummary ? (
+              <div className="snagit-summary" role="status">
+                <div className="snagit-summary-count">{snagitSummary.imported} imported</div>
+                <div className="tiny muted">
+                  {snagitSummary.failed} failed · {snagitSummary.skipped} duplicates skipped · {snagitSummary.nativeProjects} native Snagit project{snagitSummary.nativeProjects === 1 ? '' : 's'} left untouched
+                </div>
+                <div className="tiny muted">Open or search the Library to find the imported items.</div>
+              </div>
+            ) : snagitProgress?.state === 'importing' ? (
+              <div className="snagit-progress" role="status" aria-live="polite">
+                <div className="row tiny"><span>Importing {snagitProgress.currentTitle ?? 'files'}…</span><span className="spacer" />{snagitProgress.percent}%</div>
+                <div className="snagit-progress-track"><div style={{ width: `${snagitProgress.percent}%` }} /></div>
+                <div className="tiny muted">{snagitProgress.completed} of {snagitProgress.total} files · {snagitProgress.imported} staged · {snagitProgress.failed} failed</div>
+                <div className="row" style={{ justifyContent: 'flex-end' }}>
+                  <button className="btn" onClick={cancelSnagit}>Cancel import</button>
+                </div>
+              </div>
+            ) : (
+              <>
+                <div className="snagit-counts">
+                  <ImportCount label="Ready to import" value={snagitPreview.counts.supported} detail={formatBytes(snagitPreview.bytes.supported)} />
+                  <ImportCount label="Exact duplicates" value={snagitPreview.counts.duplicates} detail={`${formatBytes(snagitPreview.bytes.duplicates)} · skipped`} />
+                  <ImportCount label="Native projects" value={snagitPreview.counts.nativeProjects} detail={`${formatBytes(snagitPreview.bytes.nativeProjects)} · export first`} />
+                  <ImportCount label="Unsupported" value={snagitPreview.counts.unsupported} detail={`${formatBytes(snagitPreview.bytes.unsupported)} · not copied`} />
+                  <ImportCount label="Unreadable" value={snagitPreview.counts.unreadable} detail={`${formatBytes(snagitPreview.bytes.unreadable)} · not copied`} />
+                </div>
+                <div className="snagit-total tiny muted">{snagitPreview.totalFiles} files · {formatBytes(snagitPreview.totalBytes)} total</div>
+                {snagitPreview.limitReached && <div className="snagit-warning tiny">{snagitPreview.limitReached}</div>}
+                {snagitPreview.samples.nativeProjects.length > 0 && (
+                  <div className="snagit-native-note tiny">Native `.snagx`, `.snag`, and `.snagarchive` files are not editable in ClipThat. Batch-convert or export them from Snagit first.</div>
+                )}
+                <div className="row" style={{ justifyContent: 'flex-end', gap: 8 }}>
+                  <button className="btn" onClick={() => { cancelSnagit(); setSnagitPreview(null); setSnagitProgress(null) }}>Cancel</button>
+                  <button className="btn primary" disabled={snagitPreview.importableFiles === 0} onClick={() => void importSnagit()}>
+                    <Icon name="download" size={14} /> Import {snagitPreview.importableFiles} item{snagitPreview.importableFiles === 1 ? '' : 's'}
+                  </button>
+                </div>
+              </>
+            )}
+          </section>
+        </div>
+      )}
+
       <ToastHost />
+    </div>
+  )
+}
+
+function ImportCount(props: { label: string; value: number; detail: string }): React.ReactElement {
+  return (
+    <div className="snagit-count">
+      <strong>{props.value}</strong>
+      <span>{props.label}</span>
+      <small>{props.detail}</small>
     </div>
   )
 }

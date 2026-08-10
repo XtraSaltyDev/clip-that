@@ -54,6 +54,10 @@ export const IPC = {
   libraryLoadProject: 'library:load-project',
   libraryExportVideo: 'library:export-video',
   libraryCancelVideoExport: 'library:cancel-video-export',
+  librarySnagitScan: 'library:snagit-scan',
+  librarySnagitImport: 'library:snagit-import',
+  librarySnagitCancel: 'library:snagit-cancel',
+  librarySnagitProgress: 'library:snagit-progress',
 
   // recording
   recordConfigure: 'record:configure',

@@ -34,7 +34,8 @@ const ENTRIES = {
   updateMetadata: 'src/main/update/metadata.ts',
   updateTrust: 'src/main/update/trust.ts',
   byteRange: 'src/main/protocol/byte-range.ts',
-  releaseNotes: 'src/shared/release-notes.ts'
+  releaseNotes: 'src/shared/release-notes.ts',
+  snagitCore: 'src/main/import/snagit-core.ts'
 }
 
 rmSync(outdir, { recursive: true, force: true })

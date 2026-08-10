@@ -308,6 +308,10 @@ export interface LibraryItem {
   durationMs?: number
   videoEdit?: VideoEditDraft
   byteSize: number
+  /** Stable source marker for imports; never an absolute source path. */
+  importedFrom?: 'snagit'
+  /** Hash of the source bytes used for exact duplicate detection. */
+  contentHash?: string
 }
 
 export interface VideoEditDraft {
@@ -342,6 +346,48 @@ export interface LibraryQuery {
   kind?: 'image' | 'video'
   limit?: number
   offset?: number
+}
+
+export type SnagitImportCategory =
+  | 'supported'
+  | 'duplicates'
+  | 'nativeProjects'
+  | 'unsupported'
+  | 'unreadable'
+
+export interface SnagitImportPreview {
+  planId: string
+  rootName: string
+  counts: Record<SnagitImportCategory, number>
+  bytes: Record<SnagitImportCategory, number>
+  totalFiles: number
+  totalBytes: number
+  importableFiles: number
+  importableBytes: number
+  samples: Record<SnagitImportCategory, string[]>
+  limitReached?: string
+}
+
+export interface SnagitImportProgress {
+  planId: string
+  state: 'importing' | 'completed' | 'cancelled'
+  completed: number
+  total: number
+  imported: number
+  skipped: number
+  failed: number
+  percent: number
+  currentTitle?: string
+}
+
+export interface SnagitImportSummary {
+  state: 'completed' | 'cancelled'
+  imported: number
+  skipped: number
+  failed: number
+  unsupported: number
+  nativeProjects: number
+  unreadable: number
 }
 
 /* ------------------------------------------------------------------ *

@@ -1,5 +1,7 @@
 import { app, BrowserWindow, screen, shell } from 'electron'
 import { dialog } from 'electron'
+import { promises as fs } from 'node:fs'
+import { join } from 'node:path'
 import { IPC } from '@shared/ipc'
 import { releaseNotesStatus } from '@shared/release-notes'
 import type {
@@ -12,6 +14,7 @@ import type {
   Settings,
   VideoExportOptions
 } from '@shared/types'
+import type { SnagitImportProgress } from '@shared/types'
 import { createPin } from '../windows/pins'
 import { quickCache } from '../windows/quick'
 import { openResultInEditor } from '../capture/service'
@@ -67,6 +70,7 @@ import {
 } from '../export'
 import { recording } from '../recording/session'
 import { exportLibraryVideo } from '../recording/library-video'
+import { cancelSnagitImport, clearSnagitPlan, importSnagitLibrary, scanSnagitLibrary } from '../import/snagit'
 import { ffmpegAvailable } from '../recording/ffmpeg'
 import { checkPermissions, openScreenRecordingSettings, requestPermission } from '../permissions'
 import { registerHotkeys, hotkeyFailures } from '../hotkeys'
@@ -284,6 +288,29 @@ export function registerIpcHandlers(): void {
   secureHandle(IPC.libraryLoadProject, ['library'], async (_e, id: string) =>
     library.loadProject(validate.idValue(id))
   )
+  secureHandle(IPC.librarySnagitScan, ['library'], async () => {
+    const pictures = app.getPath('pictures')
+    const likely = join(pictures, 'Snagit')
+    const defaultPath = await fs.stat(likely).then((stat) => stat.isDirectory() ? likely : pictures).catch(() => pictures)
+    const res = await dialog.showOpenDialog({
+      title: 'Import Snagit library',
+      properties: ['openDirectory'],
+      defaultPath
+    })
+    if (res.canceled || res.filePaths.length === 0) return null
+    return scanSnagitLibrary(res.filePaths[0])
+  })
+  secureHandle(IPC.librarySnagitImport, ['library'], async (_e, planId: string) =>
+    importSnagitLibrary(validate.snagitPlanId(planId), (next: SnagitImportProgress) => {
+      broadcast(IPC.librarySnagitProgress, next)
+    })
+  )
+  secureHandle(IPC.librarySnagitCancel, ['library'], (_e, planId: string) => {
+    const safePlanId = validate.snagitPlanId(planId)
+    const cancelled = cancelSnagitImport(safePlanId)
+    if (!cancelled) clearSnagitPlan(safePlanId)
+    return cancelled
+  })
   secureHandle(IPC.libraryOpen, ['editor', 'library'], async (e, id: string) => {
     const item = library.get(validate.idValue(id))
     if (!item) return false

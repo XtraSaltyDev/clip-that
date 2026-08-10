@@ -36,6 +36,8 @@ import { createPin, pinCount, closeAllPins } from '../windows/pins'
 import { quickWindow } from '../windows/quick'
 import { openOverlay, closeOverlay, overlayVisible } from '../windows/overlay'
 import { checkForAppUpdate } from '../update/service'
+import { importSnagitLibrary, scanSnagitLibrary } from '../import/snagit'
+import type { SnagitImportProgress } from '@shared/types'
 
 const wait = (ms: number) => new Promise((r) => setTimeout(r, ms))
 const log = (line: string) => console.log(`[selftest] ${line}`)
@@ -867,6 +869,34 @@ async function testWindowPicker(): Promise<boolean> {
   }
 }
 
+/** Fixture-driven Library import check. It intentionally bypasses the native chooser so CI
+ * and a developer can provide a deterministic folder without touching a real Snagit tree. */
+async function testSnagitImport(): Promise<boolean> {
+  const fixture = process.env['CLIPTHAT_SNAGIT_FIXTURE']
+  if (!fixture) {
+    fail('snagit: set CLIPTHAT_SNAGIT_FIXTURE to a fixture folder')
+    return false
+  }
+  const before = new Set(library.list({ limit: 100_000 }).map((item) => item.id))
+  const progress: SnagitImportProgress[] = []
+  const changed = new Promise<void>((resolve) => library.once('changed', resolve))
+  const preview = await scanSnagitLibrary(fixture)
+  if (preview.importableFiles === 0) {
+    fail(`snagit: fixture has no importable media (${preview.totalFiles} files scanned)`)
+    return false
+  }
+  const summary = await importSnagitLibrary(preview.planId, (next) => progress.push(next))
+  if (summary.imported > 0) {
+    await Promise.race([changed, wait(5_000)])
+  }
+  const imported = library.list({ limit: 100_000 }).filter((item) => !before.has(item.id) && item.importedFrom === 'snagit')
+  const ok = summary.state === 'completed' && imported.length === summary.imported &&
+    progress.some((event) => event.state === 'importing') && progress.some((event) => event.state === 'completed')
+  if (ok) log(`snagit: PASS (${summary.imported} imported, ${summary.skipped} duplicates, progress and Library refresh observed)`)
+  else fail(`snagit: import summary/progress mismatch (${JSON.stringify(summary)})`)
+  return ok
+}
+
 /** A deterministic labelled test card, generated without any capture permission. */
 function makeTestImage(width: number, height: number): string {
   const bmp = Buffer.alloc(width * height * 4)
@@ -951,6 +981,9 @@ export async function runSelfTest(which: string): Promise<void> {
     if (parts.includes('window') || parts.includes('all')) {
       results.push(['window', await testWindowPicker()])
       await wait(500)
+    }
+    if (parts.includes('snagit') || parts.includes('all')) {
+      results.push(['snagit', await testSnagitImport()])
     }
     if (parts.includes('pin') || parts.includes('all')) {
       results.push(['pin', await testPin()])
