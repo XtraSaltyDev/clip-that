@@ -187,6 +187,20 @@ async function checkEditor({ dir, shot }: Ctx): Promise<void> {
   await wait(400)
   await snap(dir, '02-annotated', editor)
 
+  // Cut Out preview, cancellation, and apply. Keep this in the product-owned visual
+  // harness so the pointer path is exercised through the real Konva editor surface.
+  if (!(await clickTip(editor, 'Cut Out'))) throw new Error('Cut Out tool was not available')
+  await drag(editor, 360, 350, 900, 430)
+  await snap(dir, '02b-cut-out-preview', editor)
+  if (!(await clickLabel(editor, 'Cancel'))) throw new Error('Cut Out Cancel was not available')
+  await wait(350)
+
+  if (!(await clickTip(editor, 'Cut Out'))) throw new Error('Cut Out tool could not reopen')
+  await drag(editor, 360, 350, 900, 430)
+  if (!(await clickLabel(editor, 'Apply Cut Out'))) throw new Error('Cut Out Apply was not available')
+  await wait(1200)
+  await snap(dir, '02c-cut-out-applied', editor)
+
   await clickLabel(editor, 'Beautify')
   await wait(900)
   await snap(dir, '03-beautified', editor)

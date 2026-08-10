@@ -14,7 +14,8 @@ interface ToolDef {
 export const TOOLS: ToolDef[][] = [
   [
     { id: 'select', icon: 'select', label: 'Select', key: 'V' },
-    { id: 'crop', icon: 'crop', label: 'Crop', key: 'C' }
+    { id: 'crop', icon: 'crop', label: 'Crop', key: 'C' },
+    { id: 'cutOut', icon: 'cutOut', label: 'Cut Out', key: 'J' }
   ],
   [
     { id: 'arrow', icon: 'arrow', label: 'Arrow', key: 'A' },
@@ -47,6 +48,7 @@ export const TOOL_KEYS: Record<string, ToolId> = Object.fromEntries(
 
 export default function Toolbar(): React.ReactElement {
   const tool = useEditor((s) => s.tool)
+  const hasCutOut = useEditor((s) => Boolean(s.doc?.cutOuts?.length))
   const setTool = useEditor((s) => s.setTool)
 
   return (
@@ -54,17 +56,21 @@ export default function Toolbar(): React.ReactElement {
       {TOOLS.map((group, i) => (
         <React.Fragment key={i}>
           {i > 0 && <div className="toolrail-sep" />}
-          {group.map((t) => (
-            <button
-              key={t.id}
-              className={`tool tip right ${tool === t.id ? 'active' : ''}`}
-              data-tip={`${t.label}  ·  ${t.key}`}
-              aria-pressed={tool === t.id}
-              onClick={() => setTool(t.id)}
-            >
-              <Icon name={t.icon} size={18} />
-            </button>
-          ))}
+          {group.map((t) => {
+            const cropUnavailable = t.id === 'crop' && hasCutOut
+            return (
+              <button
+                key={t.id}
+                className={`tool tip right ${tool === t.id ? 'active' : ''}`}
+                data-tip={`${t.label}  ·  ${t.key}${cropUnavailable ? '  ·  unavailable after Cut Out' : ''}`}
+                aria-pressed={tool === t.id}
+                disabled={cropUnavailable}
+                onClick={() => setTool(t.id)}
+              >
+                <Icon name={t.icon} size={18} />
+              </button>
+            )
+          })}
         </React.Fragment>
       ))}
     </nav>

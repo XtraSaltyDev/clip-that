@@ -1,4 +1,5 @@
 import type { ClipDocument } from '@shared/types'
+import { cutOutContentSize } from '@shared/cut-out'
 
 export interface Layout {
   /** Visible screenshot area, after crop. */
@@ -36,7 +37,11 @@ export function fitScale(
 /** Height of the fake window title bar, scaled so it looks right on any capture size. */
 export function frameHeight(doc: ClipDocument): number {
   if (doc.canvas.frame === 'none') return 0
-  const width = doc.crop.enabled ? doc.crop.width : doc.imageWidth
+  const width = doc.cutOuts?.length
+    ? cutOutOutputSize(doc).width
+    : doc.crop.enabled
+      ? doc.crop.width
+      : doc.imageWidth
   return Math.round(Math.max(28, Math.min(52, width * 0.035)))
 }
 
@@ -54,10 +59,18 @@ function applyAspect(width: number, height: number, aspect?: string): { width: n
 }
 
 export function computeLayout(doc: ClipDocument): Layout {
-  const contentWidth = doc.crop.enabled ? Math.max(1, Math.round(doc.crop.width)) : doc.imageWidth
-  const contentHeight = doc.crop.enabled ? Math.max(1, Math.round(doc.crop.height)) : doc.imageHeight
-  const cropX = doc.crop.enabled ? Math.round(doc.crop.x) : 0
-  const cropY = doc.crop.enabled ? Math.round(doc.crop.y) : 0
+  const hasCutOut = Boolean(doc.cutOuts?.length)
+  const content = hasCutOut
+    ? cutOutOutputSize(doc)
+    : doc.crop.enabled
+      ? { width: doc.crop.width, height: doc.crop.height }
+      : { width: doc.imageWidth, height: doc.imageHeight }
+  const contentWidth = Math.max(1, Math.round(content.width))
+  const contentHeight = Math.max(1, Math.round(content.height))
+  // After a Cut Out the renderer supplies a derived image in output space. Before that,
+  // cropX/cropY are the source-image origin used by the normal Konva crop.
+  const cropX = hasCutOut ? 0 : doc.crop.enabled ? Math.round(doc.crop.x) : 0
+  const cropY = hasCutOut ? 0 : doc.crop.enabled ? Math.round(doc.crop.y) : 0
 
   const frameH = frameHeight(doc)
   // Padding is stored as a percentage-ish constant; scale it with the capture so a
@@ -84,4 +97,17 @@ export function computeLayout(doc: ClipDocument): Layout {
     shotY: Math.round((boxed.height - contentHeight - frameH) / 2),
     frameHeight: frameH
   }
+}
+
+function cutOutOutputSize(doc: ClipDocument): { width: number; height: number } {
+  const first = doc.cutOuts?.[0]
+  if (!first) {
+    return doc.crop.enabled
+      ? { width: doc.crop.width, height: doc.crop.height }
+      : { width: doc.imageWidth, height: doc.imageHeight }
+  }
+
+  let size = { width: first.source.width, height: first.source.height }
+  for (const operation of doc.cutOuts ?? []) size = cutOutContentSize(size, operation)
+  return size
 }

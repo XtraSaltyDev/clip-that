@@ -12,6 +12,13 @@ const PATHS: Record<string, React.ReactNode> = {
       <path d="M18 22V8a2 2 0 0 0-2-2H2" />
     </>
   ),
+  cutOut: (
+    <>
+      <path d="M3 7h18M3 17h18" />
+      <path d="M7 4l2 3-2 3 2 3-2 3" />
+      <path d="M17 14l-2 3 2 3" />
+    </>
+  ),
   arrow: (
     <>
       <path d="M19 5L5 19" />

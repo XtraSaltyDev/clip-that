@@ -3,6 +3,8 @@ import type {
   BoxShape,
   CanvasStyle,
   ClipDocument,
+  CutOutEdge,
+  CutOutOperation,
   CropRect,
   OcrResult,
   Shape,
@@ -11,11 +13,13 @@ import type {
   ToolId
 } from '@shared/types'
 import { DEFAULT_CANVAS } from '@shared/defaults'
+import { isValidCutOutSelection, transformShapesForCutOut } from '@shared/cut-out'
 
 /** The slice of a document that undo/redo restores. */
 interface Snapshot {
   shapes: Shape[]
   crop: CropRect
+  cutOuts?: CutOutOperation[]
   canvas: CanvasStyle
   title: string
 }
@@ -53,6 +57,12 @@ interface EditorState {
   future: Snapshot[]
   /** Pending crop rectangle while the crop tool is active. */
   cropDraft: CropRect | null
+  /** Pending band selection while the Cut Out tool is active. */
+  cutOutDraft: CutOutOperation | null
+  cutOutAxis: 'horizontal' | 'vertical'
+  cutOutEdge: CutOutEdge
+  /** Derived image generation is asynchronous; exports wait for it to settle. */
+  cutOutRendering: boolean
   ocrBusy: boolean
   /** Word boxes from the last OCR pass — powers Live Text and the context panel. */
   ocr: OcrResult | null
@@ -91,6 +101,10 @@ interface EditorState {
   setCropDraft: (crop: CropRect | null) => void
   applyCrop: (crop: CropRect) => void
   resetCrop: () => void
+  setCutOutDraft: (cutOut: CutOutOperation | null) => void
+  setCutOutOptions: (patch: { axis?: 'horizontal' | 'vertical'; edge?: CutOutEdge }) => void
+  applyCutOut: (cutOut: CutOutOperation) => void
+  setCutOutRendering: (rendering: boolean) => void
   setTitle: (title: string) => void
   setOcrText: (text: string) => void
 
@@ -105,9 +119,12 @@ interface EditorState {
 
 const MAX_HISTORY = 100
 
+const clone = <T,>(value: T): T => JSON.parse(JSON.stringify(value)) as T
+
 const snapshot = (doc: ClipDocument): Snapshot => ({
-  shapes: doc.shapes.map((s) => ({ ...s })),
+  shapes: clone(doc.shapes),
   crop: { ...doc.crop },
+  cutOuts: doc.cutOuts ? clone(doc.cutOuts) : undefined,
   canvas: { ...doc.canvas },
   title: doc.title
 })
@@ -128,6 +145,10 @@ export const useEditor = create<EditorState>((set, get) => ({
   past: [],
   future: [],
   cropDraft: null,
+  cutOutDraft: null,
+  cutOutAxis: 'horizontal',
+  cutOutEdge: 'straight',
+  cutOutRendering: false,
   ocrBusy: false,
   ocr: null,
   liveTextOn: false,
@@ -159,6 +180,8 @@ export const useEditor = create<EditorState>((set, get) => ({
       selectedIds: [],
       editingTextId: null,
       cropDraft: null,
+      cutOutDraft: null,
+      cutOutRendering: false,
       ocr: null,
       liveTextOn: false,
       liveSelection: null,
@@ -180,13 +203,20 @@ export const useEditor = create<EditorState>((set, get) => ({
     ),
 
   setTool: (tool) =>
-    set((s) => ({
-      tool,
-      // Leaving the crop tool abandons an uncommitted crop rectangle.
-      cropDraft: tool === 'crop' ? s.cropDraft : null,
-      selectedIds: tool === 'select' ? s.selectedIds : [],
-      editingTextId: null
-    })),
+    set((s) => {
+      // Crop coordinates are source-image coordinates, while Cut Out works in its
+      // derived output space. Keep the two operations from becoming a silent no-op
+      // until a composed crop model exists.
+      const nextTool = tool === 'crop' && s.doc?.cutOuts?.length ? 'select' : tool
+      return {
+        tool: nextTool,
+        // Leaving the crop tool abandons an uncommitted crop rectangle.
+        cropDraft: nextTool === 'crop' ? s.cropDraft : null,
+        cutOutDraft: nextTool === 'cutOut' ? s.cutOutDraft : null,
+        selectedIds: nextTool === 'select' ? s.selectedIds : [],
+        editingTextId: null
+      }
+    }),
 
   setStyle: (patch) => set((s) => ({ style: { ...s.style, ...patch } })),
   select: (ids) => set({ selectedIds: ids }),
@@ -233,10 +263,19 @@ export const useEditor = create<EditorState>((set, get) => ({
   updateShape: (id, patch) =>
     set((s) => {
       if (!s.doc) return s
+      const geometryChanged = Object.keys(patch).some((key) =>
+        ['x', 'y', 'width', 'height', 'points', 'rotation', 'tail'].includes(key)
+      )
+      const shapes = s.doc.shapes.map((sh) => {
+        if (sh.id !== id) return sh
+        const next = { ...sh, ...patch } as Shape
+        if (geometryChanged) delete next.clipRects
+        return next
+      })
       return {
         doc: {
           ...s.doc,
-          shapes: s.doc.shapes.map((sh) => (sh.id === id ? ({ ...sh, ...patch } as Shape) : sh)),
+          shapes,
           updatedAt: Date.now()
         },
         future: [],
@@ -247,11 +286,20 @@ export const useEditor = create<EditorState>((set, get) => ({
   updateShapes: (patch) =>
     set((s) => {
       if (!s.doc) return s
+      const geometryChanged = Object.values(patch).some((value) =>
+        Object.keys(value).some((key) => ['x', 'y', 'width', 'height', 'points', 'rotation', 'tail'].includes(key))
+      )
       return {
         doc: {
           ...s.doc,
           shapes: s.doc.shapes.map((sh) =>
-            patch[sh.id] ? ({ ...sh, ...patch[sh.id] } as Shape) : sh
+            patch[sh.id]
+              ? (() => {
+                  const next = { ...sh, ...patch[sh.id] } as Shape
+                  if (geometryChanged) delete next.clipRects
+                  return next
+                })()
+              : sh
           ),
           updatedAt: Date.now()
         },
@@ -350,7 +398,7 @@ export const useEditor = create<EditorState>((set, get) => ({
 
   applyCrop: (crop) =>
     set((s) => {
-      if (!s.doc) return s
+      if (!s.doc || s.doc.cutOuts?.length) return s
       return {
         doc: { ...s.doc, crop: { ...crop, enabled: true }, updatedAt: Date.now() },
         past: [...s.past.slice(-(MAX_HISTORY - 1)), snapshot(s.doc)],
@@ -363,7 +411,7 @@ export const useEditor = create<EditorState>((set, get) => ({
 
   resetCrop: () =>
     set((s) => {
-      if (!s.doc) return s
+      if (!s.doc || s.doc.cutOuts?.length) return s
       return {
         doc: {
           ...s.doc,
@@ -377,6 +425,45 @@ export const useEditor = create<EditorState>((set, get) => ({
       }
     }),
 
+  setCutOutDraft: (cutOutDraft) => set({ cutOutDraft }),
+
+  setCutOutOptions: (patch) =>
+    set((s) => ({
+      cutOutAxis: patch.axis ?? s.cutOutAxis,
+      cutOutEdge: patch.edge ?? s.cutOutEdge,
+      cutOutDraft: s.cutOutDraft
+        ? {
+            ...s.cutOutDraft,
+            axis: patch.axis ?? s.cutOutDraft.axis,
+            edge: patch.edge ?? s.cutOutDraft.edge
+          }
+        : s.cutOutDraft
+    })),
+
+  applyCutOut: (cutOut) =>
+    set((s) => {
+      if (!s.doc || !isValidCutOutSelection(cutOut)) return s
+      const current = s.doc.cutOuts ?? []
+      const shapes = transformShapesForCutOut(s.doc.shapes, cutOut)
+      return {
+        doc: {
+          ...s.doc,
+          cutOuts: [...current, clone(cutOut)],
+          shapes,
+          updatedAt: Date.now()
+        },
+        past: [...s.past.slice(-(MAX_HISTORY - 1)), snapshot(s.doc)],
+        future: [],
+        cutOutDraft: null,
+        tool: 'select',
+        selectedIds: [],
+        dirty: true,
+        cutOutRendering: true
+      }
+    }),
+
+  setCutOutRendering: (cutOutRendering) => set({ cutOutRendering }),
+
   setTitle: (title) =>
     set((s) =>
       s.doc
@@ -389,13 +476,15 @@ export const useEditor = create<EditorState>((set, get) => ({
     set((s) => {
       if (!s.doc || s.past.length === 0) return s
       const previous = s.past[s.past.length - 1]
+      const cutOutChanged = JSON.stringify(s.doc.cutOuts) !== JSON.stringify(previous.cutOuts)
       return {
         past: s.past.slice(0, -1),
         future: [...s.future, snapshot(s.doc)],
-        doc: { ...s.doc, ...previous, updatedAt: Date.now() },
+        doc: { ...s.doc, ...previous, cutOuts: previous.cutOuts ? clone(previous.cutOuts) : undefined, updatedAt: Date.now() },
         selectedIds: [],
         editingTextId: null,
-        dirty: true
+        dirty: true,
+        cutOutRendering: cutOutChanged
       }
     }),
 
@@ -403,13 +492,15 @@ export const useEditor = create<EditorState>((set, get) => ({
     set((s) => {
       if (!s.doc || s.future.length === 0) return s
       const next = s.future[s.future.length - 1]
+      const cutOutChanged = JSON.stringify(s.doc.cutOuts) !== JSON.stringify(next.cutOuts)
       return {
         future: s.future.slice(0, -1),
         past: [...s.past, snapshot(s.doc)],
-        doc: { ...s.doc, ...next, updatedAt: Date.now() },
+        doc: { ...s.doc, ...next, cutOuts: next.cutOuts ? clone(next.cutOuts) : undefined, updatedAt: Date.now() },
         selectedIds: [],
         editingTextId: null,
-        dirty: true
+        dirty: true,
+        cutOutRendering: cutOutChanged
       }
     }),
 

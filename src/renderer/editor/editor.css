@@ -74,6 +74,21 @@ body.mac .topbar {
   background: var(--accent);
 }
 
+.cutout-control {
+  height: 28px;
+  max-width: 148px;
+  padding: 0 7px;
+  border: 1px solid var(--line-strong);
+  border-radius: var(--radius-sm);
+  background: var(--bg-2);
+  color: var(--ink-1);
+  font-size: 11px;
+}
+.cutout-control:focus {
+  outline: 1.5px solid var(--accent);
+  outline-offset: 1px;
+}
+
 .zoombox {
   display: flex;
   align-items: center;

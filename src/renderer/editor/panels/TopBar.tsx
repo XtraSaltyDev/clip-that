@@ -3,6 +3,8 @@ import { api } from '../../shared/api'
 import { Icon } from '../../shared/icons'
 import { useEditor } from '../store'
 import type { EditorActions } from '../actions'
+import type { CutOutAxis, CutOutEdge } from '@shared/types'
+import { isValidCutOutSelection } from '@shared/cut-out'
 
 export default function TopBar({
   actions,
@@ -18,9 +20,24 @@ export default function TopBar({
   const dirty = useEditor((s) => s.dirty)
   const tool = useEditor((s) => s.tool)
   const cropDraft = useEditor((s) => s.cropDraft)
+  const cutOutDraft = useEditor((s) => s.cutOutDraft)
+  const cutOutAxis = useEditor((s) => s.cutOutAxis)
+  const cutOutEdge = useEditor((s) => s.cutOutEdge)
   const ocrBusy = useEditor((s) => s.ocrBusy)
   const panel = useEditor((s) => s.panel)
-  const { begin, end, undo, redo, setZoom, applyCrop, setTool, setTitle, setPanel } = useEditor.getState()
+  const {
+    begin,
+    end,
+    undo,
+    redo,
+    setZoom,
+    applyCrop,
+    applyCutOut,
+    setCutOutOptions,
+    setTool,
+    setTitle,
+    setPanel
+  } = useEditor.getState()
 
   const [menu, setMenu] = useState<'export' | 'capture' | null>(null)
   const menuRef = useRef<HTMLDivElement>(null)
@@ -91,6 +108,41 @@ export default function TopBar({
       </div>
 
       <div className="topbar-right no-drag">
+        {tool === 'cutOut' && (
+          <>
+            <select
+              className="cutout-control"
+              aria-label="Cut Out direction"
+              value={cutOutAxis}
+              onChange={(event) => setCutOutOptions({ axis: event.target.value as CutOutAxis })}
+            >
+              <option value="horizontal">Horizontal band</option>
+              <option value="vertical">Vertical band</option>
+            </select>
+            <select
+              className="cutout-control"
+              aria-label="Cut Out edge"
+              value={cutOutEdge}
+              onChange={(event) => setCutOutOptions({ edge: event.target.value as CutOutEdge })}
+            >
+              <option value="straight">Straight edge</option>
+              <option value="zigzag">Zigzag edge</option>
+              <option value="wave">Wave edge</option>
+              <option value="triangle">Triangle edge</option>
+            </select>
+            <button
+              className="btn sm primary"
+              disabled={!cutOutDraft || !isValidCutOutSelection(cutOutDraft)}
+              onClick={() => cutOutDraft && applyCutOut(cutOutDraft)}
+            >
+              <Icon name="check" size={14} /> Apply Cut Out
+            </button>
+            <button className="btn sm ghost" onClick={() => setTool('select')}>
+              Cancel
+            </button>
+            <div className="topbar-sep" />
+          </>
+        )}
         {tool === 'crop' && (
           <>
             <button
