@@ -1,7 +1,7 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
 import { mkdtemp, mkdir, readFile, rm, writeFile } from 'node:fs/promises'
-import { join } from 'node:path'
+import { basename, join } from 'node:path'
 import { tmpdir } from 'node:os'
 import { load } from './helpers.mjs'
 
@@ -185,7 +185,7 @@ test('startup discovery finds supported capture files missing from the index', a
 
     const files = await discoverLibraryFiles(captures, recordings, [indexed])
     assert.deepEqual(
-      files.map((file) => [file.kind, file.filePath.split('/').pop()]),
+      files.map((file) => [file.kind, basename(file.filePath)]),
       [
         ['image', 'orphan.webp'],
         ['video', 'orphan.mp4']
