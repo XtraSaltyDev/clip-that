@@ -480,6 +480,7 @@ export interface VideoExportOptions {
  * ------------------------------------------------------------------ */
 
 export type AfterCapture =
+  /** Kept for reading older settings files; it is migrated to `editor` on load. */
   | 'quickAccess'
   | 'editor'
   | 'clipboard'

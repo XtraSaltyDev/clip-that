@@ -464,6 +464,38 @@ function ShapeStyle({ shape }: { shape: Shape }): React.ReactElement {
         </div>
       )}
 
+      <Row label="Rotation">
+        <div className="row" style={{ width: '100%', gap: 6 }}>
+          <input
+            className="field"
+            style={{ flex: '0 0 82px', width: 82 }}
+            type="number"
+            min={-360}
+            max={360}
+            step={1}
+            inputMode="decimal"
+            aria-label="Rotation"
+            value={Math.round((shape.rotation ?? 0) * 10) / 10}
+            onFocus={begin}
+            onBlur={end}
+            onChange={(event) => {
+              const value = Number(event.target.value)
+              if (!Number.isFinite(value)) return
+              patch({ rotation: Math.max(-360, Math.min(360, value)) }, false)
+            }}
+          />
+          <span className="tiny muted">°</span>
+          <button
+            className="btn sm ghost"
+            type="button"
+            disabled={!shape.rotation}
+            onClick={() => patch({ rotation: 0 })}
+          >
+            Reset
+          </button>
+        </div>
+      </Row>
+
       <div className="divider" />
 
       <div className="row" style={{ gap: 4 }}>

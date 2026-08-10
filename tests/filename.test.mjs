@@ -2,7 +2,7 @@ import test from 'node:test'
 import assert from 'node:assert/strict'
 import { load } from './helpers.mjs'
 
-const { defaultSettings, formatFilename, safeFilename } = await load('defaults')
+const { defaultSettings, formatFilename, migrateAfterCapturePreference, safeFilename } = await load('defaults')
 
 const AT = new Date(2026, 7, 6, 9, 4, 5, 70) // 6 Aug 2026, 09:04:05.070
 
@@ -48,4 +48,9 @@ test('asks before replacing an existing editor by default', () => {
 
 test('opens new captures in the editor by default', () => {
   assert.equal(defaultSettings('/tmp').afterCapture, 'editor')
+})
+
+test('migrates the removed Quick Access preference to the editor workflow', () => {
+  assert.equal(migrateAfterCapturePreference('quickAccess'), 'editor')
+  assert.equal(migrateAfterCapturePreference('pipeline'), 'pipeline')
 })

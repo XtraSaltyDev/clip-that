@@ -337,7 +337,6 @@ function Capture({
             value={settings.afterCapture}
             onChange={(e) => patch({ afterCapture: e.target.value as Settings['afterCapture'] })}
           >
-            <option value="quickAccess">Show the quick access card</option>
             <option value="editor">Save to Library and open the editor</option>
             <option value="clipboard">Copy to clipboard</option>
             <option value="file">Save to folder</option>

@@ -106,6 +106,7 @@ export default function App(): React.ReactElement {
         const current = useEditor.getState()
         if (current.doc && current.doc.id !== incoming.id && current.dirty) {
           try {
+            toast('info', 'Saving the current capture before opening the new one…')
             const rendered = await actions.render()
             if (!rendered) return
             await actions.syncLibrary(rendered)

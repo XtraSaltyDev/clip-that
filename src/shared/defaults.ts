@@ -43,6 +43,13 @@ export const BEAUTIFY_CANVAS: CanvasStyle = {
   borderWidth: 1
 }
 
+/** Migrate the removed Quick Access default to the current editor workflow. */
+export function migrateAfterCapturePreference(
+  value: Settings['afterCapture'] | undefined
+): Settings['afterCapture'] | undefined {
+  return value === 'quickAccess' ? 'editor' : value
+}
+
 export const DEFAULT_RECORDING: RecordingOptions = {
   target: 'display',
   autoZoom: false,

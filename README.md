@@ -58,9 +58,10 @@ Tuesday.
 ## Everything else it does
 
 ### After the capture
-The editor is opt-in. By default a **Quick Access card** appears in the corner with the
-things a capture usually needs: drag it straight into another app, or copy, save, **pin**,
-or edit. Pinned captures float above every window as reference while you work.
+New captures are added to the Library under their default title and open directly in the
+editor. If an editor is already open, ClipThat reuses the focused or most recently focused
+editor so each capture stays in one working surface. The capture remains linked to its
+Library item while you annotate, rename, save, or Save As.
 
 Prefer automation? Switch the after-capture action to **Pipeline** and configure a chain —
 copy, save, pin, edit, then a shell command with `{file}` — so one hotkey can save, copy a
@@ -76,8 +77,8 @@ link, and upload wherever you like, without ClipThat needing a cloud of its own.
 | | Tools |
 |---|---|
 | Draw | arrow (curvable, heads either end), line, pen, highlighter |
-| Shapes | rectangle, ellipse, text, callout with a draggable tail, auto-numbered step markers |
-| Conceal | blur, pixelate, solid redact |
+| Shapes | rectangle, ellipse, text, callout with a draggable tail, rotatable annotations, auto-numbered step markers |
+| Conceal | blur, pixelate, solid redact, Cut Out |
 | Emphasise | spotlight, magnifier, measurement with a live pixel readout |
 
 Full undo/redo, multi-select, a layers panel, snapping alignment guides, and a floating
@@ -96,7 +97,8 @@ feature.
 
 ### Library
 Grid or list, grouped into Today / Yesterday / weekday / date. Tags, favourites, full-text
-search over image contents, keyboard navigation, and its own `⌘K` palette.
+search over image contents, supported Snagit image/video import with duplicate detection,
+keyboard navigation, and its own `⌘K` palette.
 
 ---
 

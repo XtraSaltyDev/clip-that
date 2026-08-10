@@ -2,7 +2,7 @@ import test from 'node:test'
 import assert from 'node:assert/strict'
 import { load } from './helpers.mjs'
 
-const { releaseNotesForVersion, releaseNotesStatus } = await load('releaseNotes')
+const { RELEASE_NOTES, releaseNotesForVersion, releaseNotesStatus } = await load('releaseNotes')
 
 const catalog = [
   {
@@ -43,4 +43,13 @@ test('does not show an earlier release as the current release', () => {
   const status = releaseNotesStatus('0.1.6', '0.1.5', catalog)
   assert.equal(status.notes.title, 'Current release')
   assert.equal(status.unread, true)
+})
+
+test('bundles the 0.1.8 editor and import release notes', () => {
+  const notes = RELEASE_NOTES.find((entry) => entry.version === '0.1.8')
+  assert.ok(notes)
+  assert.match(notes.summary, /Snagit|Library/i)
+  assert.ok(notes.items.some((item) => /Cut Out/i.test(item.title)))
+  assert.ok(notes.items.some((item) => /Snagit/i.test(item.title)))
+  assert.ok(notes.items.some((item) => /Step/i.test(item.title)))
 })

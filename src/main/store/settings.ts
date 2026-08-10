@@ -1,7 +1,7 @@
 import { EventEmitter } from 'node:events'
 import { readFileSync, writeFileSync, renameSync } from 'node:fs'
 import type { Settings } from '@shared/types'
-import { defaultSettings } from '@shared/defaults'
+import { defaultSettings, migrateAfterCapturePreference } from '@shared/defaults'
 import { defaultSaveDirectory, settingsFile } from './paths'
 
 class SettingsStore extends EventEmitter {
@@ -54,6 +54,7 @@ class SettingsStore extends EventEmitter {
       return {
         ...base,
         ...raw,
+        afterCapture: migrateAfterCapturePreference(raw.afterCapture) ?? base.afterCapture,
         hotkeys: { ...base.hotkeys, ...(raw.hotkeys ?? {}) },
         recording: { ...base.recording, ...(raw.recording ?? {}) },
         canvasPreset: { ...base.canvasPreset, ...(raw.canvasPreset ?? {}) },

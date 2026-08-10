@@ -46,6 +46,33 @@ export const RELEASE_NOTES = [
         body: 'Open Settings → What’s New to review the notes for the current release. The section stays available offline after installation.'
       }
     ]
+  },
+  {
+    version: '0.1.8',
+    title: 'More capable annotation and import workflows',
+    summary: 'Rotate and reshape annotations, mark up screenshots faster, and bring supported Snagit captures into the Library.',
+    items: [
+      {
+        title: 'Rotate annotations precisely',
+        body: 'Use the canvas rotation handle or enter an exact angle in the Inspector, then reset it to zero when needed.'
+      },
+      {
+        title: 'Horizontal and vertical tilt are distinct',
+        body: 'The two canvas tilt controls now apply to their labeled visible axes and retain their meaning when the project is reopened.'
+      },
+      {
+        title: 'Cut Out image sections',
+        body: 'Remove a horizontal or vertical band with a straight, zigzag, wave, or triangle edge while keeping the edit reversible.'
+      },
+      {
+        title: 'Add Step markers continuously',
+        body: 'Choose Step once and keep clicking to place the next number until you press Escape or choose another tool.'
+      },
+      {
+        title: 'Import supported Snagit captures',
+        body: 'Scan a Snagit library, review supported media and duplicates, then import copies into the ClipThat Library without changing the source files.'
+      }
+    ]
   }
 ] as const satisfies readonly ReleaseNotes[]
 
