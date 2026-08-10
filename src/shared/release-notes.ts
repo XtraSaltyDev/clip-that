@@ -23,6 +23,29 @@ export const RELEASE_NOTES = [
         body: 'When a capture is routed into an existing editor, ClipThat reuses the focused or most recently focused editor window.'
       }
     ]
+  },
+  {
+    version: '0.1.7',
+    title: 'A smoother capture-to-save workflow',
+    summary: 'New captures now stay connected to the Library and editor, while release notes make each update easier to understand.',
+    items: [
+      {
+        title: 'Captures are saved to the Library first',
+        body: 'New captures use the default title, appear in the Library immediately, and open in the editor without an extra manual save.'
+      },
+      {
+        title: 'The editor window is reused',
+        body: 'New captures open in the focused or most recently focused editor instead of creating another editor window.'
+      },
+      {
+        title: 'Save As keeps your title and file',
+        body: 'A Save As rename updates the editor and Library, and later Saves overwrite the selected still until you choose another destination.'
+      },
+      {
+        title: 'Review changes inside ClipThat',
+        body: 'Open Settings → What’s New to review the notes for the current release. The section stays available offline after installation.'
+      }
+    ]
   }
 ] as const satisfies readonly ReleaseNotes[]
 
