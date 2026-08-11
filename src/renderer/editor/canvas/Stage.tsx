@@ -32,13 +32,53 @@ import {
 } from '../store'
 import { cutOutEdgeAmplitude, cutOutEdgePath, CUT_OUT_MIN_SIZE } from '@shared/cut-out'
 import { ShapeNode, type ShapeContext } from './Shapes'
+import { LineControls, type DirectLineGesture } from './LineControls'
+import {
+  cancelDirectGesture,
+  captureDirectGestureSnapshot,
+  isCancelledDirectGesture,
+  restoreDirectGestureSnapshot,
+  type DirectGestureSnapshot
+} from './direct-gesture'
 import { shapeTransformPatch } from './transforms'
+import {
+  BODY_DRAG_VISIBILITY_MARGIN_SCREEN,
+  beginProvisionalMultiSelection,
+  bodyTranslationPatch,
+  clampCommonTranslationToRecoveryGroups,
+  clampTranslationToRecoveryRects,
+  constrainLineEndpoint,
+  effectiveLinePoints,
+  endpointEditPatch,
+  finishProvisionalMultiSelection,
+  interactiveRecoveryRects,
+  isInteractiveDirectLineShape,
+  lineCurveOffset,
+  lineCurvePoint,
+  lineEndpoint,
+  normalizedLinePatch,
+  pointsCenter,
+  selectionAfterPointerDown,
+  shouldContinueBodyDragAfterMouseLeave,
+  snapTranslationToLines,
+  unionDragRects,
+  type DragRect,
+  type LineEndpoint,
+  type Point,
+  type ProvisionalMultiSelection
+} from './geometry'
 import { canvasTiltTransform } from './tilt'
 import {
   ROTATE_ICON_SIZE,
-  ROTATE_TOOLBAR_ABOVE_OFFSET,
-  ROTATE_TOOLBAR_BELOW_OFFSET,
-  toolbarIsAbove
+  clampToolbarCenter,
+  floatingToolbarHidden,
+  floatingToolbarShown,
+  floatingToolbarTop,
+  floatingToolbarWithBounds,
+  horizontalViewportBounds,
+  isFloatingToolbarVisible,
+  type FloatingToolbarBox,
+  type FloatingToolbarState
 } from './rotation-handle'
 import { useRotateHandle } from './use-rotate-handle'
 import { computeLayout, fitScale, type Layout } from '../layout'
@@ -50,16 +90,57 @@ interface Props {
   containerWidth: number
   containerHeight: number
   stageRef: React.MutableRefObject<Konva.Stage | null>
+  viewportRef: React.MutableRefObject<HTMLDivElement | null>
 }
 
 /** Snap threshold in image pixels, scaled so it feels constant on screen. */
 const SNAP_PX = 6
+const FLOATING_TOOLBAR_EDGE_PADDING = 24
+
+type EditorState = ReturnType<typeof useEditor.getState>
+type DirectHistory = EditorState['past'][number]
+type DirectSnapshot = DirectGestureSnapshot<DirectHistory>
+
+interface MultiDragEntry {
+  id: string
+  node: Konva.Node
+  origin: Point
+  rect: DragRect
+  recoveryRects: DragRect[]
+}
+
+interface MultiDragGesture {
+  anchorId: string
+  entries: MultiDragEntry[]
+  delta: Point
+}
+
+interface BodyDragGesture {
+  id: string
+  node: Konva.Node
+  origin: Point
+  rect: DragRect
+  recoveryRects: DragRect[]
+  dragging: boolean
+}
+
+/** Some composite shapes expose their painted body as a draggable child of a non-draggable owner. */
+function draggableBodyNode(node: Konva.Node): Konva.Node | null {
+  if (node.draggable()) return node
+  const container = node as Konva.Container
+  if (typeof container.findOne !== 'function') return null
+  return (
+    container.findOne((candidate: Konva.Node) => candidate.draggable() && candidate.listening()) ??
+    null
+  )
+}
 
 export default function EditorStage({
   image,
   containerWidth,
   containerHeight,
-  stageRef
+  stageRef,
+  viewportRef
 }: Props): React.ReactElement | null {
   const doc = useEditor((s) => s.doc)
   const tool = useEditor((s) => s.tool)
@@ -88,11 +169,27 @@ export default function EditorStage({
   const artLayerRef = useRef<Konva.Layer>(null)
   const transformerRef = useRef<Konva.Transformer>(null)
   const rotateIconGroupRef = useRef<Konva.Group>(null)
+  const stageRootRef = useRef<HTMLDivElement>(null)
   const drafting = useRef<{ id: string; origin: { x: number; y: number } } | null>(null)
   const lastPoint = useRef<{ x: number; y: number } | null>(null)
+  const directGesture = useRef<{
+    id: string
+    kind: DirectLineGesture
+    snapshot: DirectSnapshot
+    cancelled: boolean
+  } | null>(null)
+  const pendingMultiDrag = useRef<{ anchorId: string; entries: MultiDragEntry[] } | null>(null)
+  const pendingSelection = useRef<{
+    gesture: ProvisionalMultiSelection
+    dragging: boolean
+  } | null>(null)
+  const multiDrag = useRef<MultiDragGesture | null>(null)
+  const bodyDrag = useRef<BodyDragGesture | null>(null)
   const [guides, setGuides] = useState<Array<{ x?: number; y?: number }>>([])
   const [textBox, setTextBox] = useState<{ left: number; top: number; width: number } | null>(null)
-  const [selBox, setSelBox] = useState<{ left: number; top: number; width: number } | null>(null)
+  const [toolbarState, setToolbarState] = useState<FloatingToolbarState>(() =>
+    floatingToolbarShown(null)
+  )
 
   /**
    * Layout only depends on geometry, never on the shape list — keying the memo on those
@@ -114,17 +211,25 @@ export default function EditorStage({
 
   /* ---------- transformer ---------- */
 
-  const { syncRotateAnchor, scheduleRotateAnchorSync, styleTransformerAnchor } = useRotateHandle({
-    stageRef,
-    transformerRef,
-    iconRef: rotateIconGroupRef
-  })
+  const {
+    beginTransform: beginRotateTransform,
+    endTransform: endRotateTransform,
+    syncRotateAnchor,
+    scheduleRotateAnchorSync,
+    styleTransformerAnchor
+  } = useRotateHandle({ stageRef, transformerRef, iconRef: rotateIconGroupRef })
+
+  const selectedDirectShape = useMemo(() => {
+    if (tool !== 'select' || editingTextId || selectedIds.length !== 1 || !doc) return null
+    const shape = doc.shapes.find((candidate) => candidate.id === selectedIds[0])
+    return shape && isInteractiveDirectLineShape(shape) ? shape : null
+  }, [doc, editingTextId, selectedIds, tool])
 
   useLayoutEffect(() => {
     const tr = transformerRef.current
     const layer = artLayerRef.current
     if (!tr || !layer) return
-    if (tool !== 'select' || selectedIds.length === 0) {
+    if (tool !== 'select' || selectedIds.length === 0 || selectedDirectShape) {
       tr.nodes([])
       rotateIconGroupRef.current?.visible(false)
       layer.batchDraw()
@@ -132,11 +237,21 @@ export default function EditorStage({
     }
     const nodes = selectedIds
       .map((id) => layer.findOne(`#${id}`))
-      .filter((n): n is Konva.Node => Boolean(n))
+      .filter((n): n is Konva.Node => {
+        if (!n) return false
+        const shape = doc?.shapes.find((candidate) => candidate.id === n.id())
+        return Boolean(shape && !shape.locked && !shape.hidden)
+      })
+    if (nodes.length === 0) {
+      tr.nodes([])
+      rotateIconGroupRef.current?.visible(false)
+      layer.batchDraw()
+      return
+    }
     tr.nodes(nodes)
     syncRotateAnchor()
     layer.batchDraw()
-  }, [selectedIds, tool, doc?.shapes, syncRotateAnchor])
+  }, [doc?.shapes, selectedDirectShape, selectedIds, syncRotateAnchor, tool])
 
   /* ---------- pointer → image coordinates ---------- */
 
@@ -172,6 +287,8 @@ export default function EditorStage({
     if (!p || !doc) return
 
     if (tool === 'select') {
+      pendingSelection.current = null
+      pendingMultiDrag.current = null
       if (e.target === e.target.getStage() || e.target.name() === 'backdrop') select([])
       return
     }
@@ -294,6 +411,21 @@ export default function EditorStage({
   }
 
   const onStageMouseUp = () => {
+    const activeBodyGesture = shouldContinueBodyDragAfterMouseLeave({
+      captured: Boolean(bodyDrag.current),
+      dragging: Boolean(bodyDrag.current?.dragging),
+      collective: Boolean(multiDrag.current)
+    })
+    if (!activeBodyGesture) {
+      const pending = pendingSelection.current
+      if (pending && !pending.dragging && !multiDrag.current) {
+        select(finishProvisionalMultiSelection(pending.gesture, false))
+      }
+      pendingSelection.current = null
+      pendingMultiDrag.current = null
+      bodyDrag.current = null
+    }
+
     const draft = drafting.current
     drafting.current = null
     lastPoint.current = null
@@ -324,20 +456,165 @@ export default function EditorStage({
     useEditor.getState().setTool('select')
   }
 
+  const captureMultiDrag = useCallback((id: string, additive: boolean) => {
+    const state = useEditor.getState()
+    const layer = artLayerRef.current
+    const owner = layer?.findOne(`#${id}`)
+    const node = owner ? draggableBodyNode(owner) : null
+    const shape = state.doc?.shapes.find((candidate) => candidate.id === id)
+    const recoveryRects = shape ? interactiveRecoveryRects(shape, state.zoom) : []
+    const rect = unionDragRects(recoveryRects)
+
+    if (
+      state.tool === 'select' &&
+      !additive &&
+      shape &&
+      !shape.locked &&
+      !shape.hidden &&
+      node &&
+      rect
+    ) {
+      bodyDrag.current = {
+        id,
+        node,
+        origin: { x: node.x(), y: node.y() },
+        rect,
+        recoveryRects,
+        dragging: false
+      }
+    } else {
+      bodyDrag.current = null
+    }
+
+    if (
+      !layer ||
+      state.tool !== 'select' ||
+      state.selectedIds.length < 2 ||
+      !state.selectedIds.includes(id) ||
+      additive
+    ) {
+      pendingMultiDrag.current = null
+      pendingSelection.current = null
+      return
+    }
+
+    const entries = state.selectedIds
+      .map((selectedId) => {
+        const shape = state.doc?.shapes.find((candidate) => candidate.id === selectedId)
+        const owner = layer.findOne(`#${selectedId}`)
+        const node = owner ? draggableBodyNode(owner) : null
+        const recoveryRects = shape ? interactiveRecoveryRects(shape, state.zoom) : []
+        const rect = unionDragRects(recoveryRects)
+        if (!shape || shape.locked || shape.hidden || !node || !rect) return null
+        return {
+          id: selectedId,
+          node,
+          origin: { x: node.x(), y: node.y() },
+          rect,
+          recoveryRects
+        }
+      })
+      .filter((entry): entry is MultiDragEntry => Boolean(entry))
+
+    const provisional = beginProvisionalMultiSelection(state.selectedIds, id, additive)
+    pendingMultiDrag.current =
+      entries.length > 1 && entries.some((entry) => entry.id === id) && provisional
+        ? { anchorId: id, entries }
+        : null
+    pendingSelection.current =
+      pendingMultiDrag.current && provisional ? { gesture: provisional, dragging: false } : null
+  }, [])
+
   /* ---------- alignment guides while dragging ---------- */
 
   const onDragMove = useCallback(
     (e: Konva.KonvaEventObject<DragEvent>) => {
-      const node = e.target
+      const eventNode = e.target
       const state = useEditor.getState()
       const current = state.doc
-      if (!current || node === shapesGroupRef.current) return
-
-      const box = node.getClientRect({ relativeTo: shapesGroupRef.current ?? undefined })
-      const threshold = SNAP_PX / Math.max(zoom, 0.05)
-
       const layoutNow = layout
-      if (!layoutNow) return
+      if (!current || !layoutNow) return
+
+      // A few shape families use a draggable child inside the id-bearing group (for example
+      // spotlight). Prefer the actual drag target when it is already moving, otherwise route
+      // the event to the owning shape group.
+      const node =
+        eventNode.isDragging() || eventNode.draggable()
+          ? eventNode
+          : (eventNode.findAncestor('.shape', true) ?? eventNode)
+      if (node === shapesGroupRef.current) return
+
+      const contentBounds = {
+        left: layoutNow.cropX,
+        top: layoutNow.cropY,
+        right: layoutNow.cropX + layoutNow.contentWidth,
+        bottom: layoutNow.cropY + layoutNow.contentHeight
+      }
+      const visibilityMargin = BODY_DRAG_VISIBILITY_MARGIN_SCREEN / Math.max(zoom, 0.05)
+
+      const activeMultiDrag = multiDrag.current
+      if (activeMultiDrag) {
+        const anchor = activeMultiDrag.entries.find(
+          (entry) => entry.id === activeMultiDrag.anchorId
+        )
+        const union = unionDragRects(activeMultiDrag.entries.map((entry) => entry.rect))
+        if (anchor && union) {
+          const desired = {
+            x: anchor.node.x() - anchor.origin.x,
+            y: anchor.node.y() - anchor.origin.y
+          }
+          const selected = new Set(activeMultiDrag.entries.map((entry) => entry.id))
+          const vLines: number[] = [layoutNow.cropX + layoutNow.contentWidth / 2]
+          const hLines: number[] = [layoutNow.cropY + layoutNow.contentHeight / 2]
+          for (const other of current.shapes) {
+            if (selected.has(other.id) || !('x' in other)) continue
+            const width = 'width' in other ? Math.abs(other.width) : 0
+            const height = 'height' in other ? Math.abs(other.height ?? 0) : 0
+            vLines.push(other.x, other.x + width / 2, other.x + width)
+            hLines.push(other.y, other.y + height / 2, other.y + height)
+          }
+
+          const snapped = snapTranslationToLines(
+            union,
+            desired,
+            vLines,
+            hLines,
+            SNAP_PX / Math.max(zoom, 0.05)
+          )
+          const constrained = clampCommonTranslationToRecoveryGroups(
+            activeMultiDrag.entries.map((entry) => entry.recoveryRects),
+            snapped.translation,
+            contentBounds,
+            visibilityMargin
+          )
+          for (const entry of activeMultiDrag.entries) {
+            entry.node.position({
+              x: entry.origin.x + constrained.x,
+              y: entry.origin.y + constrained.y
+            })
+          }
+          activeMultiDrag.delta = constrained
+          setGuides(snapped.guides)
+          return
+        }
+      }
+
+      const nodeId = node.id() || node.findAncestor('.shape', true)?.id()
+      const shape = current.shapes.find((candidate) => candidate.id === nodeId)
+      const activeBody =
+        bodyDrag.current && (bodyDrag.current.node === node || bodyDrag.current.id === nodeId)
+          ? bodyDrag.current
+          : null
+      const recoveryRects =
+        activeBody?.recoveryRects ?? (shape ? interactiveRecoveryRects(shape, zoom) : [])
+      const recoveryRect = activeBody?.rect ?? unionDragRects(recoveryRects)
+      if (!recoveryRect) return
+      const origin = activeBody?.origin ?? { x: node.x(), y: node.y() }
+      const desired = {
+        x: node.x() - origin.x,
+        y: node.y() - origin.y
+      }
+      const threshold = SNAP_PX / Math.max(zoom, 0.05)
       const contentCenterX = layoutNow.cropX + layoutNow.contentWidth / 2
       const contentCenterY = layoutNow.cropY + layoutNow.contentHeight / 2
 
@@ -345,48 +622,25 @@ export default function EditorStage({
       const vLines: number[] = [contentCenterX]
       const hLines: number[] = [contentCenterY]
       for (const other of current.shapes) {
-        if (other.id === node.id() || !('x' in other)) continue
+        if (other.id === nodeId || !('x' in other)) continue
         const ow = 'width' in other ? Math.abs(other.width) : 0
         const oh = 'height' in other ? Math.abs(other.height ?? 0) : 0
         vLines.push(other.x, other.x + ow / 2, other.x + ow)
         hLines.push(other.y, other.y + oh / 2, other.y + oh)
       }
 
-      const found: Array<{ x?: number; y?: number }> = []
-      const near = (a: number, b: number) => Math.abs(a - b) < threshold
-
-      for (const line of vLines) {
-        for (const [edge, offset] of [
-          [box.x, 0],
-          [box.x + box.width / 2, box.width / 2],
-          [box.x + box.width, box.width]
-        ] as Array<[number, number]>) {
-          if (near(edge, line)) {
-            node.x(node.x() + (line - edge))
-            found.push({ x: line })
-            break
-          }
-          void offset
-        }
-        if (found.some((f) => f.x !== undefined)) break
-      }
-      for (const line of hLines) {
-        for (const edge of [box.y, box.y + box.height / 2, box.y + box.height]) {
-          if (near(edge, line)) {
-            node.y(node.y() + (line - edge))
-            found.push({ y: line })
-            break
-          }
-        }
-        if (found.some((f) => f.y !== undefined)) break
-      }
-
-      setGuides(found)
+      const snapped = snapTranslationToLines(recoveryRect, desired, vLines, hLines, threshold)
+      const constrained = clampTranslationToRecoveryRects(
+        recoveryRects,
+        snapped.translation,
+        contentBounds,
+        visibilityMargin
+      )
+      node.position({ x: origin.x + constrained.x, y: origin.y + constrained.y })
+      setGuides(snapped.guides)
     },
     [layout, zoom]
   )
-
-  const onDragEnd = useCallback(() => setGuides([]), [])
 
   /**
    * Shape nodes are memoised, so their handlers must be referentially stable —
@@ -397,25 +651,134 @@ export default function EditorStage({
     useEditor
       .getState()
       .select(
-        additive
-          ? current.includes(id)
-            ? current.filter((s) => s !== id)
-            : [...current, id]
-          : [id]
+        selectionAfterPointerDown(
+          current,
+          id,
+          additive,
+          !additive &&
+            current.length > 1 &&
+            current.includes(id) &&
+            Boolean(pendingSelection.current)
+        )
       )
   }, [])
 
   const commitShapeChange = useCallback((id: string, patch: Partial<Shape>) => {
+    if (isCancelledDirectGesture(directGesture.current, id) || multiDrag.current) return
     const state = useEditor.getState()
     state.updateShape(id, patch)
     state.end()
   }, [])
 
+  const readSelectionBox = useCallback((): FloatingToolbarBox | null => {
+    const layer = artLayerRef.current
+    const current = useEditor.getState()
+    if (
+      !layer ||
+      current.tool !== 'select' ||
+      current.selectedIds.length === 0 ||
+      current.editingTextId
+    ) {
+      return null
+    }
+    const nodes = current.selectedIds
+      .map((id) => layer.findOne(`#${id}`))
+      .filter((n): n is Konva.Node => Boolean(n))
+    if (nodes.length === 0) return null
+
+    let left = Infinity
+    let top = Infinity
+    let right = -Infinity
+    let bottom = -Infinity
+    for (const node of nodes) {
+      const rect = node.getClientRect()
+      left = Math.min(left, rect.x)
+      top = Math.min(top, rect.y)
+      right = Math.max(right, rect.x + rect.width)
+      bottom = Math.max(bottom, rect.y + rect.height)
+    }
+    const rootRect = stageRootRef.current?.getBoundingClientRect()
+    const viewportRect = viewportRef.current?.getBoundingClientRect()
+    const visibleBounds =
+      rootRect && viewportRect
+        ? horizontalViewportBounds(rootRect.left, viewportRect.left, viewportRect.right)
+        : null
+    return {
+      left,
+      top,
+      width: right - left,
+      height: bottom - top,
+      ...(visibleBounds
+        ? { visibleLeft: visibleBounds.left, visibleRight: visibleBounds.right }
+        : {})
+    }
+  }, [viewportRef])
+
+  const refreshSelectionBox = useCallback(() => {
+    setToolbarState((state) => floatingToolbarWithBounds(state, readSelectionBox()))
+  }, [readSelectionBox])
+
+  const revealToolbar = useCallback(() => {
+    setToolbarState(floatingToolbarShown(readSelectionBox()))
+    // Konva applies the committed React props on the next frame. Refresh once more so the
+    // screen-space toolbar cannot retain a pre-gesture node rect for a frame.
+    requestAnimationFrame(refreshSelectionBox)
+  }, [readSelectionBox, refreshSelectionBox])
+
+  const beginShapeTransform = useCallback(() => {
+    setToolbarState(floatingToolbarHidden())
+  }, [])
+
+  const finishShapeTransform = useCallback(() => {
+    setGuides([])
+    const gesture = directGesture.current
+    if (gesture?.cancelled) {
+      directGesture.current = null
+      bodyDrag.current = null
+      pendingSelection.current = null
+      return
+    }
+    const collective = multiDrag.current
+    if (collective) {
+      const state = useEditor.getState()
+      if (collective.delta.x !== 0 || collective.delta.y !== 0) {
+        for (const entry of collective.entries) {
+          const shape = state.doc?.shapes.find((candidate) => candidate.id === entry.id)
+          if (shape) {
+            state.updateShape(
+              shape.id,
+              bodyTranslationPatch(shape, collective.delta.x, collective.delta.y)
+            )
+          }
+        }
+      }
+      state.end()
+      multiDrag.current = null
+      pendingMultiDrag.current = null
+    }
+    bodyDrag.current = null
+    pendingSelection.current = null
+    if (gesture?.kind === 'body') directGesture.current = null
+    // Single-object child drag-end handlers commit before this bubbles. Collective drags commit
+    // above, before the shared toolbar is revealed from the final bounds.
+    revealToolbar()
+  }, [revealToolbar])
+
+  const beginTransformerTransform = useCallback(() => {
+    setToolbarState(floatingToolbarHidden())
+    begin()
+    beginRotateTransform()
+  }, [begin, beginRotateTransform])
+
   const commitTransform = useCallback(() => {
     const transformer = transformerRef.current
     const state = useEditor.getState()
     const current = state.doc
-    if (!transformer || !current) return
+    if (!transformer || !current) {
+      endRotateTransform()
+      revealToolbar()
+      return
+    }
 
     for (const node of transformer.nodes()) {
       const shape = current.shapes.find((candidate) => candidate.id === node.id())
@@ -423,10 +786,14 @@ export default function EditorStage({
       const patch = shapeTransformPatch(shape, node)
       state.updateShape(shape.id, patch)
 
-      // Point-based nodes keep their geometry in the document, so clear Konva's transient
-      // translation as well as its scale. Measurement groups keep their midpoint as origin.
+      // Point-based nodes keep their geometry in the document, so restore the committed
+      // point-origin as well as clearing Konva's transient scale. Setting (0, 0) here is not
+      // enough for rotation-only gestures: React-Konva sees unchanged point props and will not
+      // replay the old origin, leaving the node displaced after mouse-up.
       if ('points' in shape && shape.type !== 'measure') {
-        node.position({ x: 0, y: 0 })
+        const points = (patch as { points: number[] }).points
+        const origin = pointsCenter(points)
+        node.position(origin)
       } else if (shape.type === 'measure' && 'points' in patch) {
         const points = patch.points as number[]
         node.position({ x: (points[0] + points[2]) / 2, y: (points[1] + points[3]) / 2 })
@@ -436,36 +803,227 @@ export default function EditorStage({
     }
     // Always close the transaction, including rotation-only and multi-selection transforms.
     state.end()
+    endRotateTransform()
+    revealToolbar()
     transformer.getLayer()?.batchDraw()
+  }, [endRotateTransform, revealToolbar])
+
+  const snapLineEndpoint = useCallback(
+    (id: string, point: Point): Point => {
+      if (!layout) return point
+      const threshold = SNAP_PX / Math.max(zoom, 0.05)
+      const vLines: number[] = [layout.cropX + layout.contentWidth / 2]
+      const hLines: number[] = [layout.cropY + layout.contentHeight / 2]
+      const current = useEditor.getState().doc
+      for (const other of current?.shapes ?? []) {
+        if (other.id === id || !('x' in other)) continue
+        const width = 'width' in other ? Math.abs(other.width) : 0
+        const height = 'height' in other ? Math.abs(other.height ?? 0) : 0
+        vLines.push(other.x, other.x + width / 2, other.x + width)
+        hLines.push(other.y, other.y + height / 2, other.y + height)
+      }
+
+      const nearest = (value: number, candidates: number[]): number | null => {
+        let best: number | null = null
+        let distance = threshold
+        for (const candidate of candidates) {
+          const next = Math.abs(candidate - value)
+          if (next < distance) {
+            best = candidate
+            distance = next
+          }
+        }
+        return best
+      }
+
+      const x = nearest(point.x, vLines)
+      const y = nearest(point.y, hLines)
+      setGuides([...(x === null ? [] : [{ x }]), ...(y === null ? [] : [{ y }])])
+      return { x: x ?? point.x, y: y ?? point.y }
+    },
+    [layout, zoom]
+  )
+
+  const beginDirectManipulation = useCallback((id: string, kind: DirectLineGesture) => {
+    if (directGesture.current?.cancelled) directGesture.current = null
+    if (directGesture.current) return
+    const state = useEditor.getState()
+    const shape = state.doc?.shapes.find((candidate) => candidate.id === id)
+    if (!shape || !isInteractiveDirectLineShape(shape)) return
+    const snapshot = captureDirectGestureSnapshot(state)
+    state.begin()
+    directGesture.current = { id, kind, snapshot, cancelled: false }
+    setGuides([])
+    setToolbarState(floatingToolbarHidden())
   }, [])
+
+  const beginShapeDrag = useCallback(
+    (id?: string) => {
+      const state = useEditor.getState()
+      const shape = id ? state.doc?.shapes.find((candidate) => candidate.id === id) : null
+      const markBodyDragStarted = () => {
+        if (bodyDrag.current && (!id || bodyDrag.current.id === id)) {
+          bodyDrag.current.dragging = true
+        }
+      }
+      const direct =
+        id &&
+        state.tool === 'select' &&
+        state.selectedIds.length === 1 &&
+        state.selectedIds[0] === id &&
+        shape &&
+        isInteractiveDirectLineShape(shape)
+      if (direct && id) {
+        markBodyDragStarted()
+        beginDirectManipulation(id, 'body')
+        return
+      }
+      const pending = pendingMultiDrag.current
+      if (pending && pending.anchorId === id) {
+        markBodyDragStarted()
+        if (pendingSelection.current) pendingSelection.current.dragging = true
+        multiDrag.current = {
+          anchorId: pending.anchorId,
+          entries: pending.entries,
+          delta: { x: 0, y: 0 }
+        }
+        pendingMultiDrag.current = null
+        state.begin()
+        return
+      }
+      pendingMultiDrag.current = null
+      pendingSelection.current = null
+      markBodyDragStarted()
+      state.begin()
+    },
+    [beginDirectManipulation]
+  )
+
+  const updateDirectEndpoint = useCallback(
+    (id: string, endpoint: LineEndpoint, point: Point, shift: boolean): Point => {
+      const state = useEditor.getState()
+      const shape = state.doc?.shapes.find((candidate) => candidate.id === id)
+      if (!shape || !isInteractiveDirectLineShape(shape)) return point
+
+      const effective = effectiveLinePoints(shape)
+      const anchor = lineEndpoint(effective, endpoint === 'start' ? 'end' : 'start')
+      const nextPoint = shift ? constrainLineEndpoint(point, anchor) : snapLineEndpoint(id, point)
+      if (shift) setGuides([])
+      state.updateShape(id, endpointEditPatch(shape, endpoint, nextPoint))
+      return nextPoint
+    },
+    [snapLineEndpoint]
+  )
+
+  const updateDirectCurve = useCallback((id: string, point: Point): Point => {
+    const state = useEditor.getState()
+    const shape = state.doc?.shapes.find((candidate) => candidate.id === id)
+    if (!shape || !isInteractiveDirectLineShape(shape) || shape.curve === undefined) return point
+    const points = effectiveLinePoints(shape)
+    const curve = lineCurveOffset(points, point)
+    const patch = normalizedLinePatch(shape, points)
+    patch.curve = curve
+    state.updateShape(id, patch)
+    return lineCurvePoint(points, curve)
+  }, [])
+
+  const endDirectManipulation = useCallback(() => {
+    const gesture = directGesture.current
+    if (!gesture) return
+    directGesture.current = null
+    if (gesture.cancelled) {
+      setGuides([])
+      return
+    }
+    useEditor.getState().end()
+    setGuides([])
+    revealToolbar()
+  }, [revealToolbar])
+
+  const resetDirectNode = useCallback((id: string, restoredDoc: ClipDocument | null) => {
+    const shape = restoredDoc?.shapes.find((candidate) => candidate.id === id)
+    const node = artLayerRef.current?.findOne(`#${id}`)
+    if (!shape || !node || !('points' in shape)) return
+    const points = effectiveLinePoints(shape)
+    const origin =
+      shape.type === 'measure'
+        ? { x: (points[0] + points[2]) / 2, y: (points[1] + points[3]) / 2 }
+        : pointsCenter(points)
+    node.position(origin)
+    node.scaleX(1)
+    node.scaleY(1)
+  }, [])
+
+  const cancelDirectManipulation = useCallback(() => {
+    const gesture = directGesture.current
+    if (!gesture || gesture.cancelled) return
+    const state = useEditor.getState()
+    const restored = restoreDirectGestureSnapshot(gesture.snapshot)
+    useEditor.setState({
+      ...restored,
+      selectedIds: state.tool === 'select' ? restored.selectedIds : state.selectedIds
+    })
+    resetDirectNode(gesture.id, restored.doc)
+    directGesture.current = cancelDirectGesture(gesture)
+    bodyDrag.current = null
+    pendingSelection.current = null
+    pendingMultiDrag.current = null
+    setGuides([])
+    revealToolbar()
+  }, [resetDirectNode, revealToolbar])
+
+  useEffect(() => {
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.key !== 'Escape' || !directGesture.current) return
+      event.preventDefault()
+      cancelDirectManipulation()
+    }
+    window.addEventListener('keydown', onKeyDown)
+    return () => {
+      window.removeEventListener('keydown', onKeyDown)
+      cancelDirectManipulation()
+    }
+  }, [cancelDirectManipulation])
+
+  useEffect(() => {
+    const gesture = directGesture.current
+    if (
+      gesture &&
+      !gesture.cancelled &&
+      (tool !== 'select' || selectedIds.length !== 1 || selectedIds[0] !== gesture.id)
+    ) {
+      cancelDirectManipulation()
+    }
+  }, [cancelDirectManipulation, selectedIds, tool])
 
   /* ---------- floating toolbar position ---------- */
 
   useEffect(() => {
-    const layer = artLayerRef.current
-    if (!layer || tool !== 'select' || selectedIds.length === 0 || editingTextId) {
-      setSelBox(null)
-      return
+    const viewport = viewportRef.current
+    if (!viewport) return
+    const onScroll = () => refreshSelectionBox()
+    const onResize = () => refreshSelectionBox()
+    viewport.addEventListener('scroll', onScroll, { passive: true })
+    window.addEventListener('resize', onResize)
+    return () => {
+      viewport.removeEventListener('scroll', onScroll)
+      window.removeEventListener('resize', onResize)
     }
-    const nodes = selectedIds
-      .map((id) => layer.findOne(`#${id}`))
-      .filter((n): n is Konva.Node => Boolean(n))
-    if (nodes.length === 0) {
-      setSelBox(null)
-      return
-    }
-    // getClientRect is already in stage pixels, which are the container's CSS pixels.
-    let left = Infinity
-    let top = Infinity
-    let right = -Infinity
-    for (const node of nodes) {
-      const r = node.getClientRect()
-      left = Math.min(left, r.x)
-      top = Math.min(top, r.y)
-      right = Math.max(right, r.x + r.width)
-    }
-    setSelBox({ left, top, width: right - left })
-  }, [selectedIds, doc?.shapes, zoom, tool, editingTextId, guides])
+  }, [refreshSelectionBox, viewportRef])
+
+  useLayoutEffect(() => {
+    refreshSelectionBox()
+  }, [
+    containerHeight,
+    containerWidth,
+    selectedIds,
+    doc?.shapes,
+    zoom,
+    tool,
+    editingTextId,
+    guides,
+    refreshSelectionBox
+  ])
 
   /* ---------- text editing overlay ---------- */
 
@@ -501,7 +1059,7 @@ export default function EditorStage({
   const shapeOrigin = doc.cutOuts?.length ? 0 : -layout.cropX
 
   return (
-    <div style={{ position: 'relative' }}>
+    <div ref={stageRootRef} style={{ position: 'relative' }}>
       <Stage
         ref={(node) => {
           stageRef.current = node
@@ -513,7 +1071,25 @@ export default function EditorStage({
         onMouseDown={onStageMouseDown}
         onMouseMove={onStageMouseMove}
         onMouseUp={onStageMouseUp}
-        onMouseLeave={onStageMouseUp}
+        onMouseLeave={() => {
+          // Direct line gestures intentionally cancel on leave. Ordinary Konva body drags use
+          // global drag listeners, so keep their captured origin/recovery geometry until the
+          // real dragend rather than treating leave as a normal mouseup.
+          if (directGesture.current) {
+            cancelDirectManipulation()
+            return
+          }
+          if (
+            shouldContinueBodyDragAfterMouseLeave({
+              captured: Boolean(bodyDrag.current),
+              dragging: Boolean(bodyDrag.current?.dragging),
+              collective: Boolean(multiDrag.current)
+            })
+          ) {
+            return
+          }
+          onStageMouseUp()
+        }}
         style={{
           cursor:
             tool === 'select'
@@ -531,8 +1107,9 @@ export default function EditorStage({
               ref={shapesGroupRef}
               x={shapeOrigin}
               y={-layout.cropY}
+              onDragStart={beginShapeTransform}
               onDragMove={onDragMove}
-              onDragEnd={onDragEnd}
+              onDragEnd={finishShapeTransform}
             >
               {sorted.map((shape) => (
                 <ShapeNode
@@ -541,13 +1118,34 @@ export default function EditorStage({
                   ctx={shapeCtx}
                   draggable={tool === 'select'}
                   onSelect={onSelectShape}
+                  onBodyPointerDown={captureMultiDrag}
                   onChange={commitShapeChange}
-                  onDragStart={begin}
+                  onDragStart={beginShapeDrag}
                   onEditText={setEditingText}
+                  directLineLike={selectedDirectShape?.id === shape.id}
                 />
               ))}
             </Group>
           </ShotFrame>
+
+          {selectedDirectShape && (
+            <ShotFrame layout={layout} canvas={doc.canvas}>
+              <Group x={shapeOrigin} y={-layout.cropY}>
+                <LineControls
+                  shape={selectedDirectShape}
+                  zoom={zoom}
+                  x={0}
+                  y={0}
+                  onBegin={(gesture) => beginDirectManipulation(selectedDirectShape.id, gesture)}
+                  onEndpointMove={(endpoint, point, shift) =>
+                    updateDirectEndpoint(selectedDirectShape.id, endpoint, point, shift)
+                  }
+                  onCurveMove={(point) => updateDirectCurve(selectedDirectShape.id, point)}
+                  onEnd={endDirectManipulation}
+                />
+              </Group>
+            </ShotFrame>
+          )}
 
           <Transformer
             ref={transformerRef}
@@ -568,14 +1166,14 @@ export default function EditorStage({
               newBox.width < 6 || newBox.height < 6 ? oldBox : newBox
             }
             onTransform={scheduleRotateAnchorSync}
-            onTransformStart={begin}
+            onTransformStart={beginTransformerTransform}
             onTransformEnd={commitTransform}
           />
 
           <Group
             ref={rotateIconGroupRef}
             listening={false}
-            visible={tool === 'select' && selectedIds.length > 0}
+            visible={tool === 'select' && selectedIds.length > 0 && !selectedDirectShape}
           >
             <Circle
               radius={ROTATE_ICON_SIZE / 2}
@@ -634,7 +1232,14 @@ export default function EditorStage({
         </Layer>
       </Stage>
 
-      {selBox && <FloatingToolbar box={selBox} />}
+      {toolbarState.box && isFloatingToolbarVisible(toolbarState) && (
+        <FloatingToolbar
+          box={toolbarState.box}
+          // Keep the actual viewport width as a fallback until the stage and viewport
+          // rectangles are available. Normal renders carry nonzero scroll-relative bounds.
+          stageWidth={Math.max(1, containerWidth)}
+        />
+      )}
 
       {textBox && editingShape && isTextShape(editingShape) && (
         <textarea
@@ -690,10 +1295,14 @@ const QUICK_COLOURS = [
  * Anything deeper stays in the sidebar.
  */
 function FloatingToolbar({
-  box
+  box,
+  stageWidth
 }: {
-  box: { left: number; top: number; width: number }
+  box: FloatingToolbarBox
+  stageWidth: number
 }): React.ReactElement {
+  const toolbarRef = useRef<HTMLDivElement>(null)
+  const [toolbarWidth, setToolbarWidth] = useState(0)
   const selectedIds = useEditor((s) => s.selectedIds)
   const shapes = useEditor((s) => s.doc?.shapes)
   const picked = (shapes ?? []).filter((s) => selectedIds.includes(s.id))
@@ -730,14 +1339,42 @@ function FloatingToolbar({
     first && 'strokeWidth' in first ? (first as { strokeWidth: number }).strokeWidth : 0
   const width = rawWidth > 0 ? rawWidth : null
 
-  // Sit above the selection unless that would clip off the top of the canvas.
-  const above = toolbarIsAbove(box.top)
+  useLayoutEffect(() => {
+    const element = toolbarRef.current
+    if (!element) return
+    const measure = () => {
+      const next = element.getBoundingClientRect().width
+      setToolbarWidth((current) => (current === next ? current : next))
+    }
+    measure()
+    if (typeof ResizeObserver === 'undefined') return
+    const observer = new ResizeObserver(measure)
+    observer.observe(element)
+    return () => observer.disconnect()
+  }, [])
+
+  const bounds =
+    Number.isFinite(box.visibleLeft) && Number.isFinite(box.visibleRight)
+      ? { left: box.visibleLeft as number, right: box.visibleRight as number }
+      : { left: 0, right: stageWidth }
+
+  const left =
+    toolbarWidth > 0
+      ? clampToolbarCenter(
+          box.left + box.width / 2,
+          toolbarWidth,
+          bounds,
+          FLOATING_TOOLBAR_EDGE_PADDING
+        )
+      : clampToolbarCenter(box.left + box.width / 2, 0, bounds, FLOATING_TOOLBAR_EDGE_PADDING)
+
   return (
     <div
+      ref={toolbarRef}
       className="float-bar"
       style={{
-        left: Math.max(4, box.left + box.width / 2),
-        top: above ? box.top - ROTATE_TOOLBAR_ABOVE_OFFSET : box.top + ROTATE_TOOLBAR_BELOW_OFFSET,
+        left,
+        top: floatingToolbarTop(box.top, box.height),
         transform: 'translateX(-50%)'
       }}
       onMouseDown={(e) => e.stopPropagation()}

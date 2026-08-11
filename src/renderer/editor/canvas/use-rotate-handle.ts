@@ -1,12 +1,12 @@
 import { useCallback, useEffect, useRef, type MutableRefObject } from 'react'
 import type Konva from 'konva'
 import {
-  chooseRotateSide,
   clampRotateCenter,
-  oppositeRotateSide,
-  rectOverflow,
   rotateAnchorOffset,
-  ROTATE_ICON_SIZE
+  resolveRotateSide,
+  ROTATE_ICON_SIZE,
+  type RotateBox,
+  type RotateSide
 } from './rotation-handle'
 import type { RotateBounds } from './rotation-handle'
 
@@ -17,9 +17,36 @@ export interface RotateHandleRefs {
 }
 
 export interface RotateHandleActions {
+  beginTransform: () => void
+  endTransform: () => void
   syncRotateAnchor: () => void
   scheduleRotateAnchorSync: () => void
   styleTransformerAnchor: (anchor: Konva.Rect) => void
+}
+
+function selectionBox(transformer: Konva.Transformer): RotateBox | null {
+  const nodes = transformer.nodes()
+  if (nodes.length === 0) return null
+
+  let left = Number.POSITIVE_INFINITY
+  let top = Number.POSITIVE_INFINITY
+  let right = Number.NEGATIVE_INFINITY
+  let bottom = Number.NEGATIVE_INFINITY
+  for (const node of nodes) {
+    const rect = node.getClientRect()
+    left = Math.min(left, rect.x)
+    top = Math.min(top, rect.y)
+    right = Math.max(right, rect.x + rect.width)
+    bottom = Math.max(bottom, rect.y + rect.height)
+  }
+  return { left, top, width: right - left, height: bottom - top }
+}
+
+function stageBounds(stage: Konva.Stage | null): RotateBounds | undefined {
+  const rect = stage?.getClientRect()
+  return rect
+    ? { left: rect.x, top: rect.y, right: rect.x + rect.width, bottom: rect.y + rect.height }
+    : undefined
 }
 
 function anchorVisualCenter(anchor: Konva.Node): { x: number; y: number } {
@@ -51,6 +78,8 @@ export function useRotateHandle({
   iconRef
 }: RotateHandleRefs): RotateHandleActions {
   const rotateSyncFrame = useRef<number | null>(null)
+  const transformActive = useRef(false)
+  const lockedSide = useRef<RotateSide | null>(null)
 
   const syncRotateIcon = useCallback(() => {
     const icon = iconRef.current
@@ -67,8 +96,9 @@ export function useRotateHandle({
     // actual rotater anchor keeps the visual glyph aligned while the transparent anchor
     // underneath remains the drag target.
     icon.absolutePosition(anchorVisualCenter(anchor))
-    const selectedNode = transformer.nodes()[0]
-    icon.rotation(selectedNode?.getAbsoluteRotation() ?? transformer.rotation())
+    // The arrow glyph is an orientation cue, not part of the annotation geometry. Keep it
+    // upright while its center follows the transformer-relative handle.
+    icon.rotation(0)
     icon.visible(true)
   }, [iconRef, transformerRef])
 
@@ -85,74 +115,43 @@ export function useRotateHandle({
     }
 
     const height = transformer.height()
-    const selection = transformer.nodes().reduce(
-      (bounds, node) => {
-        const rect = node.getClientRect()
-        return {
-          x: Math.min(bounds.x, rect.x),
-          y: Math.min(bounds.y, rect.y),
-          right: Math.max(bounds.right, rect.x + rect.width),
-          bottom: Math.max(bounds.bottom, rect.y + rect.height)
-        }
-      },
-      {
-        x: Number.POSITIVE_INFINITY,
-        y: Number.POSITIVE_INFINITY,
-        right: Number.NEGATIVE_INFINITY,
-        bottom: Number.NEGATIVE_INFINITY
-      }
-    )
-    const stage = stageRef.current?.getClientRect()
-    const selectionBox = {
-      left: selection.x,
-      top: selection.y,
-      width: selection.right - selection.x,
-      height: selection.bottom - selection.y
+    const currentSelection = selectionBox(transformer)
+    const bounds = stageBounds(stageRef.current)
+    if (!currentSelection) {
+      syncRotateIcon()
+      return
     }
-    const stageBounds = stage
-      ? {
-          left: stage.x,
-          top: stage.y,
-          right: stage.x + stage.width,
-          bottom: stage.y + stage.height
-        }
-      : undefined
-    const preferred = chooseRotateSide(selectionBox, stageBounds)
-    const candidates = [preferred, oppositeRotateSide(preferred)]
-
-    let chosen = preferred
-    let bestOverflow = Number.POSITIVE_INFINITY
-    for (const side of candidates) {
-      transformer.rotateAnchorOffset(rotateAnchorOffset(height, transformer.padding(), side))
-      transformer.forceUpdate()
-      const position = anchorVisualCenter(anchor)
-      const overflow = stageBounds
-        ? rectOverflow(
-            {
-              left: position.x - ROTATE_ICON_SIZE / 2,
-              top: position.y - ROTATE_ICON_SIZE / 2,
-              width: ROTATE_ICON_SIZE,
-              height: ROTATE_ICON_SIZE
-            },
-            stageBounds
-          )
-        : 0
-      if (overflow < bestOverflow) {
-        chosen = side
-        bestOverflow = overflow
-      }
-      if (overflow === 0) break
-    }
-
+    const chosen = resolveRotateSide(currentSelection, bounds, lockedSide.current)
     const offset = rotateAnchorOffset(height, transformer.padding(), chosen)
     if (Math.abs(transformer.rotateAnchorOffset() - offset) >= 0.5) {
       transformer.rotateAnchorOffset(offset)
       transformer.forceUpdate()
     }
-    if (stageBounds) keepAnchorInsideStage(anchor, stageBounds)
+    // Moving the anchor's offset while Konva is calculating a rotation changes the pointer
+    // reference it captured on mousedown and can make the annotation jump. Clamp only before
+    // the next gesture and after the committed geometry is available.
+    if (!transformActive.current && bounds) keepAnchorInsideStage(anchor, bounds)
     syncRotateIcon()
     transformer.getLayer()?.batchDraw()
   }, [stageRef, syncRotateIcon, transformerRef])
+
+  const beginTransform = useCallback(() => {
+    if (transformActive.current) return
+    transformActive.current = true
+    const transformer = transformerRef.current
+    const currentSelection = transformer ? selectionBox(transformer) : null
+    lockedSide.current = currentSelection
+      ? resolveRotateSide(currentSelection, stageBounds(stageRef.current), null)
+      : null
+  }, [stageRef, transformerRef])
+
+  const endTransform = useCallback(() => {
+    transformActive.current = false
+    // syncRotateAnchor reads the committed node geometry and therefore chooses from the
+    // screen-space bounds after the gesture, then clamps the reachable target if needed.
+    lockedSide.current = null
+    syncRotateAnchor()
+  }, [syncRotateAnchor])
 
   const scheduleRotateAnchorSync = useCallback(() => {
     if (rotateSyncFrame.current !== null) return
@@ -185,5 +184,11 @@ export function useRotateHandle({
     }
   }, [])
 
-  return { syncRotateAnchor, scheduleRotateAnchorSync, styleTransformerAnchor }
+  return {
+    beginTransform,
+    endTransform,
+    syncRotateAnchor,
+    scheduleRotateAnchorSync,
+    styleTransformerAnchor
+  }
 }

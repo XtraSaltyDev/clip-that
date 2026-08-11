@@ -379,6 +379,7 @@ export default function App(): React.ReactElement {
                   containerWidth={viewport.width}
                   containerHeight={viewport.height}
                   stageRef={stageRef}
+                  viewportRef={viewportRef}
                 />
               </div>
             </div>

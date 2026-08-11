@@ -19,14 +19,82 @@ export interface RotatePoint {
   y: number
 }
 
+export interface FloatingToolbarBox {
+  left: number
+  top: number
+  width: number
+  height: number
+  /** Horizontal viewport bounds expressed in the stage-root coordinate space. */
+  visibleLeft?: number
+  visibleRight?: number
+}
+
+export interface FloatingToolbarState {
+  transforming: boolean
+  box: FloatingToolbarBox | null
+}
+
+export interface HorizontalBounds {
+  left: number
+  right: number
+}
+
 export const ROTATE_ANCHOR_GAP = 25
 export const ROTATE_ICON_SIZE = 20
 export const ROTATE_TOOLBAR_FLIP_TOP = 54
 export const ROTATE_TOOLBAR_ABOVE_OFFSET = 46
 export const ROTATE_TOOLBAR_BELOW_OFFSET = 8
 
+export function floatingToolbarHidden(): FloatingToolbarState {
+  return { transforming: true, box: null }
+}
+
+export function floatingToolbarShown(box: FloatingToolbarBox | null): FloatingToolbarState {
+  return { transforming: false, box }
+}
+
+export function floatingToolbarWithBounds(
+  state: FloatingToolbarState,
+  box: FloatingToolbarBox | null
+): FloatingToolbarState {
+  return { ...state, box }
+}
+
+export function isFloatingToolbarVisible(state: FloatingToolbarState): boolean {
+  return !state.transforming && state.box !== null
+}
+
 export function toolbarIsAbove(selectionTop: number): boolean {
   return selectionTop > ROTATE_TOOLBAR_FLIP_TOP
+}
+
+/** Return the toolbar's top edge without covering a short selection at the top edge. */
+export function floatingToolbarTop(selectionTop: number, selectionHeight: number): number {
+  return toolbarIsAbove(selectionTop)
+    ? selectionTop - ROTATE_TOOLBAR_ABOVE_OFFSET
+    : selectionTop + selectionHeight + ROTATE_TOOLBAR_BELOW_OFFSET
+}
+
+/** Convert viewport client edges to the coordinate space used by the stage-root toolbar. */
+export function horizontalViewportBounds(
+  stageRootLeft: number,
+  viewportLeft: number,
+  viewportRight: number
+): HorizontalBounds {
+  return { left: viewportLeft - stageRootLeft, right: viewportRight - stageRootLeft }
+}
+
+/** Keep the measured HTML toolbar inside the stage without changing its vertical side. */
+export function clampToolbarCenter(
+  center: number,
+  toolbarWidth: number,
+  bounds: HorizontalBounds,
+  padding = 4
+): number {
+  const half = toolbarWidth / 2
+  const minimum = bounds.left + padding + half
+  const maximum = Math.max(minimum, bounds.right - padding - half)
+  return Math.min(Math.max(center, minimum), maximum)
 }
 
 export function preferredRotateSide(selectionTop: number): RotateSide {
@@ -95,6 +163,26 @@ export function clampRotateCenter(
   }
 }
 
+export function clampedRotateHandleRect(
+  selection: RotateBox,
+  side: RotateSide,
+  bounds: RotateBounds,
+  size = ROTATE_ICON_SIZE
+): RotateBox {
+  const desired = rotateHandleRect(selection, side, size)
+  const center = clampRotateCenter(
+    { x: desired.left + desired.width / 2, y: desired.top + desired.height / 2 },
+    size,
+    bounds
+  )
+  return {
+    left: center.x - size / 2,
+    top: center.y - size / 2,
+    width: size,
+    height: size
+  }
+}
+
 /** Prefer the side that avoids the toolbar, then keep the handle inside the stage. */
 export function chooseRotateSide(selection: RotateBox, bounds?: RotateBounds): RotateSide {
   const preferred = preferredRotateSide(selection.top)
@@ -105,4 +193,16 @@ export function chooseRotateSide(selection: RotateBox, bounds?: RotateBounds): R
   if (preferredOverflow === 0) return preferred
   const alternateOverflow = rectOverflow(rotateHandleRect(selection, alternate), bounds)
   return alternateOverflow < preferredOverflow ? alternate : preferred
+}
+
+/**
+ * Choose once before a transform, then reuse the chosen side until mouse-up. The caller passes
+ * the locked side while a gesture is active so changing screen-space bounds cannot flip it.
+ */
+export function resolveRotateSide(
+  selection: RotateBox,
+  bounds: RotateBounds | undefined,
+  lockedSide: RotateSide | null
+): RotateSide {
+  return lockedSide ?? chooseRotateSide(selection, bounds)
 }

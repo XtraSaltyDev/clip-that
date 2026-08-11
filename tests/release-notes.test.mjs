@@ -61,3 +61,12 @@ test('bundles the 0.1.9 rotation and reliability release notes', () => {
   assert.ok(notes.items.some((item) => /Rotate/i.test(item.title)))
   assert.ok(notes.items.some((item) => /resilient|reliability/i.test(item.title + item.body)))
 })
+
+test('bundles the 0.1.10 direct editing and canvas safety release notes', () => {
+  const notes = RELEASE_NOTES.find((entry) => entry.version === '0.1.10')
+  assert.ok(notes)
+  assert.match(notes.title, /Direct line editing/i)
+  assert.ok(notes.items.some((item) => /endpoint/i.test(item.title + item.body)))
+  assert.ok(notes.items.some((item) => /Measurement/i.test(item.title + item.body)))
+  assert.ok(notes.items.some((item) => /canvas boundary/i.test(item.title + item.body)))
+})

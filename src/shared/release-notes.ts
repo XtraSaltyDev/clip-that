@@ -96,6 +96,30 @@ export const RELEASE_NOTES = [
         body: 'Long logs rotate safely, ordinary settings save immediately, and OCR workers report failures instead of waiting for the full timeout.'
       }
     ]
+  },
+  {
+    version: '0.1.10',
+    title: 'Direct line editing and safer canvas control',
+    summary:
+      'Reshape arrows, lines, and measurements directly while keeping annotations selectable, readable, and recoverable near canvas edges.',
+    items: [
+      {
+        title: 'Drag either endpoint directly',
+        body: 'Select a line, arrow, or measurement and drag either end to change its direction and length while the opposite end stays anchored.'
+      },
+      {
+        title: 'Measurements remain readable and editable',
+        body: 'Measurement labels follow curved and angled lines more clearly, and measurements can be reselected and moved after placement.'
+      },
+      {
+        title: 'Annotations stay within reach',
+        body: 'Dragging single or grouped annotations near the canvas boundary keeps enough selectable geometry available to recover and continue editing them.'
+      },
+      {
+        title: 'Selection controls behave consistently',
+        body: 'Rotation, direct manipulation, cancellation, undo, and redo now share a more predictable control lifecycle across editor zoom levels.'
+      }
+    ]
   }
 ] as const satisfies readonly ReleaseNotes[]
 

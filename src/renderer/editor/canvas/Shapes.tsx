@@ -19,7 +19,18 @@ import type {
   StepShape,
   TextShape
 } from '@shared/types'
-import { pointsCenter } from './geometry'
+import {
+  bodyDragPatch,
+  effectiveLinePoints,
+  interactiveHitStrokeWidth,
+  isDirectLineShape,
+  lineCurvePoint,
+  lineEndpoint,
+  lineLength,
+  measurementHitStrokeWidth,
+  measurementLabelLayout,
+  pointsCenter
+} from './geometry'
 
 export interface ShapeContext {
   image: HTMLImageElement
@@ -37,9 +48,12 @@ interface Props {
   ctx: ShapeContext
   draggable: boolean
   onSelect: (id: string, additive: boolean) => void
+  onBodyPointerDown: (id: string, additive: boolean) => void
   onChange: (id: string, patch: Partial<Shape>) => void
-  onDragStart: () => void
+  onDragStart: (id?: string) => void
   onEditText: (id: string) => void
+  /** Selected two-point line-like shapes render from effective world-space points. */
+  directLineLike?: boolean
   hidden?: boolean
 }
 
@@ -49,14 +63,16 @@ function common(shape: Shape, props: Props) {
     id: shape.id,
     name: 'shape',
     opacity: shape.hidden ? 0 : (shape.opacity ?? 1),
-    rotation: shape.rotation ?? 0,
+    rotation: props.directLineLike && isDirectLineShape(shape) ? 0 : (shape.rotation ?? 0),
     listening: !shape.locked && !shape.hidden,
     draggable: props.draggable && !shape.locked,
     onMouseDown: (e: Konva.KonvaEventObject<MouseEvent>) => {
+      const additive = e.evt.shiftKey || e.evt.metaKey || e.evt.ctrlKey
+      props.onBodyPointerDown(shape.id, additive)
       e.cancelBubble = true
-      props.onSelect(shape.id, e.evt.shiftKey || e.evt.metaKey || e.evt.ctrlKey)
+      props.onSelect(shape.id, additive)
     },
-    onDragStart: props.onDragStart
+    onDragStart: () => props.onDragStart(shape.id)
   }
 }
 
@@ -215,15 +231,20 @@ function Spotlight(props: Props): React.ReactElement {
         cornerRadius={shape.cornerRadius ?? 0}
         stroke={shape.stroke && shape.stroke !== 'transparent' ? shape.stroke : undefined}
         strokeWidth={shape.strokeWidth}
+        fill="#000000"
+        opacity={0}
+        hitStrokeWidth={interactiveHitStrokeWidth(props.ctx.zoom, shape.strokeWidth)}
         draggable={props.draggable && !shape.locked}
         onDragEnd={(e) => {
           props.onChange(shape.id, { x: e.target.x(), y: e.target.y() } as Partial<Shape>)
         }}
         onMouseDown={(e) => {
+          const additive = e.evt.shiftKey || e.evt.metaKey || e.evt.ctrlKey
+          props.onBodyPointerDown(shape.id, additive)
           e.cancelBubble = true
-          props.onSelect(shape.id, e.evt.shiftKey)
+          props.onSelect(shape.id, additive)
         }}
-        onDragStart={props.onDragStart}
+        onDragStart={() => props.onDragStart(shape.id)}
       />
     </Group>
   )
@@ -305,7 +326,7 @@ function Callout(props: Props): React.ReactElement {
           stroke="#00000055"
           strokeWidth={1}
           draggable
-          onDragStart={props.onDragStart}
+          onDragStart={() => props.onDragStart(shape.id)}
           onDragMove={(e) => {
             props.onChange(shape.id, {
               tail: { x: e.target.x(), y: e.target.y() }
@@ -335,26 +356,30 @@ function ShapeNodeInner(props: Props): React.ReactElement | null {
     case 'line':
     case 'measure': {
       const s = shape as ArrowShape
-      const [x1, y1, x2, y2] = s.points
+      const direct = Boolean(props.directLineLike && isDirectLineShape(s))
+      const displayPoints = direct ? effectiveLinePoints(s) : [...s.points]
+      const start = lineEndpoint(displayPoints, 'start')
+      const end = lineEndpoint(displayPoints, 'end')
+      const { x: x1, y: y1 } = start
+      const { x: x2, y: y2 } = end
       const curve = s.curve ?? 0
       const origin =
-        s.type === 'measure' ? { x: (x1 + x2) / 2, y: (y1 + y2) / 2 } : pointsCenter(s.points)
-      let points = [x1 - origin.x, y1 - origin.y, x2 - origin.x, y2 - origin.y]
-      if (curve !== 0) {
-        // Bow the line by pushing a midpoint along the perpendicular.
-        const mx = (x1 + x2) / 2 - origin.x
-        const my = (y1 + y2) / 2 - origin.y
-        const len = Math.hypot(x2 - x1, y2 - y1) || 1
-        const nx = -(y2 - y1) / len
-        const ny = (x2 - x1) / len
-        points = [
+        s.type === 'measure' ? { x: (x1 + x2) / 2, y: (y1 + y2) / 2 } : pointsCenter(displayPoints)
+      const points = displayPoints.map(
+        (value, index) => value - (index % 2 === 0 ? origin.x : origin.y)
+      )
+      if (curve !== 0 && displayPoints.length === 4) {
+        const control = lineCurvePoint(displayPoints, curve)
+        points.splice(
+          0,
+          points.length,
           x1 - origin.x,
           y1 - origin.y,
-          mx + nx * curve,
-          my + ny * curve,
+          control.x - origin.x,
+          control.y - origin.y,
           x2 - origin.x,
           y2 - origin.y
-        ]
+        )
       }
       const head = s.strokeWidth * (s.headScale ?? 3)
       const arrowProps = {
@@ -372,24 +397,46 @@ function ShapeNodeInner(props: Props): React.ReactElement | null {
         pointerWidth: s.endHead || s.startHead ? head * 0.8 : 0,
         pointerAtBeginning: Boolean(s.startHead),
         pointerAtEnding: s.endHead !== false && s.type !== 'line',
-        hitStrokeWidth: Math.max(18, s.strokeWidth * 3),
+        hitStrokeWidth: interactiveHitStrokeWidth(
+          props.ctx.zoom,
+          Math.max(s.strokeWidth, s.strokeWidth * (s.headScale ?? 3))
+        ),
         ...shadowProps(s)
       }
       const onDragEnd = (e: Konva.KonvaEventObject<DragEvent>) => {
         const dx = e.target.x() - origin.x
         const dy = e.target.y() - origin.y
         e.target.position(origin)
-        props.onChange(shape.id, {
-          points: s.points.map((p, i) => (i % 2 === 0 ? p + dx : p + dy))
-        } as Partial<Shape>)
+        props.onChange(
+          shape.id,
+          (direct
+            ? bodyDragPatch(s, dx, dy)
+            : {
+                points: s.points.map((p, i) => (i % 2 === 0 ? p + dx : p + dy))
+              }) as Partial<Shape>
+        )
       }
 
       if (s.type !== 'measure') {
         return <Arrow {...common(shape, props)} {...arrowProps} onDragEnd={onDragEnd} />
       }
-      const length = Math.round(Math.hypot(x2 - x1, y2 - y1))
+      const length = Math.round(lineLength(displayPoints))
       const centerX = (x1 + x2) / 2
       const centerY = (y1 + y2) / 2
+      const labelText = `${length} px`
+      const labelFontSize = Math.max(12, s.strokeWidth * 3.5)
+      const labelLayout = measurementLabelLayout(
+        displayPoints,
+        labelFontSize,
+        s.strokeWidth,
+        Math.max(arrowProps.pointerWidth, arrowProps.pointerLength),
+        Math.max(80, labelText.length * labelFontSize * 0.62),
+        4,
+        curve
+      )
+      // The outer measurement group already owns the midpoint origin. Keeping the child
+      // arrow at (0, 0) avoids applying that origin twice after the shape is deselected.
+      const measureArrowProps = { ...arrowProps, x: 0, y: 0 }
       return (
         <Group
           {...common(shape, props)}
@@ -398,15 +445,25 @@ function ShapeNodeInner(props: Props): React.ReactElement | null {
           y={centerY}
           onDragEnd={onDragEnd}
         >
-          <Arrow {...arrowProps} listening={false} />
+          <Arrow {...measureArrowProps} listening={false} />
+          <Line
+            name="measurement-hit"
+            points={points}
+            stroke="#000000"
+            strokeWidth={measurementHitStrokeWidth(props.ctx.zoom, s.strokeWidth)}
+            hitStrokeWidth={measurementHitStrokeWidth(props.ctx.zoom, s.strokeWidth)}
+            opacity={0}
+            listening={!s.locked && !s.hidden}
+          />
           <KonvaText
-            x={-40}
-            y={-s.strokeWidth * 4}
-            width={80}
+            x={labelLayout.x}
+            y={labelLayout.y}
+            width={labelLayout.width}
+            height={labelLayout.height}
             align="center"
-            text={`${length} px`}
+            text={labelText}
             fontFamily="ui-monospace, monospace"
-            fontSize={Math.max(12, s.strokeWidth * 3.5)}
+            fontSize={labelFontSize}
             fill={s.stroke}
             listening={false}
           />
@@ -430,7 +487,7 @@ function ShapeNodeInner(props: Props): React.ReactElement | null {
           lineCap="round"
           lineJoin="round"
           globalCompositeOperation={s.type === 'highlighter' ? 'multiply' : undefined}
-          hitStrokeWidth={Math.max(18, s.strokeWidth)}
+          hitStrokeWidth={interactiveHitStrokeWidth(props.ctx.zoom, s.strokeWidth)}
           onDragEnd={(e) => {
             const dx = e.target.x() - origin.x
             const dy = e.target.y() - origin.y
@@ -461,6 +518,7 @@ function ShapeNodeInner(props: Props): React.ReactElement | null {
           fill={s.fill}
           opacity={(shape.opacity ?? 1) * 1}
           fillEnabled={Boolean(s.fill)}
+          hitStrokeWidth={interactiveHitStrokeWidth(props.ctx.zoom, s.strokeWidth)}
           {...shadowProps(s)}
           onDragEnd={boxDrag(shape.id)}
         />
@@ -485,6 +543,7 @@ function ShapeNodeInner(props: Props): React.ReactElement | null {
           dash={s.dash}
           fill={s.fill}
           fillEnabled={Boolean(s.fill)}
+          hitStrokeWidth={interactiveHitStrokeWidth(props.ctx.zoom, s.strokeWidth)}
           {...shadowProps(s)}
           onDragEnd={(e) => {
             props.onChange(shape.id, {
@@ -564,12 +623,22 @@ function ShapeNodeInner(props: Props): React.ReactElement | null {
 
     case 'text': {
       const s = shape as TextShape
+      const textHeight = s.height ?? Math.max(1, s.fontSize * 1.4)
       return (
         <KonvaText
           {...common(shape, props)}
           x={s.x}
           y={s.y}
           width={s.width}
+          hitFunc={(context, node) => {
+            // Text glyphs do not fill their layout box. Give the draggable annotation a
+            // deliberate body hit target so a clamped text box remains reselectable even when
+            // only its whitespace area is inside the canvas.
+            context.beginPath()
+            context.rect(0, 0, s.width, textHeight)
+            context.closePath()
+            context.fillStrokeShape(node)
+          }}
           text={s.text || 'Double-click to edit'}
           fontFamily={s.fontFamily}
           fontSize={s.fontSize}
@@ -613,6 +682,7 @@ function ShapeNodeWithClip(props: Props): React.ReactElement | null {
 export const ShapeNode = React.memo(ShapeNodeWithClip, (prev, next) => {
   if (prev.shape !== next.shape) return false
   if (prev.draggable !== next.draggable) return false
+  if (prev.directLineLike !== next.directLineLike) return false
   const a = prev.ctx
   const b = next.ctx
   return (
