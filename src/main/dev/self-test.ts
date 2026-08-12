@@ -32,6 +32,7 @@ import { openOverlay, closeOverlay, overlayVisible } from '../windows/overlay'
 import { checkForAppUpdate } from '../update/service'
 import { importSnagitLibrary, scanSnagitLibrary } from '../import/snagit'
 import type { SnagitImportProgress } from '@shared/types'
+import { selfTestExitCode } from './self-test-exit'
 
 const wait = (ms: number) => new Promise((r) => setTimeout(r, ms))
 const log = (line: string) => console.log(`[selftest] ${line}`)
@@ -999,7 +1000,7 @@ async function waitForCaptureReady(): Promise<boolean> {
   return ok
 }
 
-export async function runSelfTest(which: string): Promise<void> {
+export async function runSelfTest(which: string): Promise<number> {
   const parts = which.split(',').map((s) => s.trim().toLowerCase())
   const results: Array<[string, boolean]> = []
   const existingRecoveryIds = new Set(recording.recoveries().map((item) => item.id))
@@ -1044,6 +1045,10 @@ export async function runSelfTest(which: string): Promise<void> {
     if (parts.includes('snagit') || parts.includes('all')) {
       results.push(['snagit', await testSnagitImport()])
     }
+    if (parts.includes('editor') || parts.includes('all')) {
+      const { runEditorSelfTest } = await import('./editor-self-test')
+      results.push(['editor', await runEditorSelfTest()])
+    }
     if (parts.includes('pin') || parts.includes('all')) {
       results.push(['pin', await testPin()])
     }
@@ -1063,6 +1068,11 @@ export async function runSelfTest(which: string): Promise<void> {
       fail(`unhandled: ${(err as Error).stack ?? err}`)
       results.push(['unhandled', false])
     }
+  }
+
+  if (process.env['CLIPTHAT_SELF_TEST_FORCE_FAIL'] === '1') {
+    results.push(['controlled-failure', false])
+    fail('controlled failure requested by CLIPTHAT_SELF_TEST_FORCE_FAIL')
   }
 
   const passedBeforeCleanup = results.filter(([, ok]) => ok).length
@@ -1095,8 +1105,5 @@ export async function runSelfTest(which: string): Promise<void> {
       .map(([name, ok]) => `${name}=${ok ? 'PASS' : 'FAIL'}`)
       .join(', ')}`
   )
-  process.exitCode = complete ? 0 : 1
-  // Use the regular quit path so settings and the log are flushed before the
-  // packaged harness exits. The explicit environment variable makes this safe.
-  setTimeout(() => app.quit(), 100)
+  return selfTestExitCode(results)
 }

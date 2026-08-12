@@ -44,6 +44,7 @@ import { shapeTransformPatch } from './transforms'
 import {
   BODY_DRAG_VISIBILITY_MARGIN_SCREEN,
   beginProvisionalMultiSelection,
+  bodyDragPatch,
   bodyTranslationPatch,
   clampCommonTranslationToRecoveryGroups,
   clampTranslationToRecoveryRects,
@@ -62,12 +63,14 @@ import {
   shouldContinueBodyDragAfterMouseLeave,
   snapTranslationToLines,
   unionDragRects,
+  type DragBounds,
   type DragRect,
   type LineEndpoint,
   type Point,
   type ProvisionalMultiSelection
 } from './geometry'
 import { canvasTiltTransform } from './tilt'
+import { expandedAnnotationInsets } from './annotation-bounds'
 import {
   ROTATE_ICON_SIZE,
   clampToolbarCenter,
@@ -113,6 +116,7 @@ interface MultiDragGesture {
   anchorId: string
   entries: MultiDragEntry[]
   delta: Point
+  rawDelta: Point
 }
 
 interface BodyDragGesture {
@@ -122,6 +126,7 @@ interface BodyDragGesture {
   rect: DragRect
   recoveryRects: DragRect[]
   dragging: boolean
+  rawDelta: Point
 }
 
 /** Some composite shapes expose their painted body as a draggable child of a non-draggable owner. */
@@ -199,6 +204,21 @@ export default function EditorStage({
     () => (doc ? computeLayout(doc) : null),
     [doc?.crop, doc?.canvas, doc?.cutOuts, doc?.imageWidth, doc?.imageHeight]
   )
+
+  /** Grow automatic workspace only when a committed annotation actually paints beyond it. */
+  const expandAnnotations = useCallback((candidateShapes?: Shape[]) => {
+    const state = useEditor.getState()
+    const current = state.doc
+    if (!current) return
+    const next = expandedAnnotationInsets(current, undefined, candidateShapes ?? current.shapes)
+    const previous = current.canvas.annotationInsets
+    const same =
+      (previous?.top ?? 0) === next.top &&
+      (previous?.right ?? 0) === next.right &&
+      (previous?.bottom ?? 0) === next.bottom &&
+      (previous?.left ?? 0) === next.left
+    if (!same) state.setCanvas({ annotationInsets: next })
+  }, [])
 
   /* ---------- auto-fit ---------- */
 
@@ -330,6 +350,7 @@ export default function EditorStage({
 
     if (CLICK_TOOLS.includes(tool)) {
       addShape(shape)
+      expandAnnotations([shape])
       // Step is intentionally repeatable: keep placing the next number until the
       // user presses Escape or chooses another tool. Other click tools remain one-shot.
       if (tool !== 'step') useEditor.getState().setTool('select')
@@ -337,6 +358,7 @@ export default function EditorStage({
     }
     if (TEXT_TOOLS.includes(tool)) {
       addShape(shape)
+      expandAnnotations([shape])
       setEditingText(shape.id)
       useEditor.getState().setTool('select')
       return
@@ -347,7 +369,7 @@ export default function EditorStage({
     lastPoint.current = p
   }
 
-  const onStageMouseMove = () => {
+  const onStageMouseMove = useCallback(() => {
     const draft = drafting.current
     if (!draft) return
     const p = pointer()
@@ -408,9 +430,9 @@ export default function EditorStage({
         height: Math.abs(p.y - draft.origin.y)
       } as Partial<Shape>)
     }
-  }
+  }, [cutOutPointer, pointer, setCropDraft, setCutOutDraft, updateShape, zoom])
 
-  const onStageMouseUp = () => {
+  const onStageMouseUp = useCallback(() => {
     const activeBodyGesture = shouldContinueBodyDragAfterMouseLeave({
       captured: Boolean(bodyDrag.current),
       dragging: Boolean(bodyDrag.current?.dragging),
@@ -453,8 +475,9 @@ export default function EditorStage({
     }
 
     select([shape.id])
+    expandAnnotations()
     useEditor.getState().setTool('select')
-  }
+  }, [expandAnnotations, select])
 
   const captureMultiDrag = useCallback((id: string, additive: boolean) => {
     const state = useEditor.getState()
@@ -480,7 +503,8 @@ export default function EditorStage({
         origin: { x: node.x(), y: node.y() },
         rect,
         recoveryRects,
-        dragging: false
+        dragging: false,
+        rawDelta: { x: 0, y: 0 }
       }
     } else {
       bodyDrag.current = null
@@ -525,6 +549,49 @@ export default function EditorStage({
       pendingMultiDrag.current && provisional ? { gesture: provisional, dragging: false } : null
   }, [])
 
+  /**
+   * Body recovery is constrained by the portion of the content that is actually editable and
+   * visible through the overflow viewport. At high zoom the full document can extend below or
+   * beside that viewport; using only the document bounds would leave a tiny clipped slice that
+   * cannot be reacquired until the user happens to scroll.
+   */
+  const visibleContentBounds = useCallback((): DragBounds => {
+    if (!layout) return { left: 0, top: 0, right: 0, bottom: 0 }
+    const contentOriginX = layout.shotX
+    const contentOriginY = layout.shotY + layout.frameHeight
+    const full = {
+      left: layout.cropX - contentOriginX,
+      top: layout.cropY - contentOriginY,
+      right: layout.cropX + layout.canvasWidth - contentOriginX,
+      bottom: layout.cropY + layout.canvasHeight - contentOriginY
+    }
+    const stage = stageRef.current?.container()
+    const viewport = viewportRef.current
+    if (!stage || !viewport) return full
+
+    const stageRect = stage.getBoundingClientRect()
+    const viewportRect = viewport.getBoundingClientRect()
+    const visibleLeft = Math.max(stageRect.left, viewportRect.left)
+    const visibleRight = Math.min(stageRect.right, viewportRect.right)
+    const visibleTop = Math.max(stageRect.top, viewportRect.top)
+    const visibleBottom = Math.min(stageRect.bottom, viewportRect.bottom)
+    if (visibleRight <= visibleLeft || visibleBottom <= visibleTop) return full
+
+    const scale = Math.max(zoom, 0.05)
+    const localLeft = Math.max(0, (visibleLeft - stageRect.left) / scale)
+    const localRight = Math.min(layout.canvasWidth, (visibleRight - stageRect.left) / scale)
+    const localTop = Math.max(0, (visibleTop - stageRect.top) / scale)
+    const localBottom = Math.min(layout.canvasHeight, (visibleBottom - stageRect.top) / scale)
+    if (localRight <= localLeft || localBottom <= localTop) return full
+
+    return {
+      left: layout.cropX + localLeft - contentOriginX,
+      top: layout.cropY + localTop - contentOriginY,
+      right: layout.cropX + localRight - contentOriginX,
+      bottom: layout.cropY + localBottom - contentOriginY
+    }
+  }, [layout, stageRef, viewportRef, zoom])
+
   /* ---------- alignment guides while dragging ---------- */
 
   const onDragMove = useCallback(
@@ -544,12 +611,7 @@ export default function EditorStage({
           : (eventNode.findAncestor('.shape', true) ?? eventNode)
       if (node === shapesGroupRef.current) return
 
-      const contentBounds = {
-        left: layoutNow.cropX,
-        top: layoutNow.cropY,
-        right: layoutNow.cropX + layoutNow.contentWidth,
-        bottom: layoutNow.cropY + layoutNow.contentHeight
-      }
+      const contentBounds = visibleContentBounds()
       const visibilityMargin = BODY_DRAG_VISIBILITY_MARGIN_SCREEN / Math.max(zoom, 0.05)
 
       const activeMultiDrag = multiDrag.current
@@ -563,6 +625,7 @@ export default function EditorStage({
             x: anchor.node.x() - anchor.origin.x,
             y: anchor.node.y() - anchor.origin.y
           }
+          activeMultiDrag.rawDelta = desired
           const selected = new Set(activeMultiDrag.entries.map((entry) => entry.id))
           const vLines: number[] = [layoutNow.cropX + layoutNow.contentWidth / 2]
           const hLines: number[] = [layoutNow.cropY + layoutNow.contentHeight / 2]
@@ -614,6 +677,7 @@ export default function EditorStage({
         x: node.x() - origin.x,
         y: node.y() - origin.y
       }
+      if (activeBody) activeBody.rawDelta = desired
       const threshold = SNAP_PX / Math.max(zoom, 0.05)
       const contentCenterX = layoutNow.cropX + layoutNow.contentWidth / 2
       const contentCenterY = layoutNow.cropY + layoutNow.contentHeight / 2
@@ -639,7 +703,7 @@ export default function EditorStage({
       node.position({ x: origin.x + constrained.x, y: origin.y + constrained.y })
       setGuides(snapped.guides)
     },
-    [layout, zoom]
+    [layout, visibleContentBounds, zoom]
   )
 
   /**
@@ -663,12 +727,54 @@ export default function EditorStage({
       )
   }, [])
 
-  const commitShapeChange = useCallback((id: string, patch: Partial<Shape>) => {
-    if (isCancelledDirectGesture(directGesture.current, id) || multiDrag.current) return
-    const state = useEditor.getState()
-    state.updateShape(id, patch)
-    state.end()
-  }, [])
+  const commitShapeChange = useCallback(
+    (id: string, patch: Partial<Shape>) => {
+      if (isCancelledDirectGesture(directGesture.current, id) || multiDrag.current) return
+      const state = useEditor.getState()
+      const activeBody = bodyDrag.current && bodyDrag.current.id === id ? bodyDrag.current : null
+      const shape = state.doc?.shapes.find((candidate) => candidate.id === id)
+      let committedPatch = patch
+      if (activeBody && shape && layout && state.doc) {
+        const nodeDesired = {
+          x: activeBody.node.x() - activeBody.origin.x,
+          y: activeBody.node.y() - activeBody.origin.y
+        }
+        const desired =
+          activeBody.rawDelta.x !== 0 || activeBody.rawDelta.y !== 0
+            ? activeBody.rawDelta
+            : nodeDesired
+        const constrained = clampTranslationToRecoveryRects(
+          activeBody.recoveryRects,
+          nodeDesired,
+          visibleContentBounds(),
+          BODY_DRAG_VISIBILITY_MARGIN_SCREEN / Math.max(zoom, 0.05)
+        )
+        const rawPatch = isInteractiveDirectLineShape(shape)
+          ? bodyDragPatch(shape, desired.x, desired.y)
+          : bodyTranslationPatch(shape, desired.x, desired.y)
+        const rawShape = { ...shape, ...rawPatch } as Shape
+        const expanded = expandedAnnotationInsets(state.doc, undefined, [rawShape])
+        const previous = state.doc.canvas.annotationInsets
+        const grows =
+          (previous?.top ?? 0) !== expanded.top ||
+          (previous?.right ?? 0) !== expanded.right ||
+          (previous?.bottom ?? 0) !== expanded.bottom ||
+          (previous?.left ?? 0) !== expanded.left
+        const delta = grows ? desired : constrained
+        activeBody.node.position({
+          x: activeBody.origin.x + delta.x,
+          y: activeBody.origin.y + delta.y
+        })
+        committedPatch = isInteractiveDirectLineShape(shape)
+          ? bodyDragPatch(shape, delta.x, delta.y)
+          : bodyTranslationPatch(shape, delta.x, delta.y)
+        if (grows) state.setCanvas({ annotationInsets: expanded })
+      }
+      state.updateShape(id, committedPatch)
+      state.end()
+    },
+    [layout, visibleContentBounds, zoom]
+  )
 
   const readSelectionBox = useCallback((): FloatingToolbarBox | null => {
     const layer = artLayerRef.current
@@ -742,15 +848,36 @@ export default function EditorStage({
     if (collective) {
       const state = useEditor.getState()
       if (collective.delta.x !== 0 || collective.delta.y !== 0) {
+        const rawShapes = collective.entries
+          .map((entry) => {
+            const shape = state.doc?.shapes.find((candidate) => candidate.id === entry.id)
+            return shape
+              ? ({
+                  ...shape,
+                  ...bodyTranslationPatch(shape, collective.rawDelta.x, collective.rawDelta.y)
+                } as Shape)
+              : null
+          })
+          .filter((shape): shape is Shape => Boolean(shape))
+        const expanded = state.doc
+          ? expandedAnnotationInsets(state.doc, undefined, rawShapes)
+          : undefined
+        const previous = state.doc?.canvas.annotationInsets
+        const grows = Boolean(
+          expanded &&
+          ((previous?.top ?? 0) !== expanded.top ||
+            (previous?.right ?? 0) !== expanded.right ||
+            (previous?.bottom ?? 0) !== expanded.bottom ||
+            (previous?.left ?? 0) !== expanded.left)
+        )
+        const delta = grows ? collective.rawDelta : collective.delta
         for (const entry of collective.entries) {
           const shape = state.doc?.shapes.find((candidate) => candidate.id === entry.id)
           if (shape) {
-            state.updateShape(
-              shape.id,
-              bodyTranslationPatch(shape, collective.delta.x, collective.delta.y)
-            )
+            state.updateShape(shape.id, bodyTranslationPatch(shape, delta.x, delta.y))
           }
         }
+        if (grows && expanded) state.setCanvas({ annotationInsets: expanded })
       }
       state.end()
       multiDrag.current = null
@@ -801,12 +928,13 @@ export default function EditorStage({
       node.scaleX(1)
       node.scaleY(1)
     }
+    expandAnnotations()
     // Always close the transaction, including rotation-only and multi-selection transforms.
     state.end()
     endRotateTransform()
     revealToolbar()
     transformer.getLayer()?.batchDraw()
-  }, [endRotateTransform, revealToolbar])
+  }, [endRotateTransform, expandAnnotations, revealToolbar])
 
   const snapLineEndpoint = useCallback(
     (id: string, point: Point): Point => {
@@ -885,7 +1013,8 @@ export default function EditorStage({
         multiDrag.current = {
           anchorId: pending.anchorId,
           entries: pending.entries,
-          delta: { x: 0, y: 0 }
+          delta: { x: 0, y: 0 },
+          rawDelta: { x: 0, y: 0 }
         }
         pendingMultiDrag.current = null
         state.begin()
@@ -935,10 +1064,11 @@ export default function EditorStage({
       setGuides([])
       return
     }
+    expandAnnotations()
     useEditor.getState().end()
     setGuides([])
     revealToolbar()
-  }, [revealToolbar])
+  }, [expandAnnotations, revealToolbar])
 
   const resetDirectNode = useCallback((id: string, restoredDoc: ClipDocument | null) => {
     const shape = restoredDoc?.shapes.find((candidate) => candidate.id === id)
@@ -995,6 +1125,39 @@ export default function EditorStage({
       cancelDirectManipulation()
     }
   }, [cancelDirectManipulation, selectedIds, tool])
+
+  useEffect(() => {
+    const onWindowMouseMove = (event: MouseEvent) => {
+      const draft = drafting.current
+      if (!draft || draft.id === 'crop' || draft.id === 'cutOut') return
+      // Konva normally updates its pointer position from Stage mousemove events. Keep the
+      // same coordinate path alive after a drawing gesture crosses the canvas edge so the raw
+      // intended annotation bounds are not truncated at the old Stage boundary.
+      stageRef.current?.setPointersPositions(event)
+      onStageMouseMove()
+    }
+    const onWindowMouseUp = () => {
+      // Konva owns the terminal event for an active drag, including one that ends outside the
+      // Stage. Draft annotations are the one exception: their Stage mouseup is unavailable
+      // after leaving the canvas, so finalize them through this global terminal event.
+      if (bodyDrag.current?.dragging || multiDrag.current) return
+      if (drafting.current) {
+        onStageMouseUp()
+        return
+      }
+      const pending = pendingSelection.current
+      if (pending) select(finishProvisionalMultiSelection(pending.gesture, false))
+      pendingSelection.current = null
+      pendingMultiDrag.current = null
+      bodyDrag.current = null
+    }
+    window.addEventListener('mousemove', onWindowMouseMove)
+    window.addEventListener('mouseup', onWindowMouseUp)
+    return () => {
+      window.removeEventListener('mousemove', onWindowMouseMove)
+      window.removeEventListener('mouseup', onWindowMouseUp)
+    }
+  }, [onStageMouseMove, onStageMouseUp, select, stageRef])
 
   /* ---------- floating toolbar position ---------- */
 
@@ -1074,20 +1237,17 @@ export default function EditorStage({
         onMouseLeave={() => {
           // Direct line gestures intentionally cancel on leave. Ordinary Konva body drags use
           // global drag listeners, so keep their captured origin/recovery geometry until the
-          // real dragend rather than treating leave as a normal mouseup.
+          // real dragend rather than treating leave as a normal mouseup. The pointer button
+          // state on a Konva mouseleave is not reliable across browsers or synthetic input, so
+          // the captured gesture itself is the authority here. A click-only capture is cleaned
+          // up by the window mouseup listener below.
           if (directGesture.current) {
             cancelDirectManipulation()
             return
           }
-          if (
-            shouldContinueBodyDragAfterMouseLeave({
-              captured: Boolean(bodyDrag.current),
-              dragging: Boolean(bodyDrag.current?.dragging),
-              collective: Boolean(multiDrag.current)
-            })
-          ) {
-            return
-          }
+          const draft = drafting.current
+          if (draft && draft.id !== 'crop' && draft.id !== 'cutOut') return
+          if (bodyDrag.current || multiDrag.current) return
           onStageMouseUp()
         }}
         style={{
@@ -1102,7 +1262,8 @@ export default function EditorStage({
         <BaseLayer image={image} layout={layout} canvas={doc.canvas} />
 
         <Layer ref={artLayerRef}>
-          <ShotFrame layout={layout} canvas={doc.canvas} clip>
+          {/* Annotation pixels may occupy automatic workspace outside the source capture. */}
+          <ShotFrame layout={layout} canvas={doc.canvas}>
             <Group
               ref={shapesGroupRef}
               x={shapeOrigin}
@@ -1152,6 +1313,7 @@ export default function EditorStage({
             rotateEnabled
             keepRatio={false}
             ignoreStroke
+            rotateLineVisible={false}
             // Konva normalises the transformer against the stage scale, so these
             // are screen pixels and must not be divided by zoom.
             anchorSize={9}

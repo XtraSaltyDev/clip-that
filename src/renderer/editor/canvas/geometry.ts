@@ -420,7 +420,10 @@ export function sampledTensionPath(points: number[], tension = 0, maxStep = 8): 
   return samples
 }
 
-function renderedLinePoints(points: number[], curve = 0): { points: number[]; tension: number } {
+export function renderedLinePoints(
+  points: number[],
+  curve = 0
+): { points: number[]; tension: number } {
   if (points.length === 4 && Number.isFinite(curve) && Math.abs(curve) >= EPSILON) {
     const start = lineEndpoint(points, 'start')
     const end = lineEndpoint(points, 'end')
@@ -467,7 +470,7 @@ function appendArcSamples(
   }
 }
 
-function sampledRoundedRectBoundary(
+export function sampledRoundedRectBoundary(
   left: number,
   top: number,
   width: number,
@@ -541,7 +544,7 @@ function sampledRoundedRectBoundary(
   return values
 }
 
-function sampledEllipseBoundary(
+export function sampledEllipseBoundary(
   center: Point,
   radiusX: number,
   radiusY: number,
@@ -563,7 +566,7 @@ function sampledEllipseBoundary(
   return values
 }
 
-function transformAround(points: Point[], center: Point, rotation = 0): Point[] {
+export function transformAround(points: Point[], center: Point, rotation = 0): Point[] {
   return rotation ? points.map((point) => rotatePoint(point, center, rotation)) : points
 }
 

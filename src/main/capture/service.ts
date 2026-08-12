@@ -558,8 +558,8 @@ function deliverVideo(win: Electron.BrowserWindow, item: LibraryItem): void {
 }
 
 /** Hand a document to a fresh editor window. */
-export function openInEditor(doc: ClipDocument): void {
-  const win = createEditorWindow()
+export function openInEditor(doc: ClipDocument, hash = ''): void {
+  const win = createEditorWindow(hash)
   deliverDocument(win, doc)
 }
 

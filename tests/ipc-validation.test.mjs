@@ -5,7 +5,7 @@ import { load } from './helpers.mjs'
 
 const validation = await load('ipcValidation')
 const { isPathInside } = await load('pathGuard')
-const { defaultSettings } = await load('defaults')
+const { defaultSettings, DEFAULT_CANVAS } = await load('defaults')
 
 test('library patches expose only user-editable fields', () => {
   assert.deepEqual(validation.libraryPatch({ title: ' New title ', favorite: true }), {
@@ -24,9 +24,10 @@ test('library patches expose only user-editable fields', () => {
     { startMs: 100, endMs: 900, format: 'mp4', quality: 'high', updatedAt: 123 }
   )
   assert.throws(
-    () => validation.libraryPatch({
-      videoEdit: { startMs: 900, endMs: 100, format: 'mp4', quality: 'high', updatedAt: 123 }
-    }),
+    () =>
+      validation.libraryPatch({
+        videoEdit: { startMs: 900, endMs: 100, format: 'mp4', quality: 'high', updatedAt: 123 }
+      }),
     /trim end/
   )
 })
@@ -35,6 +36,41 @@ test('image payloads require an allowed base64 data URL', () => {
   assert.equal(validation.imageDataUrl('data:image/png;base64,AAAA'), 'data:image/png;base64,AAAA')
   assert.throws(() => validation.imageDataUrl('file:///etc/passwd'), /data URL/)
   assert.throws(() => validation.imageDataUrl('data:text/html;base64,AAAA'), /data URL/)
+})
+
+test('project validation accepts bounded automatic insets and preserves legacy omission', () => {
+  const project = {
+    version: 1,
+    id: 'annotation-insets',
+    title: 'Insets',
+    createdAt: 1,
+    updatedAt: 1,
+    image: 'data:image/png;base64,AAAA',
+    imageWidth: 100,
+    imageHeight: 80,
+    scaleFactor: 1,
+    crop: { enabled: false, x: 0, y: 0, width: 100, height: 80 },
+    shapes: [],
+    canvas: { ...DEFAULT_CANVAS, annotationInsets: { top: 1, right: 4096, bottom: 2, left: 3 } }
+  }
+  assert.deepEqual(validation.clipDocument(project).canvas.annotationInsets, {
+    top: 1,
+    right: 4096,
+    bottom: 2,
+    left: 3
+  })
+  assert.equal(
+    validation.clipDocument({ ...project, canvas: { ...DEFAULT_CANVAS } }).canvas.annotationInsets,
+    undefined
+  )
+  assert.throws(
+    () =>
+      validation.clipDocument({
+        ...project,
+        canvas: { ...project.canvas, annotationInsets: { top: 4097, right: 0, bottom: 0, left: 0 } }
+      }),
+    /outside the supported range/
+  )
 })
 
 test('capture and recording options reject unsupported values', () => {
@@ -61,12 +97,22 @@ test('settings IPC accepts only known, bounded fields', () => {
     jpegQuality: 80
   })
   assert.equal(
-    validation.settingsPatch({ hotkeys: { captureRegion: 'Command+1' } }, current).hotkeys.captureRegion,
+    validation.settingsPatch({ hotkeys: { captureRegion: 'Command+1' } }, current).hotkeys
+      .captureRegion,
     'Command+1'
   )
-  assert.throws(() => validation.settingsPatch({ arbitraryCommand: 'open /tmp' }, current), /not supported/)
-  assert.throws(() => validation.settingsPatch({ pipeline: { uploadToken: 'secret' } }, current), /not supported/)
-  assert.throws(() => validation.settingsPatch({ accent: 'url(javascript:1)' }, current), /hex colour/)
+  assert.throws(
+    () => validation.settingsPatch({ arbitraryCommand: 'open /tmp' }, current),
+    /not supported/
+  )
+  assert.throws(
+    () => validation.settingsPatch({ pipeline: { uploadToken: 'secret' } }, current),
+    /not supported/
+  )
+  assert.throws(
+    () => validation.settingsPatch({ accent: 'url(javascript:1)' }, current),
+    /hex colour/
+  )
 })
 
 test('save requests accept a retained external target path', () => {
@@ -90,17 +136,21 @@ test('overlay and system messages reject extra fields and unsafe schemes', () =>
     'region'
   )
   assert.throws(
-    () => validation.overlaySelection({
-      displayId: '1',
-      mode: 'region',
-      rect: { x: 0, y: 0, width: 10, height: 10 },
-      screenRect: { x: 0, y: 0, width: 5, height: 5 },
-      restoreEditorWindows: true
-    }),
+    () =>
+      validation.overlaySelection({
+        displayId: '1',
+        mode: 'region',
+        rect: { x: 0, y: 0, width: 10, height: 10 },
+        screenRect: { x: 0, y: 0, width: 5, height: 5 },
+        restoreEditorWindows: true
+      }),
     /not supported/
   )
   assert.throws(() => validation.externalUrl('javascript:alert(1)'), /HTTP or HTTPS/)
-  assert.throws(() => validation.toastValue({ kind: 'success', message: 'ok', html: '<b>x</b>' }), /not supported/)
+  assert.throws(
+    () => validation.toastValue({ kind: 'success', message: 'ok', html: '<b>x</b>' }),
+    /not supported/
+  )
 })
 
 test('path containment does not accept sibling prefixes or traversal', () => {

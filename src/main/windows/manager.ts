@@ -78,7 +78,7 @@ export function resolveEditorClose(webContentsId: number, allow: boolean): boole
   return true
 }
 
-export function createEditorWindow(): BrowserWindow {
+export function createEditorWindow(hash = ''): BrowserWindow {
   const win = new BrowserWindow({
     ...baseOptions(),
     width: 1280,
@@ -111,7 +111,7 @@ export function createEditorWindow(): BrowserWindow {
   win.webContents.on('render-process-gone', () => {
     closeState.approved = true
   })
-  loadEntry(win, 'editor')
+  loadEntry(win, 'editor', hash)
   win.once('ready-to-show', () => {
     showPrimaryWindow(win)
   })

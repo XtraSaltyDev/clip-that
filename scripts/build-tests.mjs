@@ -32,6 +32,7 @@ const ENTRIES = {
   directGesture: 'src/renderer/editor/canvas/direct-gesture.ts',
   exporting: 'src/renderer/editor/exporting-test-entry.ts',
   geometry: 'src/renderer/editor/canvas/geometry.ts',
+  annotationBounds: 'src/renderer/editor/canvas/annotation-bounds.ts',
   tilt: 'src/renderer/editor/canvas/tilt.ts',
   transforms: 'src/renderer/editor/canvas/transforms.ts',
   rotationHandle: 'src/renderer/editor/canvas/rotation-handle.ts',
@@ -39,6 +40,7 @@ const ENTRIES = {
   updateContract: 'src/main/update/contract.ts',
   updateMetadata: 'src/main/update/metadata.ts',
   updateTrust: 'src/main/update/trust.ts',
+  selfTestExit: 'src/main/dev/self-test-exit.ts',
   byteRange: 'src/main/protocol/byte-range.ts',
   releaseNotes: 'src/shared/release-notes.ts',
   snagitCore: 'src/main/import/snagit-core.ts'

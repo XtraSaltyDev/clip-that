@@ -29,6 +29,7 @@ export const DEFAULT_CANVAS: CanvasStyle = {
   borderColor: '#ffffff22',
   frame: 'none',
   frameTitle: ''
+  // Legacy documents omit this field; keeping the default absent preserves their serialized form.
 }
 
 /** What the "Beautify" button applies in one click. */

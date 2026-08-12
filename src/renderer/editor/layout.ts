@@ -1,4 +1,4 @@
-import type { ClipDocument } from '@shared/types'
+import type { ClipDocument, AnnotationInsets } from '@shared/types'
 import { cutOutContentSize } from '@shared/cut-out'
 
 export interface Layout {
@@ -17,6 +17,24 @@ export interface Layout {
   shotX: number
   shotY: number
   frameHeight: number
+  /** Automatic workspace outside the capture, in final canvas pixels. */
+  annotationInsets: AnnotationInsets
+}
+
+export const ZERO_ANNOTATION_INSETS: AnnotationInsets = {
+  top: 0,
+  right: 0,
+  bottom: 0,
+  left: 0
+}
+
+export function annotationInsets(value: AnnotationInsets | undefined): AnnotationInsets {
+  return {
+    top: Math.max(0, Number.isFinite(value?.top) ? value!.top : 0),
+    right: Math.max(0, Number.isFinite(value?.right) ? value!.right : 0),
+    bottom: Math.max(0, Number.isFinite(value?.bottom) ? value!.bottom : 0),
+    left: Math.max(0, Number.isFinite(value?.left) ? value!.left : 0)
+  }
 }
 
 /** Scale the complete canvas into the editor viewport without enlarging small images. */
@@ -46,7 +64,11 @@ export function frameHeight(doc: ClipDocument): number {
 }
 
 /** Aspect-ratio presets grow the padding box rather than stretching the image. */
-function applyAspect(width: number, height: number, aspect?: string): { width: number; height: number } {
+function applyAspect(
+  width: number,
+  height: number,
+  aspect?: string
+): { width: number; height: number } {
   if (!aspect || aspect === 'auto') return { width, height }
   const [aw, ah] = aspect.split(':').map(Number)
   if (!aw || !ah) return { width, height }
@@ -84,18 +106,21 @@ export function computeLayout(doc: ClipDocument): Layout {
     doc.canvas.aspect
   )
 
+  const extra = annotationInsets(doc.canvas.annotationInsets)
+
   return {
     contentWidth,
     contentHeight,
     cropX,
     cropY,
     padding,
-    canvasWidth: boxed.width,
-    canvasHeight: boxed.height,
+    canvasWidth: boxed.width + extra.left + extra.right,
+    canvasHeight: boxed.height + extra.top + extra.bottom,
     // Centre the shot, which also absorbs any extra space an aspect preset added.
-    shotX: Math.round((boxed.width - contentWidth) / 2),
-    shotY: Math.round((boxed.height - contentHeight - frameH) / 2),
-    frameHeight: frameH
+    shotX: extra.left + Math.round((boxed.width - contentWidth) / 2),
+    shotY: extra.top + Math.round((boxed.height - contentHeight - frameH) / 2),
+    frameHeight: frameH,
+    annotationInsets: extra
   }
 }
 

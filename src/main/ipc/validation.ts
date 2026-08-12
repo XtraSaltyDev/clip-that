@@ -99,7 +99,12 @@ export function captureRequest(value: unknown): CaptureRequest {
   rejectUnknown(input, ['mode', 'delay', 'displayId', 'windowId', 'silent'], 'capture request')
   return {
     mode: enumValue(input.mode, 'capture mode', [
-      'region', 'window', 'display', 'fullscreen', 'lastRegion', 'scrolling'
+      'region',
+      'window',
+      'display',
+      'fullscreen',
+      'lastRegion',
+      'scrolling'
     ] as const),
     delay: input.delay === undefined ? undefined : finite(input.delay, 'capture delay', 0, 60),
     displayId: optionalString(input.displayId, 'display id', 256),
@@ -121,7 +126,12 @@ export function overlaySelection(value: unknown): {
     displayId: stringValue(input.displayId, 'overlay display id', 256),
     rect: rectValue(input.rect, 'overlay pixel rectangle'),
     screenRect: rectValue(input.screenRect, 'overlay screen rectangle'),
-    mode: enumValue(input.mode, 'overlay mode', ['region', 'window', 'display', 'scrolling'] as const),
+    mode: enumValue(input.mode, 'overlay mode', [
+      'region',
+      'window',
+      'display',
+      'scrolling'
+    ] as const),
     windowId: optionalString(input.windowId, 'overlay window id', 512)
   }
 }
@@ -131,8 +141,22 @@ export function clipDocument(value: unknown): ClipDocument {
   rejectUnknown(
     input,
     [
-      'version', 'id', 'title', 'createdAt', 'updatedAt', 'image', 'imageWidth',
-      'imageHeight', 'scaleFactor', 'crop', 'cutOuts', 'shapes', 'canvas', 'ocrText', 'tags', 'exportPath'
+      'version',
+      'id',
+      'title',
+      'createdAt',
+      'updatedAt',
+      'image',
+      'imageWidth',
+      'imageHeight',
+      'scaleFactor',
+      'crop',
+      'cutOuts',
+      'shapes',
+      'canvas',
+      'ocrText',
+      'tags',
+      'exportPath'
     ],
     'project'
   )
@@ -157,12 +181,16 @@ export function clipDocument(value: unknown): ClipDocument {
     if (!Array.isArray(input.cutOuts) || input.cutOuts.length > 32) {
       throw new TypeError('project Cut Out operations are invalid')
     }
-    let output = { width: finite(input.imageWidth, 'project image width', 1, 200_000), height: finite(input.imageHeight, 'project image height', 1, 200_000) }
+    let output = {
+      width: finite(input.imageWidth, 'project image width', 1, 200_000),
+      height: finite(input.imageHeight, 'project image height', 1, 200_000)
+    }
     input.cutOuts.forEach((operation, index) => {
       const parsed = cutOutOperation(operation, `project Cut Out ${index + 1}`, output)
-      output = parsed.axis === 'horizontal'
-        ? { width: parsed.source.width, height: parsed.source.height - parsed.size }
-        : { width: parsed.source.width - parsed.size, height: parsed.source.height }
+      output =
+        parsed.axis === 'horizontal'
+          ? { width: parsed.source.width, height: parsed.source.height - parsed.size }
+          : { width: parsed.source.width - parsed.size, height: parsed.source.height }
     })
   }
   const canvas = record(input.canvas, 'project canvas')
@@ -170,7 +198,8 @@ export function clipDocument(value: unknown): ClipDocument {
   optionalString(input.ocrText, 'project OCR text', 2_000_000)
   if (input.exportPath !== undefined) pathValue(input.exportPath)
   if (input.tags !== undefined) {
-    if (!Array.isArray(input.tags) || input.tags.length > 50) throw new TypeError('project tags are invalid')
+    if (!Array.isArray(input.tags) || input.tags.length > 50)
+      throw new TypeError('project tags are invalid')
     input.tags.forEach((tag, index) => stringValue(tag, `project tag ${index + 1}`, 120))
   }
   const serialized = JSON.stringify(input)
@@ -197,7 +226,12 @@ export function cutOutOperation(
     throw new TypeError(`${label}.source is outside the available image`)
   }
   const axis = enumValue(input.axis, `${label}.axis`, ['horizontal', 'vertical'] as const)
-  const edge = enumValue(input.edge, `${label}.edge`, ['straight', 'zigzag', 'wave', 'triangle'] as const)
+  const edge = enumValue(input.edge, `${label}.edge`, [
+    'straight',
+    'zigzag',
+    'wave',
+    'triangle'
+  ] as const)
   const start = finite(input.start, `${label}.start`, 0, 200_000)
   const size = finite(input.size, `${label}.size`, 0.0001, 200_000)
   const axisLength = axis === 'horizontal' ? source.height : source.width
@@ -245,9 +279,10 @@ export function libraryQuery(value: unknown): LibraryQuery {
     search: optionalString(input.search, 'search', 1_000),
     tag: optionalString(input.tag, 'tag', 120),
     favorite: input.favorite === undefined ? undefined : booleanValue(input.favorite, 'favorite'),
-    kind: input.kind === undefined
-      ? undefined
-      : enumValue(input.kind, 'library kind', ['image', 'video'] as const),
+    kind:
+      input.kind === undefined
+        ? undefined
+        : enumValue(input.kind, 'library kind', ['image', 'video'] as const),
     limit: input.limit === undefined ? undefined : finite(input.limit, 'limit', 0, 1_000),
     offset: input.offset === undefined ? undefined : finite(input.offset, 'offset', 0, 10_000_000)
   }
@@ -263,7 +298,8 @@ export function libraryPatch(value: unknown): LibraryItemPatch {
   if (input.title !== undefined) patch.title = stringValue(input.title, 'title', 240)
   if (input.exportPath !== undefined) patch.exportPath = pathValue(input.exportPath)
   if (input.tags !== undefined) {
-    if (!Array.isArray(input.tags) || input.tags.length > 50) throw new TypeError('tags are invalid')
+    if (!Array.isArray(input.tags) || input.tags.length > 50)
+      throw new TypeError('tags are invalid')
     patch.tags = input.tags.map((tag, index) => stringValue(tag, `tag ${index + 1}`, 120))
   }
   if (input.favorite !== undefined) patch.favorite = booleanValue(input.favorite, 'favorite')
@@ -272,7 +308,11 @@ export function libraryPatch(value: unknown): LibraryItemPatch {
     if (input.videoEdit === null) patch.videoEdit = null
     else {
       const draft = record(input.videoEdit, 'video edit draft')
-      rejectUnknown(draft, ['startMs', 'endMs', 'format', 'quality', 'updatedAt'], 'video edit draft')
+      rejectUnknown(
+        draft,
+        ['startMs', 'endMs', 'format', 'quality', 'updatedAt'],
+        'video edit draft'
+      )
       const startMs = finite(draft.startMs, 'trim start', 0, 86_400_000)
       const endMs = finite(draft.endMs, 'trim end', 0, 86_400_000)
       if (endMs <= startMs) throw new TypeError('trim end must be after trim start')
@@ -299,38 +339,78 @@ function canvasStyle(value: unknown, current: CanvasStyle): CanvasStyle {
   rejectUnknown(
     input,
     [
-      'padding', 'background', 'backgroundColor', 'gradientFrom', 'gradientTo',
-      'gradientAngle', 'backgroundImage', 'radius', 'shadowBlur', 'shadowOpacity',
-      'shadowOffsetY', 'tiltX', 'tiltY', 'tiltSemantics', 'borderWidth', 'borderColor', 'frame',
-      'frameTitle', 'aspect'
+      'padding',
+      'background',
+      'backgroundColor',
+      'gradientFrom',
+      'gradientTo',
+      'gradientAngle',
+      'backgroundImage',
+      'radius',
+      'shadowBlur',
+      'shadowOpacity',
+      'shadowOffsetY',
+      'tiltX',
+      'tiltY',
+      'tiltSemantics',
+      'borderWidth',
+      'borderColor',
+      'frame',
+      'frameTitle',
+      'aspect',
+      'annotationInsets'
     ],
     'canvas preset'
   )
   const merged = { ...current, ...input }
   return {
     padding: finite(merged.padding, 'canvas padding', 0, 2_000),
-    background: enumValue(merged.background, 'canvas background', ['none', 'solid', 'gradient', 'image', 'desktop'] as const),
+    background: enumValue(merged.background, 'canvas background', [
+      'none',
+      'solid',
+      'gradient',
+      'image',
+      'desktop'
+    ] as const),
     backgroundColor: colorValue(merged.backgroundColor, 'canvas background colour'),
     gradientFrom: colorValue(merged.gradientFrom, 'canvas gradient start'),
     gradientTo: colorValue(merged.gradientTo, 'canvas gradient end'),
     gradientAngle: finite(merged.gradientAngle, 'canvas gradient angle', 0, 360),
-    backgroundImage: merged.backgroundImage === undefined
-      ? undefined
-      : imageDataUrl(merged.backgroundImage, 'canvas background image'),
+    backgroundImage:
+      merged.backgroundImage === undefined
+        ? undefined
+        : imageDataUrl(merged.backgroundImage, 'canvas background image'),
     radius: finite(merged.radius, 'canvas radius', 0, 1_000),
     shadowBlur: finite(merged.shadowBlur, 'canvas shadow blur', 0, 2_000),
     shadowOpacity: finite(merged.shadowOpacity, 'canvas shadow opacity', 0, 1),
     shadowOffsetY: finite(merged.shadowOffsetY, 'canvas shadow offset', -2_000, 2_000),
     tiltX: finite(merged.tiltX, 'canvas tilt x', -30, 30),
     tiltY: finite(merged.tiltY, 'canvas tilt y', -30, 30),
-    tiltSemantics: merged.tiltSemantics === undefined
-      ? undefined
-      : enumValue(merged.tiltSemantics, 'canvas tilt semantics', ['legacy', 'visible-axis'] as const),
+    tiltSemantics:
+      merged.tiltSemantics === undefined
+        ? undefined
+        : enumValue(merged.tiltSemantics, 'canvas tilt semantics', [
+            'legacy',
+            'visible-axis'
+          ] as const),
     borderWidth: finite(merged.borderWidth, 'canvas border width', 0, 100),
     borderColor: colorValue(merged.borderColor, 'canvas border colour'),
     frame: enumValue(merged.frame, 'canvas frame', ['none', 'macos', 'windows'] as const),
     frameTitle: optionalString(merged.frameTitle, 'canvas frame title', 240),
-    aspect: optionalString(merged.aspect, 'canvas aspect', 32)
+    aspect: optionalString(merged.aspect, 'canvas aspect', 32),
+    annotationInsets:
+      merged.annotationInsets === undefined
+        ? undefined
+        : (() => {
+            const insets = record(merged.annotationInsets, 'canvas annotation insets')
+            rejectUnknown(insets, ['top', 'right', 'bottom', 'left'], 'canvas annotation insets')
+            return {
+              top: finite(insets.top, 'canvas annotation top inset', 0, 4_096),
+              right: finite(insets.right, 'canvas annotation right inset', 0, 4_096),
+              bottom: finite(insets.bottom, 'canvas annotation bottom inset', 0, 4_096),
+              left: finite(insets.left, 'canvas annotation left inset', 0, 4_096)
+            }
+          })()
   }
 }
 
@@ -351,11 +431,29 @@ export function settingsPatch(value: unknown, current: Settings): Partial<Settin
   rejectUnknown(
     input,
     [
-      'hotkeys', 'afterCapture', 'libraryOpenBehavior', 'pipeline', 'saveDirectory',
-      'filenameTemplate', 'imageFormat', 'jpegQuality', 'copyOnSave', 'theme', 'accent',
-      'launchAtLogin', 'showInTray', 'showInDock', 'autoOcr', 'defaultAnnotationColor',
-      'defaultStrokeWidth', 'defaultFontSize', 'defaultFontFamily', 'recording',
-      'canvasPreset', 'lastRegion', 'onboarded'
+      'hotkeys',
+      'afterCapture',
+      'libraryOpenBehavior',
+      'pipeline',
+      'saveDirectory',
+      'filenameTemplate',
+      'imageFormat',
+      'jpegQuality',
+      'copyOnSave',
+      'theme',
+      'accent',
+      'launchAtLogin',
+      'showInTray',
+      'showInDock',
+      'autoOcr',
+      'defaultAnnotationColor',
+      'defaultStrokeWidth',
+      'defaultFontSize',
+      'defaultFontFamily',
+      'recording',
+      'canvasPreset',
+      'lastRegion',
+      'onboarded'
     ],
     'settings'
   )
@@ -371,11 +469,20 @@ export function settingsPatch(value: unknown, current: Settings): Partial<Settin
   }
   if (input.afterCapture !== undefined) {
     patch.afterCapture = enumValue(input.afterCapture, 'after capture action', [
-      'quickAccess', 'editor', 'clipboard', 'file', 'clipboardAndFile', 'pipeline'
+      'quickAccess',
+      'editor',
+      'clipboard',
+      'file',
+      'clipboardAndFile',
+      'pipeline'
     ] as const)
   }
   if (input.libraryOpenBehavior !== undefined) {
-    patch.libraryOpenBehavior = enumValue(input.libraryOpenBehavior, 'library open behavior', ['ask', 'existing', 'new'] as const)
+    patch.libraryOpenBehavior = enumValue(input.libraryOpenBehavior, 'library open behavior', [
+      'ask',
+      'existing',
+      'new'
+    ] as const)
   }
   if (input.pipeline !== undefined) {
     const raw = record(input.pipeline, 'pipeline')
@@ -390,22 +497,43 @@ export function settingsPatch(value: unknown, current: Settings): Partial<Settin
     }
   }
   if (input.saveDirectory !== undefined) patch.saveDirectory = pathValue(input.saveDirectory)
-  if (input.filenameTemplate !== undefined) patch.filenameTemplate = stringValue(input.filenameTemplate, 'filename template', 240)
-  if (input.imageFormat !== undefined) patch.imageFormat = enumValue(input.imageFormat, 'image format', ['png', 'jpg', 'webp'] as const)
-  if (input.jpegQuality !== undefined) patch.jpegQuality = finite(input.jpegQuality, 'JPEG quality', 1, 100)
-  if (input.copyOnSave !== undefined) patch.copyOnSave = booleanValue(input.copyOnSave, 'copy on save')
-  if (input.theme !== undefined) patch.theme = enumValue(input.theme, 'theme', ['system', 'light', 'dark'] as const)
+  if (input.filenameTemplate !== undefined)
+    patch.filenameTemplate = stringValue(input.filenameTemplate, 'filename template', 240)
+  if (input.imageFormat !== undefined)
+    patch.imageFormat = enumValue(input.imageFormat, 'image format', [
+      'png',
+      'jpg',
+      'webp'
+    ] as const)
+  if (input.jpegQuality !== undefined)
+    patch.jpegQuality = finite(input.jpegQuality, 'JPEG quality', 1, 100)
+  if (input.copyOnSave !== undefined)
+    patch.copyOnSave = booleanValue(input.copyOnSave, 'copy on save')
+  if (input.theme !== undefined)
+    patch.theme = enumValue(input.theme, 'theme', ['system', 'light', 'dark'] as const)
   if (input.accent !== undefined) patch.accent = colorValue(input.accent, 'accent')
-  if (input.launchAtLogin !== undefined) patch.launchAtLogin = booleanValue(input.launchAtLogin, 'launch at login')
-  if (input.showInTray !== undefined) patch.showInTray = booleanValue(input.showInTray, 'show in menu bar')
-  if (input.showInDock !== undefined) patch.showInDock = booleanValue(input.showInDock, 'show in Dock')
+  if (input.launchAtLogin !== undefined)
+    patch.launchAtLogin = booleanValue(input.launchAtLogin, 'launch at login')
+  if (input.showInTray !== undefined)
+    patch.showInTray = booleanValue(input.showInTray, 'show in menu bar')
+  if (input.showInDock !== undefined)
+    patch.showInDock = booleanValue(input.showInDock, 'show in Dock')
   if (input.autoOcr !== undefined) patch.autoOcr = booleanValue(input.autoOcr, 'automatic OCR')
-  if (input.defaultAnnotationColor !== undefined) patch.defaultAnnotationColor = colorValue(input.defaultAnnotationColor, 'annotation colour')
-  if (input.defaultStrokeWidth !== undefined) patch.defaultStrokeWidth = finite(input.defaultStrokeWidth, 'stroke width', 1, 100)
-  if (input.defaultFontSize !== undefined) patch.defaultFontSize = finite(input.defaultFontSize, 'font size', 6, 500)
-  if (input.defaultFontFamily !== undefined) patch.defaultFontFamily = stringValue(input.defaultFontFamily, 'font family', 240)
-  if (input.recording !== undefined) patch.recording = recordingOptions({ ...current.recording, ...record(input.recording, 'recording settings') })
-  if (input.canvasPreset !== undefined) patch.canvasPreset = canvasStyle(input.canvasPreset, current.canvasPreset)
+  if (input.defaultAnnotationColor !== undefined)
+    patch.defaultAnnotationColor = colorValue(input.defaultAnnotationColor, 'annotation colour')
+  if (input.defaultStrokeWidth !== undefined)
+    patch.defaultStrokeWidth = finite(input.defaultStrokeWidth, 'stroke width', 1, 100)
+  if (input.defaultFontSize !== undefined)
+    patch.defaultFontSize = finite(input.defaultFontSize, 'font size', 6, 500)
+  if (input.defaultFontFamily !== undefined)
+    patch.defaultFontFamily = stringValue(input.defaultFontFamily, 'font family', 240)
+  if (input.recording !== undefined)
+    patch.recording = recordingOptions({
+      ...current.recording,
+      ...record(input.recording, 'recording settings')
+    })
+  if (input.canvasPreset !== undefined)
+    patch.canvasPreset = canvasStyle(input.canvasPreset, current.canvasPreset)
   if (input.lastRegion !== undefined) {
     const raw = record(input.lastRegion, 'last region')
     rejectUnknown(raw, ['x', 'y', 'width', 'height', 'displayId'], 'last region')
@@ -458,9 +586,21 @@ export function recordingOptions(value: unknown): RecordingOptions {
   rejectUnknown(
     input,
     [
-      'target', 'autoZoom', 'zoomLevel', 'displayId', 'windowId', 'region', 'fps',
-      'microphone', 'microphoneDeviceId', 'systemAudio', 'webcam', 'webcamDeviceId',
-      'webcamPosition', 'webcamSize', 'countdown'
+      'target',
+      'autoZoom',
+      'zoomLevel',
+      'displayId',
+      'windowId',
+      'region',
+      'fps',
+      'microphone',
+      'microphoneDeviceId',
+      'systemAudio',
+      'webcam',
+      'webcamDeviceId',
+      'webcamPosition',
+      'webcamSize',
+      'countdown'
     ],
     'recording options'
   )
@@ -479,7 +619,12 @@ export function recordingOptions(value: unknown): RecordingOptions {
     systemAudio: booleanValue(input.systemAudio, 'system audio'),
     webcam: booleanValue(input.webcam, 'webcam'),
     webcamDeviceId: optionalString(input.webcamDeviceId, 'webcam device id', 512),
-    webcamPosition: enumValue(input.webcamPosition, 'webcam position', ['tl', 'tr', 'bl', 'br'] as const),
+    webcamPosition: enumValue(input.webcamPosition, 'webcam position', [
+      'tl',
+      'tr',
+      'bl',
+      'br'
+    ] as const),
     webcamSize: finite(input.webcamSize, 'webcam size', 32, 2_000),
     countdown: finite(input.countdown, 'countdown', 0, 30)
   }
@@ -487,9 +632,15 @@ export function recordingOptions(value: unknown): RecordingOptions {
 
 export function videoExportOptions(value: unknown): VideoExportOptions {
   const input = record(value, 'video export options')
-  rejectUnknown(input, ['format', 'quality', 'startMs', 'endMs', 'fps', 'maxWidth'], 'video export options')
-  const startMs = input.startMs === undefined ? undefined : finite(input.startMs, 'trim start', 0, 86_400_000)
-  const endMs = input.endMs === undefined ? undefined : finite(input.endMs, 'trim end', 0, 86_400_000)
+  rejectUnknown(
+    input,
+    ['format', 'quality', 'startMs', 'endMs', 'fps', 'maxWidth'],
+    'video export options'
+  )
+  const startMs =
+    input.startMs === undefined ? undefined : finite(input.startMs, 'trim start', 0, 86_400_000)
+  const endMs =
+    input.endMs === undefined ? undefined : finite(input.endMs, 'trim end', 0, 86_400_000)
   if (startMs !== undefined && endMs !== undefined && endMs <= startMs) {
     throw new TypeError('trim end must be after trim start')
   }
@@ -499,7 +650,8 @@ export function videoExportOptions(value: unknown): VideoExportOptions {
     startMs,
     endMs,
     fps: input.fps === undefined ? undefined : finite(input.fps, 'export fps', 1, 120),
-    maxWidth: input.maxWidth === undefined ? undefined : finite(input.maxWidth, 'maximum width', 64, 16_384)
+    maxWidth:
+      input.maxWidth === undefined ? undefined : finite(input.maxWidth, 'maximum width', 64, 16_384)
   }
 }
 
@@ -515,9 +667,10 @@ export function recordingMeta(value: unknown): {
     width: finite(input.width, 'recording width', 1, 200_000),
     height: finite(input.height, 'recording height', 1, 200_000),
     durationMs: finite(input.durationMs, 'recording duration', 1, 86_400_000),
-    posterDataUrl: input.posterDataUrl === undefined
-      ? undefined
-      : imageDataUrl(input.posterDataUrl, 'recording poster')
+    posterDataUrl:
+      input.posterDataUrl === undefined
+        ? undefined
+        : imageDataUrl(input.posterDataUrl, 'recording poster')
   }
 }
 
@@ -541,7 +694,8 @@ export function byteArray(value: unknown, label: string, maxBytes: number): Uint
 
 export function recordingSequence(value: unknown): number {
   const sequence = finite(value, 'recording chunk sequence', 0, 10_000_000)
-  if (!Number.isInteger(sequence)) throw new TypeError('recording chunk sequence must be an integer')
+  if (!Number.isInteger(sequence))
+    throw new TypeError('recording chunk sequence must be an integer')
   return sequence
 }
 
@@ -583,14 +737,9 @@ export function permissionKind(value: unknown): 'microphone' | 'camera' | 'scree
   return enumValue(value, 'permission kind', ['microphone', 'camera', 'screen'] as const)
 }
 
-export function windowAction(value: unknown):
-  | 'minimize'
-  | 'maximize'
-  | 'close'
-  | 'library'
-  | 'settings'
-  | 'settings-whats-new'
-  | 'record' {
+export function windowAction(
+  value: unknown
+): 'minimize' | 'maximize' | 'close' | 'library' | 'settings' | 'settings-whats-new' | 'record' {
   return enumValue(value, 'window action', [
     'minimize',
     'maximize',

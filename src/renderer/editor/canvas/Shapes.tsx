@@ -406,7 +406,6 @@ function ShapeNodeInner(props: Props): React.ReactElement | null {
       const onDragEnd = (e: Konva.KonvaEventObject<DragEvent>) => {
         const dx = e.target.x() - origin.x
         const dy = e.target.y() - origin.y
-        e.target.position(origin)
         props.onChange(
           shape.id,
           (direct
@@ -415,6 +414,11 @@ function ShapeNodeInner(props: Props): React.ReactElement | null {
                 points: s.points.map((p, i) => (i % 2 === 0 ? p + dx : p + dy))
               }) as Partial<Shape>
         )
+        // Stage.commitShapeChange positions a direct single-segment node at the constrained
+        // committed origin. Resetting it here would put the rendered hit path back at its
+        // pre-drag location after an outside-stage release, while the document points moved.
+        // Multi-segment generic-transform shapes still need the transient node reset.
+        if (!direct) e.target.position(origin)
       }
 
       if (s.type !== 'measure') {
@@ -491,10 +495,10 @@ function ShapeNodeInner(props: Props): React.ReactElement | null {
           onDragEnd={(e) => {
             const dx = e.target.x() - origin.x
             const dy = e.target.y() - origin.y
-            e.target.position(origin)
             props.onChange(shape.id, {
               points: s.points.map((p, i) => (i % 2 === 0 ? p + dx : p + dy))
             } as Partial<Shape>)
+            e.target.position(origin)
           }}
         />
       )

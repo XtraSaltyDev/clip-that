@@ -40,12 +40,7 @@ export interface WindowInfo {
 }
 
 export type CaptureMode =
-  | 'region'
-  | 'window'
-  | 'display'
-  | 'fullscreen'
-  | 'lastRegion'
-  | 'scrolling'
+  'region' | 'window' | 'display' | 'fullscreen' | 'lastRegion' | 'scrolling'
 
 export interface CaptureRequest {
   mode: CaptureMode
@@ -233,6 +228,14 @@ export type Shape = ArrowShape | FreehandShape | BoxShape | TextShape | StepShap
 
 export type BackgroundKind = 'none' | 'solid' | 'gradient' | 'image' | 'desktop'
 
+/** Extra workspace reserved around the capture for annotations that cross its edges. */
+export interface AnnotationInsets {
+  top: number
+  right: number
+  bottom: number
+  left: number
+}
+
 export interface CanvasStyle {
   padding: number
   background: BackgroundKind
@@ -259,6 +262,8 @@ export interface CanvasStyle {
   frameTitle?: string
   /** Force an output aspect ratio by growing the padding box. */
   aspect?: string
+  /** Optional, expand-only annotation workspace. Omitted means all sides are zero. */
+  annotationInsets?: AnnotationInsets
 }
 
 export interface CropRect extends Rect {
@@ -366,11 +371,7 @@ export interface LibraryQuery {
 }
 
 export type SnagitImportCategory =
-  | 'supported'
-  | 'duplicates'
-  | 'nativeProjects'
-  | 'unsupported'
-  | 'unreadable'
+  'supported' | 'duplicates' | 'nativeProjects' | 'unsupported' | 'unreadable'
 
 export interface SnagitImportPreview {
   planId: string
@@ -481,12 +482,7 @@ export interface VideoExportOptions {
 
 export type AfterCapture =
   /** Kept for reading older settings files; it is migrated to `editor` on load. */
-  | 'quickAccess'
-  | 'editor'
-  | 'clipboard'
-  | 'file'
-  | 'clipboardAndFile'
-  | 'pipeline'
+  'quickAccess' | 'editor' | 'clipboard' | 'file' | 'clipboardAndFile' | 'pipeline'
 
 /** What opening an image from the full Library does when an editor is already open. */
 export type LibraryOpenBehavior = 'ask' | 'existing' | 'new'
@@ -634,14 +630,7 @@ export interface OcrResult {
   words: OcrWord[]
 }
 
-export type SensitiveKind =
-  | 'email'
-  | 'ipv4'
-  | 'creditCard'
-  | 'phone'
-  | 'jwt'
-  | 'apiKey'
-  | 'ssn'
+export type SensitiveKind = 'email' | 'ipv4' | 'creditCard' | 'phone' | 'jwt' | 'apiKey' | 'ssn'
 
 export interface SensitiveMatch {
   kind: SensitiveKind

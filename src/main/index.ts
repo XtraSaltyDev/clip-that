@@ -175,7 +175,24 @@ app.whenReady().then(async () => {
   const selfTest = process.env['CLIPTHAT_SELF_TEST']
   if (selfTest) {
     const { runSelfTest } = await import('./dev/self-test')
-    setTimeout(() => void runSelfTest(selfTest), 2500)
+    setTimeout(() => {
+      void runSelfTest(selfTest)
+        .then((status) => {
+          // Keep the short post-run flush window used by the old quit path, but make the
+          // calculated status authoritative for the Electron process as well as the shell.
+          setTimeout(() => {
+            flushLog()
+            app.exit(status)
+          }, 100)
+        })
+        .catch((error) => {
+          console.error(`[selftest] runner failed: ${(error as Error).stack ?? error}`)
+          setTimeout(() => {
+            flushLog()
+            app.exit(1)
+          }, 100)
+        })
+    }, 2500)
   }
 
   if (process.env['CLIPTHAT_DIAG_DISPLAYS']) {

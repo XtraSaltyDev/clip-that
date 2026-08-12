@@ -3,6 +3,7 @@ import assert from 'node:assert/strict'
 import { load } from './helpers.mjs'
 
 const { computeLayout, fitScale, frameHeight } = await load('layout')
+const { expandedAnnotationInsets, annotationPaintedBounds } = await load('annotationBounds')
 
 const doc = (over = {}) => ({
   imageWidth: 1200,
@@ -93,4 +94,156 @@ test('fit scale keeps a large image fully inside the available editor viewport',
   assert.ok(layout.canvasWidth * scale <= 840 - 64)
   assert.ok(layout.canvasHeight * scale <= 590 - 64)
   assert.ok(scale < 1)
+})
+
+test('automatic insets preserve legacy dimensions and move only the capture origin', () => {
+  const plain = computeLayout(doc())
+  const expanded = computeLayout(
+    doc({
+      canvas: {
+        padding: 0,
+        radius: 0,
+        frame: 'none',
+        annotationInsets: { top: 12, right: 24, bottom: 36, left: 48 }
+      }
+    })
+  )
+  assert.deepEqual(plain.annotationInsets, { top: 0, right: 0, bottom: 0, left: 0 })
+  assert.equal(expanded.canvasWidth, plain.canvasWidth + 48 + 24)
+  assert.equal(expanded.canvasHeight, plain.canvasHeight + 12 + 36)
+  assert.equal(expanded.shotX, plain.shotX + 48)
+  assert.equal(expanded.shotY, plain.shotY + 12)
+  assert.equal(expanded.contentWidth, plain.contentWidth)
+  assert.equal(expanded.contentHeight, plain.contentHeight)
+})
+
+test('automatic insets are asymmetric and compose with padding, frame, aspect, crop and Cut Out', () => {
+  const padded = computeLayout(
+    doc({
+      crop: { enabled: true, x: 100, y: 50, width: 400, height: 300 },
+      canvas: {
+        padding: 20,
+        radius: 0,
+        frame: 'macos',
+        aspect: '16:9',
+        annotationInsets: { top: 7, right: 31, bottom: 11, left: 5 }
+      }
+    })
+  )
+  const base = computeLayout(
+    doc({
+      crop: { enabled: true, x: 100, y: 50, width: 400, height: 300 },
+      canvas: { padding: 20, radius: 0, frame: 'macos', aspect: '16:9' }
+    })
+  )
+  assert.equal(padded.canvasWidth, base.canvasWidth + 36)
+  assert.equal(padded.canvasHeight, base.canvasHeight + 18)
+  assert.equal(padded.shotX, base.shotX + 5)
+  assert.equal(padded.shotY, base.shotY + 7)
+
+  const cutOut = computeLayout(
+    doc({
+      imageWidth: 100,
+      imageHeight: 100,
+      crop: { enabled: false, x: 0, y: 0, width: 100, height: 100 },
+      cutOuts: [
+        {
+          source: { x: 0, y: 30, width: 100, height: 40 },
+          axis: 'horizontal',
+          start: 10,
+          size: 20,
+          edge: 'straight'
+        }
+      ],
+      canvas: {
+        padding: 0,
+        radius: 0,
+        frame: 'none',
+        annotationInsets: { top: 3, right: 4, bottom: 5, left: 6 }
+      }
+    })
+  )
+  assert.equal(cutOut.cropX, 0)
+  assert.equal(cutOut.cropY, 0)
+  assert.deepEqual(cutOut.annotationInsets, { top: 3, right: 4, bottom: 5, left: 6 })
+})
+
+test('painted bounds include strokes, arrowheads, labels and visible shadows without hit padding', () => {
+  const arrow = {
+    id: 'arrow',
+    type: 'arrow',
+    z: 1,
+    points: [90, 50, 10, 50],
+    stroke: '#f00',
+    strokeWidth: 4,
+    headScale: 3,
+    endHead: true,
+    shadow: false
+  }
+  const measure = {
+    id: 'measure',
+    type: 'measure',
+    z: 2,
+    points: [20, 20, 80, 80],
+    stroke: '#00f',
+    strokeWidth: 4,
+    curve: 140,
+    shadow: false
+  }
+  const shadowed = {
+    id: 'rect',
+    type: 'rect',
+    z: 3,
+    x: 0,
+    y: 0,
+    width: 20,
+    height: 20,
+    stroke: '#fff',
+    strokeWidth: 2,
+    fill: undefined,
+    shadow: true,
+    shadowBlur: 8,
+    shadowOffsetX: 4,
+    shadowOffsetY: 5
+  }
+  const arrowBounds = annotationPaintedBounds(arrow)
+  const measureBounds = annotationPaintedBounds(measure)
+  const shadowBounds = annotationPaintedBounds(shadowed)
+  assert.ok(arrowBounds.left < 10 && arrowBounds.right > 90, 'arrowhead/stroke bounds were lost')
+  assert.ok(
+    measureBounds.top < 20 && measureBounds.bottom > 80,
+    'measure path/label bounds were lost'
+  )
+  assert.ok(shadowBounds.left < 0 && shadowBounds.bottom > 20, 'visible shadow was not included')
+})
+
+test('expanded insets grow only the sides needed by painted annotation bounds', () => {
+  const base = doc({
+    imageWidth: 100,
+    imageHeight: 80,
+    crop: { enabled: false, x: 0, y: 0, width: 100, height: 80 }
+  })
+  const rightShape = {
+    id: 'r',
+    type: 'line',
+    z: 1,
+    points: [90, 40, 145, 40],
+    stroke: '#0f0',
+    strokeWidth: 4
+  }
+  const leftShape = {
+    id: 'l',
+    type: 'line',
+    z: 2,
+    points: [-45, 20, 20, 20],
+    stroke: '#0f0',
+    strokeWidth: 4
+  }
+  const right = expandedAnnotationInsets({ ...base, shapes: [rightShape] })
+  const both = expandedAnnotationInsets({ ...base, shapes: [rightShape, leftShape] })
+  assert.equal(right.top, 0)
+  assert.equal(right.bottom, 0)
+  assert.equal(right.left, 0)
+  assert.ok(right.right > 0)
+  assert.ok(both.left > 0 && both.right === right.right)
 })
