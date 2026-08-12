@@ -120,6 +120,30 @@ export const RELEASE_NOTES = [
         body: 'Rotation, direct manipulation, cancellation, undo, and redo now share a more predictable control lifecycle across editor zoom levels.'
       }
     ]
+  },
+  {
+    version: '0.1.11',
+    title: 'More room for annotations',
+    summary:
+      'Add notes beyond a small capture while keeping editor controls cleaner and annotations recoverable throughout the canvas.',
+    items: [
+      {
+        title: 'The canvas grows with your annotations',
+        body: 'Move arrows, measurements, text, and other annotations beyond a capture edge and ClipThat adds space on only the sides that need it. The added space is preserved when you reopen or export the capture.'
+      },
+      {
+        title: 'Expansion stays undoable',
+        body: 'Annotation movement and its required canvas expansion are one undoable action, so Undo and Redo restore the annotation and canvas together.'
+      },
+      {
+        title: 'Rotation controls are cleaner',
+        body: 'The rotate control keeps its reachable circular handle without the connector line between the handle and selection.'
+      },
+      {
+        title: 'Edge editing is more dependable',
+        body: 'Annotations remain selectable after outside-canvas drags, across editor zoom levels, with more reliable cancellation, history, and toolbar behavior.'
+      }
+    ]
   }
 ] as const satisfies readonly ReleaseNotes[]
 
