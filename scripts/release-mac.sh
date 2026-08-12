@@ -9,8 +9,56 @@ cd "$(dirname "$0")/.."
 
 VERSION=$(node -p "require('./package.json').version")
 
+release_keychain=""
+release_keychain_dir=""
+cleanup_release_keychain() {
+  if [ -n "$release_keychain" ]; then
+    security delete-keychain "$release_keychain" >/dev/null 2>&1 || true
+  fi
+  if [ -n "$release_keychain_dir" ]; then
+    rm -f "$release_keychain_dir/developer-id.p12"
+    rmdir "$release_keychain_dir" >/dev/null 2>&1 || true
+  fi
+}
+trap cleanup_release_keychain EXIT
+
 if [ -n "${CSC_LINK:-}" ]; then
   : "${CSC_KEY_PASSWORD:?CSC_KEY_PASSWORD is required when CSC_LINK is set}"
+
+  # electron-builder imports CSC_LINK into a temporary keychain that is removed
+  # when its process exits. Keep our own short-lived copy available for the
+  # separate delivery-image signing step below.
+  release_keychain_dir=$(mktemp -d "${TMPDIR:-/tmp}/clipthat-release-keychain.XXXXXX")
+  release_certificate="$release_keychain_dir/developer-id.p12"
+  release_keychain="$release_keychain_dir/clipthat-release.keychain-db"
+  release_keychain_password=$(openssl rand -hex 24)
+
+  CSC_CERTIFICATE_PATH="$release_certificate" node <<'NODE'
+const fs = require('node:fs')
+const { fileURLToPath } = require('node:url')
+
+const link = process.env.CSC_LINK
+const destination = process.env.CSC_CERTIFICATE_PATH
+if (!link || !destination) process.exit(1)
+
+if (link.startsWith('file://')) {
+  fs.copyFileSync(fileURLToPath(link), destination)
+} else if (fs.existsSync(link)) {
+  fs.copyFileSync(link, destination)
+} else {
+  const encoded = link.startsWith('base64:') ? link.slice('base64:'.length) : link
+  fs.writeFileSync(destination, Buffer.from(encoded.replace(/\s/g, ''), 'base64'))
+}
+NODE
+
+  security create-keychain -p "$release_keychain_password" "$release_keychain"
+  security set-keychain-settings -lut 21600 "$release_keychain"
+  security unlock-keychain -p "$release_keychain_password" "$release_keychain"
+  security import "$release_certificate" -k "$release_keychain" \
+    -P "$CSC_KEY_PASSWORD" -T /usr/bin/codesign -T /usr/bin/security
+  security set-key-partition-list -S apple-tool:,apple:,codesign: -s \
+    -k "$release_keychain_password" "$release_keychain"
+  security list-keychains -d user -s "$release_keychain"
 elif ! security find-identity -v -p codesigning 2>/dev/null \
   | grep -q 'Developer ID Application:'; then
   echo "No valid Developer ID Application identity is available in the keychain." >&2
