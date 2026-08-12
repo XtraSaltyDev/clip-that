@@ -20,6 +20,7 @@ const ENTRIES = {
   cutOutImage: 'src/renderer/editor/cut-out-image.ts',
   camera: 'src/renderer/hud/zoom-camera.ts',
   recordingSources: 'src/renderer/hud/recording-sources.ts',
+  systemAudio: 'src/main/recording/system-audio.ts',
   qr: 'src/renderer/shared/qr.ts',
   cutOut: 'src/shared/cut-out.ts',
   libraryOpenPolicy: 'src/main/library/open-policy.ts',

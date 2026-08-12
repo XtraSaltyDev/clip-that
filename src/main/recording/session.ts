@@ -16,9 +16,7 @@ import { library } from '../store/library'
 import { recordingSessionsDir, recordingsDir } from '../store/paths'
 import { toGif, toMp4, toWebm } from './ffmpeg'
 import { RecordingRecoveryStore } from './recovery-store'
-
-const IS_WIN = process.platform === 'win32'
-const IS_LINUX = process.platform === 'linux'
+import { supportsSystemAudio } from './system-audio'
 
 class RecordingSession extends EventEmitter {
   private state: RecordingState = 'idle'
@@ -101,7 +99,10 @@ class RecordingSession extends EventEmitter {
 
   /** Warm ScreenCaptureKit discovery, but deliberately discard its short-lived handles. */
   async prewarmDisplaySources(): Promise<void> {
-    await this.getScreenSources().then(() => undefined, () => undefined)
+    await this.getScreenSources().then(
+      () => undefined,
+      () => undefined
+    )
   }
 
   /** Temporarily route source-ID capture to the display selected for scrolling capture. */
@@ -110,7 +111,7 @@ class RecordingSession extends EventEmitter {
   }
 
   systemAudioSupported(): boolean {
-    return IS_WIN || IS_LINUX
+    return supportsSystemAudio(process.platform, process.getSystemVersion())
   }
 
   configure(options: RecordingOptions): RecordingOptions {
@@ -304,9 +305,7 @@ class RecordingSession extends EventEmitter {
     return this.recoveryStore
   }
 
-  private async checkpoint(
-    patch: Parameters<RecordingRecoveryStore['update']>[1]
-  ): Promise<void> {
+  private async checkpoint(patch: Parameters<RecordingRecoveryStore['update']>[1]): Promise<void> {
     if (this.sessionId) await this.store().update(this.sessionId, patch)
   }
 }

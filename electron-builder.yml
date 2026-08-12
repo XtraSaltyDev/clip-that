@@ -44,6 +44,7 @@ mac:
   extendInfo:
     NSCameraUsageDescription: ClipThat uses your camera for webcam overlays in screen recordings.
     NSMicrophoneUsageDescription: ClipThat uses your microphone to record narration.
+    NSAudioCaptureUsageDescription: ClipThat records system audio when you enable it for a screen recording.
     NSScreenCaptureUsageDescription: ClipThat needs screen recording access to capture screenshots and video.
     LSUIElement: false
 

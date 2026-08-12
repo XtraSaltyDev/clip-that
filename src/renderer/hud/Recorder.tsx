@@ -592,8 +592,8 @@ export default function Recorder(): React.ReactElement {
           label="System audio"
           hint={
             sources?.systemAudioSupported
-              ? 'Capture what the computer plays'
-              : 'Not available on macOS without a virtual audio device'
+              ? 'Capture what the computer plays — macOS may ask on first use'
+              : 'Requires macOS 13 or later'
           }
           disabled={!sources?.systemAudioSupported}
           checked={options.systemAudio && Boolean(sources?.systemAudioSupported)}
