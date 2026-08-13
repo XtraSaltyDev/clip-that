@@ -71,10 +71,12 @@ test('bundles the 0.1.10 direct editing and canvas safety release notes', () => 
   assert.ok(notes.items.some((item) => /canvas boundary/i.test(item.title + item.body)))
 })
 
-test('bundles the 0.1.11 canvas expansion and rotation control release notes', () => {
+test('bundles the 0.1.11 Mac audio, canvas expansion and rotation control release notes', () => {
   const notes = RELEASE_NOTES.find((entry) => entry.version === '0.1.11')
   assert.ok(notes)
-  assert.match(notes.title, /room for annotations/i)
+  assert.match(notes.title, /Mac audio/i)
+  assert.ok(notes.items.some((item) => /system audio/i.test(item.title + item.body)))
+  assert.ok(notes.items.some((item) => /virtual audio device/i.test(item.title + item.body)))
   assert.ok(notes.items.some((item) => /canvas grows/i.test(item.title)))
   assert.ok(notes.items.some((item) => /rotation controls/i.test(item.title)))
 })

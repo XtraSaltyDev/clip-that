@@ -123,10 +123,14 @@ export const RELEASE_NOTES = [
   },
   {
     version: '0.1.11',
-    title: 'More room for annotations',
+    title: 'Native Mac audio and more room for annotations',
     summary:
-      'Add notes beyond a small capture while keeping editor controls cleaner and annotations recoverable throughout the canvas.',
+      'Record system audio on modern Macs and add notes beyond a small capture while keeping annotations recoverable throughout the canvas.',
     items: [
+      {
+        title: 'Record Mac system audio without a virtual device',
+        body: 'On macOS 13 or later, enable System audio to capture what your Mac plays using the native recording permission. A separate virtual audio device is no longer required.'
+      },
       {
         title: 'The canvas grows with your annotations',
         body: 'Move arrows, measurements, text, and other annotations beyond a capture edge and ClipThat adds space on only the sides that need it. The added space is preserved when you reopen or export the capture.'
