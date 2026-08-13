@@ -123,14 +123,10 @@ export const RELEASE_NOTES = [
   },
   {
     version: '0.1.11',
-    title: 'Native Mac audio and more room for annotations',
+    title: 'More room for annotations',
     summary:
-      'Record system audio on modern Macs and add notes beyond a small capture while keeping annotations recoverable throughout the canvas.',
+      'Add notes beyond a small capture while keeping editor controls cleaner and annotations recoverable throughout the canvas.',
     items: [
-      {
-        title: 'Record Mac system audio without a virtual device',
-        body: 'On macOS 13 or later, enable System audio to capture what your Mac plays using the native recording permission. A separate virtual audio device is no longer required.'
-      },
       {
         title: 'The canvas grows with your annotations',
         body: 'Move arrows, measurements, text, and other annotations beyond a capture edge and ClipThat adds space on only the sides that need it. The added space is preserved when you reopen or export the capture.'
@@ -146,6 +142,22 @@ export const RELEASE_NOTES = [
       {
         title: 'Edge editing is more dependable',
         body: 'Annotations remain selectable after outside-canvas drags, across editor zoom levels, with more reliable cancellation, history, and toolbar behavior.'
+      }
+    ]
+  },
+  {
+    version: '0.1.12',
+    title: 'Native Mac system audio',
+    summary:
+      'Record the sound your Mac plays without installing or configuring a separate virtual audio device.',
+    items: [
+      {
+        title: 'Capture system audio natively',
+        body: 'On macOS 13 or later, enable System audio before recording to capture meeting and application sound using the built-in macOS permission.'
+      },
+      {
+        title: 'Clear first-use guidance',
+        body: 'ClipThat now explains that macOS may ask for audio-capture permission the first time you enable system audio.'
       }
     ]
   }
