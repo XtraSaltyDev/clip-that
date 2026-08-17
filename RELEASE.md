@@ -1,16 +1,21 @@
 # Releasing ClipThat
 
-The build is reproducible from a clean checkout: `npm ci && npm run build` runs the
-typecheck and complete test suite before bundling, so a broken extractor cannot ship.
+The build is reproducible from a clean checkout: `npm ci && npm run build` runs lint,
+formatting, typechecking, and the production bundle. These are non-interactive source gates;
+installed-app acceptance is manual.
 
 ## Verification levels
 
-| Level | Command | What it proves |
+| Level | Method | What it proves |
 |---|---|---|
-| Unit + regression | `npm test` | extraction, stitching maths, layout, filenames — runs anywhere, ~1s |
-| Visual | `CLIPTHAT_VISUAL_CHECK=/tmp/shots npm run dev` | every window renders; annotate → beautify → redact → save round-trips |
-| End-to-end | `CLIPTHAT_SELF_TEST=all <app binary>` | Packaged-app checks for capture latency, retained memory, pin, quick access (including the clipboard), pipeline, scrolling capture, MP4/GIF recording, update-channel reachability, and a 16-second auto-zoom pixel test over raw WebM and delivery MP4. Needs Screen Recording permission; results appear as `[selftest]` lines in the log and the app exits 0 only when every requested phase passes. Individual phases: `CLIPTHAT_SELF_TEST=latency,quick,pipeline,zoom,update` |
-| Display diagnostics | `CLIPTHAT_DIAG_DISPLAYS=1 <app binary>` | per-display capture health, for support |
+| Source gates | `npm run build` | lint, formatting, TypeScript, and the production bundle are clean without driving the UI |
+| Installed app | Manually exercise the checklist below | the actual signed app behaves correctly with real permissions and hardware |
+| Display diagnostics | `CLIPTHAT_DIAG_DISPLAYS=1 <app binary>` | read-only per-display capture health for support |
+
+There is intentionally no automated test or UI-driving acceptance command. Release review must
+not synthesize mouse or keyboard input, open capture overlays in a loop, or take over the active
+desktop. Record the installed app version and the manually observed result for each checklist
+item instead.
 
 The log lives at `<userData>/logs/clipthat.log` (shown in Settings → About).
 
@@ -107,8 +112,8 @@ Configure these repository secrets before the first hosted release:
 
 Routine CI deliberately does not package desktop applications. It runs one capped Linux
 job after a push to `main`, skips documentation-only pushes, cancels superseded runs, and
-runs the typecheck, tests, and production bundle. Pull requests do not trigger a second
-duplicate run; use the manual CI button when a branch needs validation before merging.
+runs lint, formatting, typechecking, and the production bundle. Pull requests do not trigger a
+second duplicate run; use the manual CI button when a branch needs validation before merging.
 
 ## Unsupported Windows / Linux candidates
 
@@ -141,8 +146,8 @@ end-to-end checklist below on real hardware.
 
 - [ ] Region capture on every attached display; result matches the frozen frame
 - [ ] Window capture, fullscreen capture, repeat-last-region
-- [ ] Recording with microphone and webcam bubble (self-test covers screen-only + auto-zoom)
-- [ ] Quick Access card: drag-out into another app (self-test covers copy)
+- [ ] Recording with screen, system audio, microphone, webcam bubble, pause/resume, and auto-zoom
+- [ ] Quick Access card: copy and drag-out into another app
 - [ ] Pipeline shell command against a real destination (S3, scp, webhook)
 - [ ] System audio on Windows/Linux
 - [ ] Scrolling capture on a real browser page
@@ -165,7 +170,7 @@ stays published so older clients and managed-update failures have a manual recov
 npm run clean:artifacts
 ```
 
-This removes `out/`, test caches, expanded packaging directories, builder scratch data,
+This removes `out/`, local caches, expanded packaging directories, builder scratch data,
 and delivery files older than the direct previous version. It keeps the current and
 directly previous DMG, ZIP, blockmap, installer/archive and checksum files plus current
 updater metadata. It never removes `node_modules`,

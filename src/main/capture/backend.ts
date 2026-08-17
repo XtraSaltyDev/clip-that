@@ -413,15 +413,6 @@ export async function listWindows(withPreview = true): Promise<WindowInfo[]> {
     // adds work to an already fragile ScreenCaptureKit enumeration and yields no icon.
     fetchWindowIcons: batchPreviews
   })
-  if (process.env['CLIPTHAT_SELF_TEST']) {
-    const editorSourceCount = sources.filter((source) =>
-      visibleEditorSourceIds.includes(source.id)
-    ).length
-    console.log(
-      `[selftest] window sources: ${sources.length} available, ` +
-        `${visibleEditors.length} visible ClipThat editors, ${editorSourceCount} matched`
-    )
-  }
   const windows = sources
     .filter((s) =>
       shouldIncludeWindowSource(s.name, visibleEditorTitles, s.id, visibleEditorSourceIds)

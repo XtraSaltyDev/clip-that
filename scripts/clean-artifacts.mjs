@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 
 /**
- * Remove generated build trees and delivery files from older versions while keeping
+ * Remove generated build trees, local caches and delivery files from older versions while keeping
  * the current and directly previous versions' finished packages. Dependencies and user data are
  * deliberately outside this script's scope.
  */

@@ -241,18 +241,6 @@ export function scrollCaptureActive(): boolean {
   return scrollSession !== null
 }
 
-export function scrollFrameCount(): number {
-  return scrollSession?.frames.length ?? 0
-}
-
-/** Self-test evidence only: copies the first and latest encoded frames before teardown. */
-export function scrollFrameEvidence(): Buffer[] {
-  const frames = scrollSession?.frames ?? []
-  if (frames.length === 0) return []
-  if (frames.length === 1) return [Buffer.from(frames[0])]
-  return [Buffer.from(frames[0]), Buffer.from(frames[frames.length - 1])]
-}
-
 async function grabScrollFrame(session: ScrollSession): Promise<void> {
   try {
     if (process.platform === 'darwin' && session.dipRect) {

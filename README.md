@@ -92,8 +92,9 @@ raw screen dump. Floating controller with pause/resume, then a
 review step with trimming and export to **MP4 (H.264)**, **GIF** (two-pass palette), or **WebM**.
 Library recordings open in ClipThat's video editor, where trim drafts persist, a selection can
 be played or looped, timecodes can be entered precisely, and exports remain non-destructive.
-Windows/Linux system-audio paths exist in source but are not a supported or runtime-accepted
-feature.
+On macOS 13 and later, recording can include native system audio without a virtual audio
+device. Windows/Linux system-audio paths exist in source but are not supported or
+runtime-accepted features.
 
 ### Library
 Grid or list, grouped into Today / Yesterday / weekday / date. Tags, favourites, full-text
@@ -140,7 +141,7 @@ src/
     store/    settings + library index (plain JSON, no native deps)
     windows/  overlay, editor, library, HUD, settings window managers
     ocr.ts    OCR request bus + background library indexer
-    dev/      visual-check harness (dev only)
+    dev/      opt-in display diagnostics for support
   preload/    one typed contextBridge surface: window.clipthat
   renderer/
     shared/   design system, command palette, OCR, extraction engine
@@ -168,7 +169,7 @@ outside the library directory.
 |---|---|---|---|
 | Release status | **Supported: Apple silicon** | Experimental x64 candidate; no runtime acceptance | Build configuration only; no runtime acceptance |
 | Capture | `screencapture -R` per display (the full-display forms fail in-process); `desktopCapturer` as fallback only | `desktopCapturer` | `desktopCapturer` (X11), portal picker (Wayland) |
-| System audio | not supported without a virtual audio device — the UI says so | loopback path, unverified | loopback path, unverified |
+| System audio | Native capture on macOS 13+ | loopback path, unverified | loopback path, unverified |
 | Permissions | Screen Recording must be granted; the app verifies by actually reading pixels, not by trusting the status flag | — | — |
 
 ---
@@ -177,43 +178,32 @@ outside the library directory.
 
 ```bash
 npm run dev            # run the app
-npm run build          # typecheck + bundle
+npm run build          # lint + format check + typecheck + bundle
 npm run build:mac      # Apple-silicon dmg + zip
 npm run build:win      # experimental x64 packages; not runtime acceptance
 npm run build:linux    # unsigned development packages; not runtime acceptance
 node build/gen-icons.mjs   # regenerate the icon set from source, no image deps
 ```
 
-```bash
-npm test               # unit + regression tests, no Electron needed
-npm run fixture <png>  # regenerate an OCR fixture from a screenshot
-```
+ClipThat deliberately has no automated test or UI-driving harness. Automated Electron
+acceptance previously took over the active displays and input devices. Validate changes by
+driving the real app manually while leaving the user's mouse and keyboard under their control.
+The build retains non-interactive source checks: ESLint, Prettier, TypeScript, and the
+production bundle.
 
-`npm run build` runs the typecheck **and** the tests before bundling, so a broken
-extractor can't be packaged.
-
-The suite covers the pure logic: line grouping, secret detection (Luhn, dash folding,
-overlap resolution), entity extraction, table detection, title suggestion, scroll
-stitching, filename templating and canvas layout. `tests/fixtures/invoices.json` is real
-Tesseract output from a real screenshot, so the heuristics are exercised against messy
-input — split words, typographic dashes, stray punctuation — and not just clean synthetic
-boxes.
-
-Three harnesses make the slow parts fast to iterate on:
+Useful non-driving diagnostics remain available:
 
 ```bash
-# Render every window to a PNG using capturePage() — no screen-recording permission needed.
-CLIPTHAT_VISUAL_CHECK=/tmp/shots npm run dev
-
 # Run the real extraction engine over a PNG and print what it found.
-node scripts/extract-check.mjs /tmp/shots/00-source.png
+npm run extract-check -- /path/to/capture.png
 
-# End-to-end, inside the packaged app with real permissions: latency budget, pin,
-# quick access, pipeline, scrolling capture, and MP4/GIF/auto-zoom recording.
-# The zoom phase decodes raw WebM and MP4 pixels and checks for stale bottom bands.
-# This is the required real-device acceptance gate; a source build is not equivalent.
-CLIPTHAT_SELF_TEST=all /Applications/ClipThat.app/Contents/MacOS/ClipThat
+# Print per-display capture health for support without clicking or typing.
+CLIPTHAT_DIAG_DISPLAYS=1 /Applications/ClipThat.app/Contents/MacOS/ClipThat
 ```
+
+Before a release, use the manual checklist in `RELEASE.md` against the installed app. A clean
+build is source evidence; it is not a substitute for observing capture, editing, recording,
+export, library, and settings behavior in the actual interface.
 
 On macOS, `npm run install:mac` builds, signs (Developer ID if present), installs to
 /Applications and preserves the Screen Recording grant. See RELEASE.md for the full

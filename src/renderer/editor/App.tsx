@@ -16,7 +16,6 @@ import CommandPalette from '../shared/CommandPalette'
 import { editorCommands } from './commands'
 import { orderWords, selectedText } from './canvas/LiveText'
 import { renderCutOutImage } from './cut-out-image'
-import { installEditorSelfTestBridge } from './self-test-bridge'
 import './editor.css'
 
 function loadImageDataUrl(dataUrl: string): Promise<HTMLImageElement> {
@@ -46,31 +45,6 @@ export default function App(): React.ReactElement {
   const videoDraftFlush = useRef<(() => Promise<void>) | null>(null)
   const documentHandoff = useRef(Promise.resolve())
 
-  useEffect(
-    () =>
-      installEditorSelfTestBridge(
-        actions.render,
-        () => {
-          const transformer = stageRef.current?.findOne('Transformer') as
-            Konva.Transformer | undefined
-          return transformer ? Boolean(transformer.rotateLineVisible()) : null
-        },
-        () => {
-          const transformer = stageRef.current?.findOne('Transformer') as
-            Konva.Transformer | undefined
-          const anchor = transformer?.findOne('.rotater')
-          if (!anchor || !anchor.visible()) return null
-          const rect = anchor.getClientRect()
-          const stageRect = stageRef.current?.container().getBoundingClientRect()
-          if (!stageRect) return null
-          return {
-            x: stageRect.left + rect.x + rect.width / 2,
-            y: stageRect.top + rect.y + rect.height / 2
-          }
-        }
-      ),
-    [actions.render]
-  )
   // Rebuilt when the palette opens so disabled states reflect the current selection.
   const commands = useMemo(() => editorCommands(actions), [actions, paletteOpen])
 

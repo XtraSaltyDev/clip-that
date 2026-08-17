@@ -172,39 +172,9 @@ app.whenReady().then(async () => {
 
   if (recording.recoveries().length > 0) showHudWindow('recovery')
 
-  const selfTest = process.env['CLIPTHAT_SELF_TEST']
-  if (selfTest) {
-    const { runSelfTest } = await import('./dev/self-test')
-    setTimeout(() => {
-      void runSelfTest(selfTest)
-        .then((status) => {
-          // Keep the short post-run flush window used by the old quit path, but make the
-          // calculated status authoritative for the Electron process as well as the shell.
-          setTimeout(() => {
-            flushLog()
-            app.exit(status)
-          }, 100)
-        })
-        .catch((error) => {
-          console.error(`[selftest] runner failed: ${(error as Error).stack ?? error}`)
-          setTimeout(() => {
-            flushLog()
-            app.exit(1)
-          }, 100)
-        })
-    }, 2500)
-  }
-
   if (process.env['CLIPTHAT_DIAG_DISPLAYS']) {
     const { probeDisplays } = await import('./dev/display-probe')
     void probeDisplays()
-  }
-
-  // Development-only visual regression pass; see src/main/dev/visual-check.ts.
-  const visualCheckDir = process.env['CLIPTHAT_VISUAL_CHECK']
-  if (visualCheckDir && !app.isPackaged) {
-    const { runVisualCheck } = await import('./dev/visual-check')
-    void runVisualCheck(visualCheckDir)
   }
 
   app.on('activate', () => {
