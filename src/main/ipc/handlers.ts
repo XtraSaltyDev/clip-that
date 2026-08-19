@@ -1,4 +1,4 @@
-import { app, BrowserWindow, screen, shell } from 'electron'
+import { app, BrowserWindow, Menu, screen, shell } from 'electron'
 import { dialog } from 'electron'
 import { promises as fs } from 'node:fs'
 import { join } from 'node:path'
@@ -7,11 +7,14 @@ import { releaseNotesStatus } from '@shared/release-notes'
 import type {
   CaptureRequest,
   ClipDocument,
+  EditorContextMenuAction,
+  EditorContextMenuRequest,
   LibraryItem,
   LibraryQuery,
   RecordingOptions,
   SaveImageRequest,
   Settings,
+  Shape,
   VideoExportOptions
 } from '@shared/types'
 import type { SnagitImportProgress } from '@shared/types'
@@ -93,6 +96,73 @@ import {
 
 let cursorFeed: NodeJS.Timeout | null = null
 const videoExportControllers = new Map<number, AbortController>()
+let annotationClipboard: Shape[] = []
+
+function parseEditorContextMenuRequest(value: unknown): EditorContextMenuRequest {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) {
+    throw new TypeError('editor context menu request must be an object')
+  }
+  const input = value as Record<string, unknown>
+  if (input.kind !== 'canvas' && input.kind !== 'selection') {
+    throw new TypeError('editor context menu kind is not supported')
+  }
+  return {
+    kind: input.kind,
+    selectionCount: validate.numberValue(input.selectionCount, 'selection count', 0, 20_000),
+    annotationCount: validate.numberValue(input.annotationCount, 'annotation count', 0, 20_000)
+  }
+}
+
+function showEditorContextMenu(
+  win: BrowserWindow | null,
+  request: EditorContextMenuRequest
+): Promise<EditorContextMenuAction | null> {
+  type ContextMenuItem = Electron.MenuItemConstructorOptions & {
+    action?: EditorContextMenuAction
+  }
+  const count = request.selectionCount
+  const selectionLabel = count === 1 ? 'Annotation' : `${count} Annotations`
+  const selectionItems: ContextMenuItem[] =
+    request.kind === 'selection'
+      ? [
+          { label: `Copy ${selectionLabel}`, action: 'copy-annotations' },
+          { label: `Duplicate ${selectionLabel}`, action: 'duplicate-annotations' },
+          { label: `Delete ${selectionLabel}`, action: 'delete-annotations' },
+          { type: 'separator' }
+        ]
+      : []
+  const template: ContextMenuItem[] = [
+    ...selectionItems,
+    {
+      label: 'Paste Annotation(s)',
+      action: 'paste-annotations',
+      enabled: annotationClipboard.length > 0
+    },
+    {
+      label: 'Select All Annotations',
+      action: 'select-all-annotations',
+      enabled: request.annotationCount > 0
+    },
+    { type: 'separator' },
+    { label: 'Copy Clip to Clipboard', action: 'copy-image' }
+  ]
+
+  return new Promise((resolve) => {
+    let settled = false
+    const finish = (action: EditorContextMenuAction | null): void => {
+      if (settled) return
+      settled = true
+      resolve(action)
+    }
+    const menu = Menu.buildFromTemplate(
+      template.map(({ action, ...item }) => ({
+        ...item,
+        click: action ? () => finish(action) : item.click
+      }))
+    )
+    menu.popup({ window: win ?? undefined, callback: () => finish(null) })
+  })
+}
 
 /** Stream the global cursor position to the recorder at ~30Hz for the zoom camera. */
 function startCursorFeed(): void {
@@ -212,6 +282,19 @@ export function registerIpcHandlers(): void {
   })
   secureHandle(IPC.editorSwitchLibraryItem, ['editor'], (e, id: string) =>
     switchEditorToLibraryItem(e.sender.id, validate.idValue(id))
+  )
+  secureHandle(IPC.editorContextMenu, ['editor'], (e, request: unknown) =>
+    showEditorContextMenu(
+      BrowserWindow.fromWebContents(e.sender),
+      parseEditorContextMenuRequest(request)
+    )
+  )
+  secureHandle(IPC.editorAnnotationClipboardWrite, ['editor'], (_e, shapes: unknown) => {
+    annotationClipboard = validate.annotationShapes(shapes)
+    return annotationClipboard.length
+  })
+  secureHandle(IPC.editorAnnotationClipboardRead, ['editor'], () =>
+    validate.annotationShapes(annotationClipboard)
   )
 
   /* ---------------- export ---------------- */

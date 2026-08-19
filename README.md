@@ -64,6 +64,9 @@ editor. If an editor is already open, ClipThat reuses the focused or most recent
 editor so each capture stays in one working surface. The capture remains linked to its
 Library item while you annotate, rename, save, or Save As.
 
+The Capture settings can also copy every new screenshot to the clipboard without changing
+that after-capture destination.
+
 Prefer automation? Switch the after-capture action to **Pipeline** and configure a chain —
 copy, save, pin, edit, then a shell command with `{file}` — so one hotkey can save, copy a
 link, and upload wherever you like, without ClipThat needing a cloud of its own.
@@ -85,7 +88,10 @@ link, and upload wherever you like, without ClipThat needing a cloud of its own.
 | Emphasise | spotlight, magnifier, measurement with a live pixel readout                                                |
 
 Full undo/redo, multi-select, a layers panel, snapping alignment guides, and a floating
-toolbar that appears at whatever you've selected.
+toolbar that appears at whatever you've selected. Right-click the canvas for clip and paste
+actions, or right-click an annotation selection to copy, duplicate, delete, and paste
+annotations. The annotation clipboard works across open clips without replacing the system
+image or text clipboard.
 
 ### Recording
 

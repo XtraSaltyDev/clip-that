@@ -94,6 +94,10 @@ interface Props {
   containerHeight: number
   stageRef: React.MutableRefObject<Konva.Stage | null>
   viewportRef: React.MutableRefObject<HTMLDivElement | null>
+  onContextMenuRequest: (target: {
+    kind: 'canvas' | 'selection'
+    point: { x: number; y: number }
+  }) => void
 }
 
 /** Snap threshold in image pixels, scaled so it feels constant on screen. */
@@ -145,7 +149,8 @@ export default function EditorStage({
   containerWidth,
   containerHeight,
   stageRef,
-  viewportRef
+  viewportRef,
+  onContextMenuRequest
 }: Props): React.ReactElement | null {
   const doc = useEditor((s) => s.doc)
   const tool = useEditor((s) => s.tool)
@@ -367,6 +372,30 @@ export default function EditorStage({
     addShape(shape)
     drafting.current = { id: shape.id, origin: p }
     lastPoint.current = p
+  }
+
+  const onStageContextMenu = (e: Konva.KonvaEventObject<PointerEvent>) => {
+    e.evt.preventDefault()
+    const point = pointer()
+    if (!point || !doc) return
+
+    const shapeIds = new Set(doc.shapes.map((shape) => shape.id))
+    let node: Konva.Node | null = e.target
+    let shapeId: string | null = null
+    while (node) {
+      if (shapeIds.has(node.id())) {
+        shapeId = node.id()
+        break
+      }
+      node = node.getParent()
+    }
+
+    if (shapeId) {
+      if (!selectedIds.includes(shapeId)) select([shapeId])
+      onContextMenuRequest({ kind: 'selection', point })
+      return
+    }
+    onContextMenuRequest({ kind: 'canvas', point })
   }
 
   const onStageMouseMove = useCallback(() => {
@@ -1232,6 +1261,7 @@ export default function EditorStage({
         scaleX={zoom}
         scaleY={zoom}
         onMouseDown={onStageMouseDown}
+        onContextMenu={onStageContextMenu}
         onMouseMove={onStageMouseMove}
         onMouseUp={onStageMouseUp}
         onMouseLeave={() => {

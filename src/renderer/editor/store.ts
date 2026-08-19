@@ -1,6 +1,5 @@
 import { create } from 'zustand'
 import type {
-  BoxShape,
   CanvasStyle,
   ClipDocument,
   CutOutEdge,
@@ -96,6 +95,7 @@ interface EditorState {
   removeShapes: (ids: string[]) => void
   reorder: (id: string, direction: 'front' | 'back' | 'forward' | 'backward') => void
   duplicateSelected: () => void
+  pasteShapes: (shapes: Shape[], at?: { x: number; y: number }) => void
 
   setCanvas: (patch: Partial<CanvasStyle>) => void
   setCropDraft: (crop: CropRect | null) => void
@@ -120,6 +120,46 @@ interface EditorState {
 const MAX_HISTORY = 100
 
 const clone = <T,>(value: T): T => JSON.parse(JSON.stringify(value)) as T
+
+function shapeTopLeft(shape: Shape): { x: number; y: number } {
+  if ('points' in shape) {
+    const xs = shape.points.filter((_, index) => index % 2 === 0)
+    const ys = shape.points.filter((_, index) => index % 2 === 1)
+    return { x: Math.min(...xs), y: Math.min(...ys) }
+  }
+  if (shape.type === 'step') return { x: shape.x - shape.radius, y: shape.y - shape.radius }
+  if ('width' in shape && 'height' in shape) {
+    return {
+      x: Math.min(shape.x, shape.x + shape.width),
+      y: Math.min(shape.y, shape.y + (shape.height ?? 0))
+    }
+  }
+  return { x: shape.x, y: shape.y }
+}
+
+function pastedShapes(
+  source: Shape[],
+  maxZ: number,
+  translation: { x: number; y: number }
+): Shape[] {
+  return [...source]
+    .sort((a, b) => a.z - b.z)
+    .map((original, index) => {
+      const copy = clone(original)
+      copy.id = crypto.randomUUID()
+      copy.z = maxZ + 1 + index
+      delete copy.clipRects
+      if ('points' in copy) {
+        copy.points = copy.points.map((value, pointIndex) =>
+          value + (pointIndex % 2 === 0 ? translation.x : translation.y)
+        )
+      } else {
+        copy.x += translation.x
+        copy.y += translation.y
+      }
+      return copy
+    })
+}
 
 const snapshot = (doc: ClipDocument): Snapshot => ({
   shapes: clone(doc.shapes),
@@ -369,25 +409,38 @@ export const useEditor = create<EditorState>((set, get) => ({
       if (!s.doc || s.selectedIds.length === 0) return s
       const selected = new Set(s.selectedIds)
       const maxZ = s.doc.shapes.reduce((m, sh) => Math.max(m, sh.z), 0)
-      const clones: Shape[] = []
-      s.doc.shapes
-        .filter((sh) => selected.has(sh.id))
-        .forEach((sh, i) => {
-          const clone = { ...sh, id: crypto.randomUUID(), z: maxZ + 1 + i } as Shape
-          // Offset the copy so it's obviously a second object.
-          if ('x' in clone && 'y' in clone) {
-            ;(clone as BoxShape).x += 16
-            ;(clone as BoxShape).y += 16
-          } else if ('points' in clone) {
-            clone.points = clone.points.map((p, idx) => p + (idx % 2 === 0 ? 16 : 16))
-          }
-          clones.push(clone)
-        })
+      const clones = pastedShapes(
+        s.doc.shapes.filter((shape) => selected.has(shape.id)),
+        maxZ,
+        { x: 16, y: 16 }
+      )
       return {
         doc: { ...s.doc, shapes: [...s.doc.shapes, ...clones], updatedAt: Date.now() },
         past: [...s.past.slice(-(MAX_HISTORY - 1)), snapshot(s.doc)],
         future: [],
         selectedIds: clones.map((c) => c.id),
+        dirty: true
+      }
+    }),
+
+  pasteShapes: (shapes, at) =>
+    set((s) => {
+      if (!s.doc || shapes.length === 0) return s
+      const maxZ = s.doc.shapes.reduce((maximum, shape) => Math.max(maximum, shape.z), 0)
+      const origin = shapes.reduce(
+        (minimum, shape) => {
+          const point = shapeTopLeft(shape)
+          return { x: Math.min(minimum.x, point.x), y: Math.min(minimum.y, point.y) }
+        },
+        { x: Number.POSITIVE_INFINITY, y: Number.POSITIVE_INFINITY }
+      )
+      const translation = at ? { x: at.x - origin.x, y: at.y - origin.y } : { x: 16, y: 16 }
+      const copies = pastedShapes(shapes, maxZ, translation)
+      return {
+        doc: { ...s.doc, shapes: [...s.doc.shapes, ...copies], updatedAt: Date.now() },
+        past: [...s.past.slice(-(MAX_HISTORY - 1)), snapshot(s.doc)],
+        future: [],
+        selectedIds: copies.map((copy) => copy.id),
         dirty: true
       }
     }),

@@ -1,6 +1,6 @@
 {
   "name": "clipthat",
-  "version": "0.1.13",
+  "version": "0.1.14",
   "description": "ClipThat — privacy-first screen capture, annotation and recording for macOS",
   "main": "./out/main/index.js",
   "author": "ClipThat",
