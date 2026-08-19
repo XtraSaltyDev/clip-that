@@ -5,6 +5,7 @@ import { Icon, type IconName } from '../../shared/icons'
 import { toast } from '../../shared/ui'
 import { runOcr, toImageSpace } from '../../shared/ocr'
 import {
+  assessOcr,
   detectTable,
   extractEntities,
   extractPalette,
@@ -35,6 +36,7 @@ const ENTITY_ICON: Record<Entity['kind'], IconName> = {
 export default function ContextPanel({ image }: { image: HTMLImageElement | null }): React.ReactElement {
   const doc = useEditor((s) => s.doc)
   const ocr = useEditor((s) => s.ocr)
+  const rawOcr = useEditor((s) => s.rawOcr)
   const busy = useEditor((s) => s.ocrBusy)
   const liveText = useEditor((s) => s.liveTextOn)
   const liveSelection = useEditor((s) => s.liveSelection)
@@ -48,9 +50,10 @@ export default function ContextPanel({ image }: { image: HTMLImageElement | null
     state.setOcrBusy(true)
     try {
       const region = current.crop.enabled ? current.crop : undefined
-      const result = await runOcr(current.image, region)
-      state.setOcr(toImageSpace(result, region))
-      state.setOcrText(result.text.trim())
+      const result = toImageSpace(await runOcr(current.image, region), region)
+      const assessment = assessOcr(result)
+      state.setOcrResults(assessment.trusted, result)
+      state.setOcrText(assessment.trusted.text)
     } catch (err) {
       toast('error', 'Could not read the capture', (err as Error).message)
     } finally {
@@ -188,7 +191,8 @@ export default function ContextPanel({ image }: { image: HTMLImageElement | null
       {ocr && words.length === 0 && !busy && (
         <div className="ctx-empty">
           <Icon name="info" size={20} />
-          No text found in this capture.
+          <strong>No meaningful text detected</strong>
+          <span>ClipThat found no text reliable enough to use for actions.</span>
         </div>
       )}
 
@@ -368,6 +372,25 @@ export default function ContextPanel({ image }: { image: HTMLImageElement | null
             <Icon name="copy" size={13} /> Copy all text
           </button>
         </Section>
+      )}
+
+      {rawOcr?.text.trim() && rawOcr.text.trim() !== ocr?.text.trim() && (
+        <details className="ctx-raw">
+          <summary>Show raw OCR</summary>
+          <div className="ctx-raw-body">
+            <p className="tiny muted">
+              This text is uncertain. It is not used for links, tables, amounts, Live Text, or
+              automatic redaction.
+            </p>
+            <textarea className="field ctx-text" rows={7} readOnly value={rawOcr.text.trim()} />
+            <button
+              className="btn sm"
+              onClick={() => void copy(rawOcr.text.trim(), 'Raw OCR copied')}
+            >
+              <Icon name="copy" size={13} /> Copy raw OCR
+            </button>
+          </div>
+        </details>
       )}
     </div>
   )

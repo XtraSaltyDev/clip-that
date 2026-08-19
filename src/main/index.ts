@@ -21,6 +21,7 @@ import { installOverlayPool, openOverlay, takeFrozenSnapshot } from './windows/o
 import { performCapture, routeResult } from './capture/service'
 import { recording } from './recording/session'
 import { indexBacklog, indexCapture, requestOcr } from './ocr'
+import { trustedOcrText } from './store/library-ocr'
 import { library } from './store/library'
 import { isRealPathInside } from './store/path-guard'
 import { libraryFileResponse } from './protocol/library-file'
@@ -84,7 +85,7 @@ async function grabTextFlow(): Promise<void> {
   const snap = takeFrozenSnapshot(selection.displayId)
   if (!snap) return
 
-  const text = await requestOcr(snap.dataUrl, selection.rect)
+  const text = trustedOcrText(await requestOcr(snap.dataUrl, selection.rect))
 
   if (text.trim()) {
     clipboard.writeText(text.trim())
@@ -159,6 +160,10 @@ app.whenReady().then(async () => {
 
   // Every capture gets read so the library is searchable by its contents.
   library.on('added', (item: { id: string }) => indexCapture(item.id))
+  library.on('ocr-stale', (item: { id: string }) => indexCapture(item.id))
+  settings.on('changed', (next: { autoOcr: boolean }) => {
+    if (next.autoOcr) indexBacklog()
+  })
   setTimeout(indexBacklog, 4000)
 
   // First launch lands on Settings so the macOS permission prompt is explained

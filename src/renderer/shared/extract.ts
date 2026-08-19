@@ -1,4 +1,6 @@
 import type { OcrResult, OcrWord, Rect, SensitiveKind, SensitiveMatch } from '@shared/types'
+import { meaningfulCharacterRatio } from '../../shared/ocr-quality'
+export { assessOcr, type OcrAssessment } from '../../shared/ocr-quality'
 
 /**
  * Everything ClipThat works out about a capture from its OCR word boxes: the things you'd
@@ -109,6 +111,39 @@ const PATTERNS: Array<{ kind: Entity['kind']; re: RegExp; clean?: (v: string) =>
   { kind: 'phone', re: /(?:\+\d{1,3}[\s-]?)?(?:\(\d{2,4}\)[\s-]?)?\d{3}[\s-]\d{3,4}[\s-]?\d{0,4}/g }
 ]
 
+const ENTITY_MIN_CONFIDENCE: Record<Entity['kind'], number> = {
+  url: 55,
+  email: 65,
+  phone: 72,
+  ip: 68,
+  color: 62,
+  money: 78,
+  date: 68
+}
+
+function averageConfidence(words: OcrWord[]): number {
+  if (words.length === 0) return 0
+  return words.reduce((sum, word) => sum + word.confidence, 0) / words.length
+}
+
+function validEntity(kind: Entity['kind'], value: string): boolean {
+  if (kind === 'url') {
+    const normalized = value.startsWith('http') ? value : `https://${value}`
+    try {
+      const url = new URL(normalized)
+      return (
+        /^https?:$/.test(url.protocol) && url.hostname.includes('.') && !url.hostname.endsWith('.')
+      )
+    } catch {
+      return false
+    }
+  }
+  if (kind === 'ip') return value.split('.').every((octet) => Number(octet) <= 255)
+  if (kind === 'money')
+    return Number.isFinite(Number(value.replace(/[^\d.-]/g, '').replace(/,/g, '')))
+  return true
+}
+
 export function extractEntities(ocr: OcrResult): Entity[] {
   const out: Entity[] = []
   const seen = new Set<string>()
@@ -129,6 +164,8 @@ export function extractEntities(ocr: OcrResult): Entity[] {
         if (seen.has(key)) continue
         const covered = spanWords(line, m.index, m[0].length)
         if (covered.length === 0) continue
+        if (averageConfidence(covered) < ENTITY_MIN_CONFIDENCE[kind]) continue
+        if (!validEntity(kind, raw)) continue
         seen.add(key)
         const cleaned = clean?.(raw)
         out.push({
@@ -144,7 +181,9 @@ export function extractEntities(ocr: OcrResult): Entity[] {
   // A card number contains something shaped exactly like a phone number. Anything the
   // stronger secret detectors already claimed is not also an entity.
   const claimed = findSensitive(ocr)
-    .filter((m) => m.kind === 'creditCard' || m.kind === 'apiKey' || m.kind === 'jwt' || m.kind === 'ssn')
+    .filter(
+      (m) => m.kind === 'creditCard' || m.kind === 'apiKey' || m.kind === 'jwt' || m.kind === 'ssn'
+    )
     .map((m) => m.bbox)
 
   const filtered = out.filter((e) => {
@@ -198,6 +237,7 @@ interface Detector {
   /** Higher wins when two detectors claim the same pixels. */
   rank: number
   verify?: (value: string) => boolean
+  minConfidence?: number
 }
 
 function luhn(digits: string): boolean {
@@ -229,16 +269,18 @@ function countCase(value: string): number {
 }
 
 const DETECTORS: Detector[] = [
-  { kind: 'jwt', rank: 6, pattern: /\beyJ[\w-]{8,}\.[\w-]{8,}\.[\w-]{8,}\b/g },
+  { kind: 'jwt', rank: 6, minConfidence: 52, pattern: /\beyJ[\w-]{8,}\.[\w-]{8,}\.[\w-]{8,}\b/g },
   {
     kind: 'apiKey',
     rank: 6,
+    minConfidence: 52,
     pattern:
       /(?:sk|rk)-+[A-Za-z0-9_-]{12,}|pk_(?:live|test)_[A-Za-z0-9]{12,}|gh[pousr]_[A-Za-z0-9]{20,}|AKIA[0-9A-Z]{16}|AIza[0-9A-Za-z_-]{30,}|xox[baprs]-[A-Za-z0-9-]{10,}|glpat-[A-Za-z0-9_-]{15,}/g
   },
   {
     kind: 'apiKey',
     rank: 5,
+    minConfidence: 60,
     // Generic high-entropy token: long, mixed case, contains digits.
     pattern: /\b[A-Za-z0-9_+/=-]{24,}\b/g,
     verify: (v) =>
@@ -247,14 +289,16 @@ const DETECTORS: Detector[] = [
   {
     kind: 'creditCard',
     rank: 4,
+    minConfidence: 68,
     pattern: /\b(?:\d[ -]*?){13,19}\b/g,
     verify: (v) => luhn(v.replace(/\D/g, ''))
   },
-  { kind: 'ssn', rank: 4, pattern: /\b\d{3}-\d{2}-\d{4}\b/g },
-  { kind: 'email', rank: 3, pattern: /\b[\w.+-]+@[\w-]+\.[\w.-]{2,}\b/g },
+  { kind: 'ssn', rank: 4, minConfidence: 72, pattern: /\b\d{3}-\d{2}-\d{4}\b/g },
+  { kind: 'email', rank: 3, minConfidence: 65, pattern: /\b[\w.+-]+@[\w-]+\.[\w.-]{2,}\b/g },
   {
     kind: 'ipv4',
     rank: 2,
+    minConfidence: 68,
     pattern: /\b(?:\d{1,3}\.){3}\d{1,3}\b/g,
     verify: (v) => v.split('.').every((o) => Number(o) <= 255)
   },
@@ -262,6 +306,7 @@ const DETECTORS: Detector[] = [
     // No `\b` in front: a leading "+" is not a word character, so a boundary never matches.
     kind: 'phone',
     rank: 1,
+    minConfidence: 72,
     pattern: /(?:\+\d{1,3}[\s-]?)?(?:\(\d{2,4}\)[\s-]?)?\d{3}[\s-]\d{3,4}[\s-]?\d{0,4}/g,
     verify: (v) => {
       const digits = v.replace(/\D/g, '')
@@ -288,6 +333,7 @@ export function findSensitive(ocr: OcrResult): SensitiveMatch[] {
         if (!value || (detector.verify && !detector.verify(value))) continue
         const covered = spanWords(line, m.index, m[0].length)
         if (covered.length === 0) continue
+        if (averageConfidence(covered) < (detector.minConfidence ?? 65)) continue
         found.push({
           kind: detector.kind,
           text: value,
@@ -355,7 +401,9 @@ function mergeTightColumns(lines: OcrWord[][], columns: number[], charWidth: num
   for (let c = 1; c < columns.length; c++) {
     const gaps: number[] = []
     for (const line of lines) {
-      const left = line.filter((w) => w.bbox.x < columns[c] - charWidth && w.bbox.x >= kept[kept.length - 1] - charWidth)
+      const left = line.filter(
+        (w) => w.bbox.x < columns[c] - charWidth && w.bbox.x >= kept[kept.length - 1] - charWidth
+      )
       const right = line.filter((w) => w.bbox.x >= columns[c] - charWidth)
       if (left.length === 0 || right.length === 0) continue
       const leftEnd = Math.max(...left.map((w) => w.bbox.x + w.bbox.width))
@@ -412,10 +460,17 @@ function buildRows(
  * stops a sidebar and a page heading from being read as extra rows and columns.
  */
 export function detectTable(ocr: OcrResult): DetectedTable | null {
-  const allLines = toLines(ocr.words).filter((l) => l.length >= 2)
+  const confidentWords = ocr.words.filter(
+    (word) => word.confidence >= 68 && meaningfulCharacterRatio(word.text) >= 0.65
+  )
+  const allLines = toLines(confidentWords).filter(
+    (line) => line.length >= 2 && averageConfidence(line) >= 72
+  )
   if (allLines.length < 3) return null
 
-  const widths = ocr.words.map((w) => w.bbox.width / Math.max(1, w.text.length)).sort((a, b) => a - b)
+  const widths = ocr.words
+    .map((w) => w.bbox.width / Math.max(1, w.text.length))
+    .sort((a, b) => a - b)
   const charWidth = widths[Math.floor(widths.length / 2)] || 8
   const tolerance = Math.max(10, charWidth * 2.5)
 
@@ -506,7 +561,13 @@ export function suggestTitle(ocr: OcrResult, imageHeight: number): string | null
   }
 
   if (!best) return null
-  return best.text.replace(/\s+/g, ' ').replace(/[\\/:*?"<>|]/g, '').slice(0, 60).trim() || null
+  return (
+    best.text
+      .replace(/\s+/g, ' ')
+      .replace(/[\\/:*?"<>|]/g, '')
+      .slice(0, 60)
+      .trim() || null
+  )
 }
 
 /* ------------------------------------------------------------------ *

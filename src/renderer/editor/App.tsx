@@ -17,6 +17,7 @@ import { editorCommands } from './commands'
 import { orderWords, selectedText } from './canvas/LiveText'
 import { renderCutOutImage } from './cut-out-image'
 import { editorCopyTarget } from './clipboard-intent'
+import { compactEditorQuery } from './responsive'
 import './editor.css'
 
 function loadImageDataUrl(dataUrl: string): Promise<HTMLImageElement> {
@@ -40,11 +41,23 @@ export default function App(): React.ReactElement {
   const actions = useEditorActions(stageRef, settings)
   const [dropping, setDropping] = useState(false)
   const [paletteOpen, setPaletteOpen] = useState(false)
+  const [inspectorCollapsed, setInspectorCollapsed] = useState(
+    () => window.matchMedia(compactEditorQuery()).matches
+  )
   const [openingLibraryId, setOpeningLibraryId] = useState<string | null>(null)
   const [videoItem, setVideoItem] = useState<LibraryItem | null>(null)
   const closeSaving = useRef(false)
   const videoDraftFlush = useRef<(() => Promise<void>) | null>(null)
   const documentHandoff = useRef(Promise.resolve())
+
+  useEffect(() => {
+    const compact = window.matchMedia(compactEditorQuery())
+    const respond = (event: MediaQueryListEvent) => {
+      if (event.matches) setInspectorCollapsed(true)
+    }
+    compact.addEventListener('change', respond)
+    return () => compact.removeEventListener('change', respond)
+  }, [])
 
   const copySelectedAnnotations = useCallback(async (): Promise<boolean> => {
     const state = useEditor.getState()
@@ -472,8 +485,12 @@ export default function App(): React.ReactElement {
 
   return (
     <div className="editor-shell">
-      <TopBar actions={actions} onOpenPalette={() => setPaletteOpen(true)} />
-      <div className="editor-body">
+      <TopBar
+        actions={actions}
+        onOpenPalette={() => setPaletteOpen(true)}
+        onShowInspector={() => setInspectorCollapsed(false)}
+      />
+      <div className={`editor-body ${inspectorCollapsed ? 'inspector-collapsed' : ''}`}>
         <Toolbar />
         <main className="viewport" ref={viewportRef}>
           {doc && image ? (
@@ -513,7 +530,11 @@ export default function App(): React.ReactElement {
             </div>
           )}
         </main>
-        <Sidebar image={image} />
+        <Sidebar
+          image={image}
+          collapsed={inspectorCollapsed}
+          onCollapsedChange={setInspectorCollapsed}
+        />
         <LibraryStrip
           activeId={libraryId}
           openingId={openingLibraryId}

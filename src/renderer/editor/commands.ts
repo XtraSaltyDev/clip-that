@@ -2,7 +2,7 @@ import type { Command } from '../shared/CommandPalette'
 import { api } from '../shared/api'
 import { BEAUTIFY_CANVAS, DEFAULT_CANVAS } from '@shared/defaults'
 import { useEditor } from './store'
-import { TOOLS } from './panels/Toolbar'
+import { TOOLS } from './tools'
 import type { EditorActions } from './actions'
 
 const mod = navigator.userAgent.includes('Mac') ? '⌘' : 'Ctrl'

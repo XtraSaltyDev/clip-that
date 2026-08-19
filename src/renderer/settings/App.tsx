@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useState } from 'react'
+import React, { useCallback, useEffect, useRef, useState } from 'react'
 import type { AppUpdateStatus, Hotkeys, ReleaseNotesStatus, Settings } from '@shared/types'
 import { api } from '../shared/api'
 import { Icon, type IconName } from '../shared/icons'
@@ -29,6 +29,7 @@ const SECTIONS: Array<{ id: SectionId; label: string; icon: IconName }> = [
 
 export default function App(): React.ReactElement {
   useTheme()
+  const mainRef = useRef<HTMLElement>(null)
   const [settings, setSettings] = useState<Settings | null>(null)
   const [platform, setPlatform] = useState('')
   const [version, setVersion] = useState('')
@@ -63,6 +64,10 @@ export default function App(): React.ReactElement {
     return () => {
       active = false
     }
+  }, [section])
+
+  useEffect(() => {
+    mainRef.current?.scrollTo({ top: 0 })
   }, [section])
 
   const patch = useCallback(async (p: Partial<Settings>) => {
@@ -103,20 +108,24 @@ export default function App(): React.ReactElement {
         </div>
       </nav>
 
-      <main className="set-main">
-        {section === 'welcome' && (
-          <Welcome platform={platform} onDone={() => setSection('general')} />
-        )}
-        {section === 'general' && <General settings={settings} patch={patch} platform={platform} />}
-        {section === 'capture' && <Capture settings={settings} patch={patch} />}
-        {section === 'hotkeys' && (
-          <HotkeySettings settings={settings} patch={patch} failures={failures} />
-        )}
-        {section === 'annotation' && <Annotation settings={settings} patch={patch} />}
-        {section === 'about' && (
-          <About version={version} platform={platform} releaseNotes={releaseNotes} />
-        )}
-        {section === 'whats-new' && <WhatsNew version={version} releaseNotes={releaseNotes} />}
+      <main ref={mainRef} className="set-main">
+        <div className="set-content">
+          {section === 'welcome' && (
+            <Welcome platform={platform} onDone={() => setSection('general')} />
+          )}
+          {section === 'general' && (
+            <General settings={settings} patch={patch} platform={platform} />
+          )}
+          {section === 'capture' && <Capture settings={settings} patch={patch} />}
+          {section === 'hotkeys' && (
+            <HotkeySettings settings={settings} patch={patch} failures={failures} />
+          )}
+          {section === 'annotation' && <Annotation settings={settings} patch={patch} />}
+          {section === 'about' && (
+            <About version={version} platform={platform} releaseNotes={releaseNotes} />
+          )}
+          {section === 'whats-new' && <WhatsNew version={version} releaseNotes={releaseNotes} />}
+        </div>
       </main>
 
       <ToastHost />

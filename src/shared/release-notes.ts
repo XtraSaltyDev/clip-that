@@ -224,6 +224,30 @@ export const RELEASE_NOTES = [
         body: 'Previously unlabeled editor, capture, recording, Library, and Settings controls now expose meaningful accessible names.'
       }
     ]
+  },
+  {
+    version: '0.1.16',
+    title: 'Responsive workflows and trustworthy text',
+    summary:
+      'ClipThat adapts more cleanly across window sizes while Screen Context and Library search distinguish reliable text from OCR noise.',
+    items: [
+      {
+        title: 'Responsive Library and Settings',
+        body: 'Library controls, capture grids, details, and Settings fields now adapt to compact windows without hiding essential actions.'
+      },
+      {
+        title: 'A focused compact editor',
+        body: 'The editor condenses its header and annotation tools at smaller sizes, with grouped tools and a collapsible inspector that preserve the full workflow.'
+      },
+      {
+        title: 'Trustworthy Screen Context',
+        body: 'OCR confidence now determines which detected text, entities, tables, and sensitive-data suggestions are presented as reliable, while raw text remains available for review.'
+      },
+      {
+        title: 'Safer Library search migration',
+        body: 'Existing image captures are reindexed in bounded background batches so only confidence-qualified OCR becomes searchable; source captures and user metadata remain unchanged.'
+      }
+    ]
   }
 ] as const satisfies readonly ReleaseNotes[]
 

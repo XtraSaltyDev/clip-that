@@ -14,11 +14,17 @@
     "src/main/protocol/byte-range.ts",
     "src/main/recording/recovery-store.ts",
     "src/main/store/library-index.ts",
+    "src/main/store/library-ocr.ts",
     "src/main/store/path-guard.ts",
     "src/main/update/metadata.ts",
     "src/main/update/version.ts",
     "src/renderer/editor/clipboard-intent.ts",
+    "src/renderer/editor/responsive.ts",
+    "src/renderer/editor/tools.ts",
+    "src/renderer/library/layout.ts",
+    "src/renderer/shared/extract.ts",
     "src/shared/release-notes.ts",
+    "src/shared/ocr-quality.ts",
     "src/shared/types.ts"
   ]
 }

@@ -4,7 +4,7 @@ import type { BoxShape, Settings, Shape } from '@shared/types'
 import { api } from '../shared/api'
 import { toast } from '../shared/ui'
 import { runOcr, toImageSpace } from '../shared/ocr'
-import { findSensitive, SENSITIVE_LABELS } from '../shared/extract'
+import { assessOcr, findSensitive, SENSITIVE_LABELS } from '../shared/extract'
 import { useEditor } from './store'
 import { encodeAs, flatten } from './exporting'
 
@@ -160,14 +160,16 @@ export function useEditorActions(stageRef: StageRef, settings: Settings | null) 
     useEditor.getState().setOcrBusy(true)
     try {
       const region = doc.crop.enabled ? doc.crop : undefined
-      const result = await runOcr(doc.image, region)
-      const text = result.text.trim()
+      const result = toImageSpace(await runOcr(doc.image, region), region)
+      const assessment = assessOcr(result)
+      const text = assessment.trusted.text
+      useEditor.getState().setOcrResults(assessment.trusted, result)
       useEditor.getState().setOcrText(text)
       if (text) {
         await navigator.clipboard.writeText(text)
         toast('success', 'Text copied to clipboard', `${text.split(/\s+/).length} words`)
       } else {
-        toast('info', 'No text found in this capture')
+        toast('info', 'No meaningful text detected')
       }
     } catch (err) {
       toast('error', 'Text recognition failed', (err as Error).message)
@@ -190,10 +192,11 @@ export function useEditorActions(stageRef: StageRef, settings: Settings | null) 
       const region = doc.crop.enabled ? doc.crop : undefined
       const raw = await runOcr(doc.image, region)
       const result = toImageSpace(raw, region)
-      state.setOcrText(raw.text.trim())
-      state.setOcr(result)
+      const assessment = assessOcr(result)
+      state.setOcrText(assessment.trusted.text)
+      state.setOcrResults(assessment.trusted, result)
 
-      const matches = findSensitive(result)
+      const matches = findSensitive(assessment.trusted)
       if (matches.length === 0) {
         toast('info', 'Nothing sensitive found')
         return

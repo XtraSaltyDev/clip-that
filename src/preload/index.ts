@@ -16,6 +16,7 @@ import type {
   LibraryHealth,
   LibraryItemPatch,
   LibraryQuery,
+  OcrResult,
   RecoverableRecording,
   RecordingOptions,
   RecordingStatus,
@@ -283,10 +284,9 @@ const api = {
   },
 
   ocr: {
-    onRequest: (
-      handler: (payload: { id: string; dataUrl: string; rect?: unknown }) => void
-    ) => on(IPC.ocrRequest, handler),
-    respond: (id: string, text: string) => ipcRenderer.send(IPC.ocrResult, { id, text })
+    onRequest: (handler: (payload: { id: string; dataUrl: string; rect?: unknown }) => void) =>
+      on(IPC.ocrRequest, handler),
+    respond: (id: string, result: OcrResult) => ipcRenderer.send(IPC.ocrResult, { id, result })
   }
 }
 

@@ -18,9 +18,11 @@ import {
   formatRelative,
   toast,
   useHotkeys,
+  useSize,
   useTheme
 } from '../shared/ui'
 import CommandPalette, { type Command } from '../shared/CommandPalette'
+import { groupLibraryItems, libraryGridColumns } from './layout'
 import './library.css'
 
 type Filter = 'all' | 'image' | 'video' | 'favorite'
@@ -45,6 +47,8 @@ export default function App(): React.ReactElement {
   const [snagitSummary, setSnagitSummary] = useState<SnagitImportSummary | null>(null)
   const [snagitScanning, setSnagitScanning] = useState(false)
   const searchRef = useRef<HTMLInputElement>(null)
+  const cardRefs = useRef(new Map<string, HTMLElement>())
+  const [mainRef, mainSize] = useSize<HTMLElement>()
 
   const refresh = useCallback(async () => {
     const query = {
@@ -98,11 +102,14 @@ export default function App(): React.ReactElement {
 
   useEffect(() => {
     let active = true
-    void api.system.checkForUpdate().then((status) => {
-      if (active) setUpdate(status)
-    }).catch(() => {
-      // Update discovery is intentionally quiet when the public release channel is unavailable.
-    })
+    void api.system
+      .checkForUpdate()
+      .then((status) => {
+        if (active) setUpdate(status)
+      })
+      .catch(() => {
+        // Update discovery is intentionally quiet when the public release channel is unavailable.
+      })
     const unsubscribe = api.system.onUpdateStatus((status) => {
       if (active) setUpdate(status)
     })
@@ -161,9 +168,16 @@ export default function App(): React.ReactElement {
       setSnagitSummary(summary)
       await refresh()
       if (summary.state === 'completed') {
-        toast('success', `Imported ${summary.imported} Snagit item${summary.imported === 1 ? '' : 's'}`)
+        toast(
+          'success',
+          `Imported ${summary.imported} Snagit item${summary.imported === 1 ? '' : 's'}`
+        )
       } else {
-        toast('info', 'Snagit import cancelled', `${summary.imported} item${summary.imported === 1 ? '' : 's'} imported`)
+        toast(
+          'info',
+          'Snagit import cancelled',
+          `${summary.imported} item${summary.imported === 1 ? '' : 's'} imported`
+        )
       }
     } catch (error) {
       toast('error', 'Snagit import failed', (error as Error).message)
@@ -181,7 +195,7 @@ export default function App(): React.ReactElement {
 
   // Captures arrive constantly, so a flat wall of thumbnails stops being navigable fast.
   // Day buckets give the library the shape of a timeline.
-  const groups = useMemo(() => groupByDay(items), [items])
+  const groups = useMemo(() => groupLibraryItems(items), [items])
   const actionableUpdate =
     update?.state === 'available' || update?.state === 'downloading' || update?.state === 'ready'
       ? update
@@ -219,15 +233,18 @@ export default function App(): React.ReactElement {
   const step = useCallback(
     (delta: number) => {
       if (items.length === 0) return
-      const current = selected.length ? items.findIndex((i) => i.id === selected[selected.length - 1]) : -1
+      const current = selected.length
+        ? items.findIndex((i) => i.id === selected[selected.length - 1])
+        : -1
       const next = Math.max(0, Math.min(items.length - 1, current + delta))
       setSelected([items[next].id])
+      requestAnimationFrame(() => cardRefs.current.get(items[next].id)?.focus())
     },
     [items, selected]
   )
 
-  // Roughly how many cards fit per row, so up/down move a row rather than one card.
-  const perRow = view === 'list' ? 1 : Math.max(1, Math.floor((window.innerWidth - 460) / 204))
+  // Match the real responsive grid so up/down navigation remains stable with the inspector open.
+  const perRow = view === 'list' ? 1 : libraryGridColumns(mainSize.width)
 
   useHotkeys({ 'mod+k': () => setPaletteOpen((o) => !o) })
 
@@ -250,31 +267,171 @@ export default function App(): React.ReactElement {
 
   const commands = useMemo<Command[]>(
     () => [
-      { id: 'cap.region', title: 'Capture region', group: 'Capture', icon: 'region', run: () => void api.capture.start({ mode: 'region' }) },
-      { id: 'cap.window', title: 'Capture window', group: 'Capture', icon: 'window', run: () => void api.capture.start({ mode: 'window' }) },
-      { id: 'cap.screen', title: 'Capture screen', group: 'Capture', icon: 'monitor', run: () => void api.capture.start({ mode: 'display' }) },
-      { id: 'cap.scroll', title: 'Scrolling capture', group: 'Capture', icon: 'scroll', run: () => void api.capture.start({ mode: 'scrolling' }) },
-      { id: 'cap.record', title: 'Record screen', group: 'Capture', icon: 'record', run: () => api.system.window('record') },
-      { id: 'library.import-snagit', title: 'Import Snagit library', group: 'Library', icon: 'download', keywords: 'snagit folder screenshots recordings', run: () => void beginSnagitImport() },
-      { id: 'view.all', title: 'Show all captures', group: 'View', icon: 'layers', run: () => { setFilter('all'); setTag(null) } },
-      { id: 'view.images', title: 'Show images only', group: 'View', icon: 'image', run: () => { setFilter('image'); setTag(null) } },
-      { id: 'view.videos', title: 'Show recordings only', group: 'View', icon: 'video', run: () => { setFilter('video'); setTag(null) } },
-      { id: 'view.fav', title: 'Show favourites', group: 'View', icon: 'star', run: () => { setFilter('favorite'); setTag(null) } },
-      { id: 'view.grid', title: 'Grid view', group: 'View', icon: 'grid', run: () => setView('grid') },
-      { id: 'view.list', title: 'List view', group: 'View', icon: 'list', run: () => setView('list') },
+      {
+        id: 'cap.region',
+        title: 'Capture region',
+        group: 'Capture',
+        icon: 'region',
+        run: () => void api.capture.start({ mode: 'region' })
+      },
+      {
+        id: 'cap.window',
+        title: 'Capture window',
+        group: 'Capture',
+        icon: 'window',
+        run: () => void api.capture.start({ mode: 'window' })
+      },
+      {
+        id: 'cap.screen',
+        title: 'Capture screen',
+        group: 'Capture',
+        icon: 'monitor',
+        run: () => void api.capture.start({ mode: 'display' })
+      },
+      {
+        id: 'cap.scroll',
+        title: 'Scrolling capture',
+        group: 'Capture',
+        icon: 'scroll',
+        run: () => void api.capture.start({ mode: 'scrolling' })
+      },
+      {
+        id: 'cap.record',
+        title: 'Record screen',
+        group: 'Capture',
+        icon: 'record',
+        run: () => api.system.window('record')
+      },
+      {
+        id: 'library.import-snagit',
+        title: 'Import Snagit library',
+        group: 'Library',
+        icon: 'download',
+        keywords: 'snagit folder screenshots recordings',
+        run: () => void beginSnagitImport()
+      },
+      {
+        id: 'view.all',
+        title: 'Show all captures',
+        group: 'View',
+        icon: 'layers',
+        run: () => {
+          setFilter('all')
+          setTag(null)
+        }
+      },
+      {
+        id: 'view.images',
+        title: 'Show images only',
+        group: 'View',
+        icon: 'image',
+        run: () => {
+          setFilter('image')
+          setTag(null)
+        }
+      },
+      {
+        id: 'view.videos',
+        title: 'Show recordings only',
+        group: 'View',
+        icon: 'video',
+        run: () => {
+          setFilter('video')
+          setTag(null)
+        }
+      },
+      {
+        id: 'view.fav',
+        title: 'Show favourites',
+        group: 'View',
+        icon: 'star',
+        run: () => {
+          setFilter('favorite')
+          setTag(null)
+        }
+      },
+      {
+        id: 'view.grid',
+        title: 'Grid view',
+        group: 'View',
+        icon: 'grid',
+        run: () => setView('grid')
+      },
+      {
+        id: 'view.list',
+        title: 'List view',
+        group: 'View',
+        icon: 'list',
+        run: () => setView('list')
+      },
       ...tags.map((t) => ({
         id: `tag.${t}`,
         title: `Filter by tag: ${t}`,
         group: 'Tags',
         icon: 'tag' as const,
-        run: () => { setTag(t); setFilter('all') }
+        run: () => {
+          setTag(t)
+          setFilter('all')
+        }
       })),
-      { id: 'item.open', title: 'Open selection', group: 'Selection', icon: 'pen', disabled: !active, run: () => { if (active) void api.library.open(active.id) } },
-      { id: 'item.copy', title: 'Copy selection to clipboard', group: 'Selection', icon: 'copy', disabled: !active, run: () => { if (active) void copy(active) } },
-      { id: 'item.reveal', title: 'Reveal in file manager', group: 'Selection', icon: 'folder', disabled: !active, run: () => { if (active) void api.exports.reveal(active.filePath) } },
-      { id: 'item.star', title: active?.favorite ? 'Remove from favourites' : 'Add to favourites', group: 'Selection', icon: 'star', disabled: !active, run: async () => { if (active) { await api.library.update(active.id, { favorite: !active.favorite }); void refresh() } } },
-      { id: 'item.delete', title: 'Delete selection', group: 'Selection', icon: 'trash', disabled: selected.length === 0, run: () => void remove() },
-      { id: 'app.settings', title: 'Open settings', group: 'App', icon: 'settings', run: () => api.system.window('settings') }
+      {
+        id: 'item.open',
+        title: 'Open selection',
+        group: 'Selection',
+        icon: 'pen',
+        disabled: !active,
+        run: () => {
+          if (active) void api.library.open(active.id)
+        }
+      },
+      {
+        id: 'item.copy',
+        title: 'Copy selection to clipboard',
+        group: 'Selection',
+        icon: 'copy',
+        disabled: !active,
+        run: () => {
+          if (active) void copy(active)
+        }
+      },
+      {
+        id: 'item.reveal',
+        title: 'Reveal in file manager',
+        group: 'Selection',
+        icon: 'folder',
+        disabled: !active,
+        run: () => {
+          if (active) void api.exports.reveal(active.filePath)
+        }
+      },
+      {
+        id: 'item.star',
+        title: active?.favorite ? 'Remove from favourites' : 'Add to favourites',
+        group: 'Selection',
+        icon: 'star',
+        disabled: !active,
+        run: async () => {
+          if (active) {
+            await api.library.update(active.id, { favorite: !active.favorite })
+            void refresh()
+          }
+        }
+      },
+      {
+        id: 'item.delete',
+        title: 'Delete selection',
+        group: 'Selection',
+        icon: 'trash',
+        disabled: selected.length === 0,
+        run: () => void remove()
+      },
+      {
+        id: 'app.settings',
+        title: 'Open settings',
+        group: 'App',
+        icon: 'settings',
+        run: () => api.system.window('settings')
+      }
     ],
     [active, beginSnagitImport, copy, refresh, remove, selected.length, tags]
   )
@@ -306,13 +463,17 @@ export default function App(): React.ReactElement {
             onChange={(e) => setSearch(e.target.value)}
           />
           {search && (
-            <button className="btn ghost icon sm" aria-label="Clear search" onClick={() => setSearch('')}>
+            <button
+              className="btn ghost icon sm"
+              aria-label="Clear search"
+              onClick={() => setSearch('')}
+            >
               <Icon name="close" size={13} />
             </button>
           )}
         </div>
         <div className="spacer" />
-        <div className="no-drag row" style={{ gap: 6 }}>
+        <div className="lib-toolbar no-drag row">
           <Segmented
             value={view}
             options={[
@@ -321,14 +482,33 @@ export default function App(): React.ReactElement {
             ]}
             onChange={setView}
           />
-          <button className="btn" onClick={() => void api.capture.start({ mode: 'region' })}>
-            <Icon name="region" size={14} /> Capture
+          <button
+            className="btn lib-toolbar-action"
+            title="Capture region"
+            aria-label="Capture region"
+            onClick={() => void api.capture.start({ mode: 'region' })}
+          >
+            <Icon name="region" size={14} /> <span className="lib-action-label">Capture</span>
           </button>
-          <button className="btn" onClick={() => api.system.window('record')}>
-            <Icon name="record" size={11} /> Record
+          <button
+            className="btn lib-toolbar-action"
+            title="Record screen"
+            aria-label="Record screen"
+            onClick={() => api.system.window('record')}
+          >
+            <Icon name="record" size={11} /> <span className="lib-action-label">Record</span>
           </button>
-          <button className="btn" onClick={() => void beginSnagitImport()} disabled={snagitScanning}>
-            <Icon name="download" size={14} /> {snagitScanning ? 'Scanning…' : 'Import Snagit'}
+          <button
+            className="btn lib-toolbar-action"
+            title={snagitScanning ? 'Scanning Snagit library' : 'Import Snagit library'}
+            aria-label={snagitScanning ? 'Scanning Snagit library' : 'Import Snagit library'}
+            onClick={() => void beginSnagitImport()}
+            disabled={snagitScanning}
+          >
+            <Icon name="download" size={14} />
+            <span className="lib-action-label">
+              {snagitScanning ? 'Scanning…' : 'Import Snagit'}
+            </span>
           </button>
           {actionableUpdate && (
             <button
@@ -454,6 +634,7 @@ export default function App(): React.ReactElement {
         </nav>
 
         <main
+          ref={mainRef}
           className={`lib-main ${view}`}
           onMouseDown={(e) => {
             if (e.target === e.currentTarget) setSelected([])
@@ -491,7 +672,14 @@ export default function App(): React.ReactElement {
                     item={item}
                     view={view}
                     selected={selected.includes(item.id)}
+                    cardRef={(node) => {
+                      if (node) cardRefs.current.set(item.id, node)
+                      else cardRefs.current.delete(item.id)
+                    }}
                     onSelect={(e) => toggleSelect(item.id, e)}
+                    onFocus={(event) => {
+                      if (event.currentTarget.matches(':focus-visible')) setSelected([item.id])
+                    }}
                     onOpen={() => void api.library.open(item.id)}
                   />
                 ))}
@@ -531,15 +719,37 @@ export default function App(): React.ReactElement {
 
       {snagitPreview && (
         <div className="snagit-scrim" role="presentation">
-          <section className="snagit-dialog" role="dialog" aria-modal="true" aria-labelledby="snagit-title">
+          <section
+            className="snagit-dialog"
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="snagit-title"
+          >
             <div className="row">
               <div>
-                <h2 id="snagit-title">{snagitSummary ? (snagitSummary.state === 'cancelled' ? 'Snagit import cancelled' : 'Snagit import complete') : 'Import Snagit library'}</h2>
-                <div className="tiny muted">{snagitPreview.rootName} · source files are never changed</div>
+                <h2 id="snagit-title">
+                  {snagitSummary
+                    ? snagitSummary.state === 'cancelled'
+                      ? 'Snagit import cancelled'
+                      : 'Snagit import complete'
+                    : 'Import Snagit library'}
+                </h2>
+                <div className="tiny muted">
+                  {snagitPreview.rootName} · source files are never changed
+                </div>
               </div>
               <div className="spacer" />
               {!snagitProgress || snagitProgress.state !== 'importing' ? (
-                <button className="btn ghost icon" aria-label="Close" onClick={() => { cancelSnagit(); setSnagitPreview(null); setSnagitSummary(null); setSnagitProgress(null) }}>
+                <button
+                  className="btn ghost icon"
+                  aria-label="Close"
+                  onClick={() => {
+                    cancelSnagit()
+                    setSnagitPreview(null)
+                    setSnagitSummary(null)
+                    setSnagitProgress(null)
+                  }}
+                >
                   <Icon name="close" size={14} />
                 </button>
               ) : null}
@@ -549,37 +759,93 @@ export default function App(): React.ReactElement {
               <div className="snagit-summary" role="status">
                 <div className="snagit-summary-count">{snagitSummary.imported} imported</div>
                 <div className="tiny muted">
-                  {snagitSummary.failed} failed · {snagitSummary.skipped} duplicates skipped · {snagitSummary.nativeProjects} native Snagit project{snagitSummary.nativeProjects === 1 ? '' : 's'} left untouched
+                  {snagitSummary.failed} failed · {snagitSummary.skipped} duplicates skipped ·{' '}
+                  {snagitSummary.nativeProjects} native Snagit project
+                  {snagitSummary.nativeProjects === 1 ? '' : 's'} left untouched
                 </div>
-                <div className="tiny muted">Open or search the Library to find the imported items.</div>
+                <div className="tiny muted">
+                  Open or search the Library to find the imported items.
+                </div>
               </div>
             ) : snagitProgress?.state === 'importing' ? (
               <div className="snagit-progress" role="status" aria-live="polite">
-                <div className="row tiny"><span>Importing {snagitProgress.currentTitle ?? 'files'}…</span><span className="spacer" />{snagitProgress.percent}%</div>
-                <div className="snagit-progress-track"><div style={{ width: `${snagitProgress.percent}%` }} /></div>
-                <div className="tiny muted">{snagitProgress.completed} of {snagitProgress.total} files · {snagitProgress.imported} staged · {snagitProgress.failed} failed</div>
+                <div className="row tiny">
+                  <span>Importing {snagitProgress.currentTitle ?? 'files'}…</span>
+                  <span className="spacer" />
+                  {snagitProgress.percent}%
+                </div>
+                <div className="snagit-progress-track">
+                  <div style={{ width: `${snagitProgress.percent}%` }} />
+                </div>
+                <div className="tiny muted">
+                  {snagitProgress.completed} of {snagitProgress.total} files ·{' '}
+                  {snagitProgress.imported} staged · {snagitProgress.failed} failed
+                </div>
                 <div className="row" style={{ justifyContent: 'flex-end' }}>
-                  <button className="btn" onClick={cancelSnagit}>Cancel import</button>
+                  <button className="btn" onClick={cancelSnagit}>
+                    Cancel import
+                  </button>
                 </div>
               </div>
             ) : (
               <>
                 <div className="snagit-counts">
-                  <ImportCount label="Ready to import" value={snagitPreview.counts.supported} detail={formatBytes(snagitPreview.bytes.supported)} />
-                  <ImportCount label="Exact duplicates" value={snagitPreview.counts.duplicates} detail={`${formatBytes(snagitPreview.bytes.duplicates)} · skipped`} />
-                  <ImportCount label="Native projects" value={snagitPreview.counts.nativeProjects} detail={`${formatBytes(snagitPreview.bytes.nativeProjects)} · export first`} />
-                  <ImportCount label="Unsupported" value={snagitPreview.counts.unsupported} detail={`${formatBytes(snagitPreview.bytes.unsupported)} · not copied`} />
-                  <ImportCount label="Unreadable" value={snagitPreview.counts.unreadable} detail={`${formatBytes(snagitPreview.bytes.unreadable)} · not copied`} />
+                  <ImportCount
+                    label="Ready to import"
+                    value={snagitPreview.counts.supported}
+                    detail={formatBytes(snagitPreview.bytes.supported)}
+                  />
+                  <ImportCount
+                    label="Exact duplicates"
+                    value={snagitPreview.counts.duplicates}
+                    detail={`${formatBytes(snagitPreview.bytes.duplicates)} · skipped`}
+                  />
+                  <ImportCount
+                    label="Native projects"
+                    value={snagitPreview.counts.nativeProjects}
+                    detail={`${formatBytes(snagitPreview.bytes.nativeProjects)} · export first`}
+                  />
+                  <ImportCount
+                    label="Unsupported"
+                    value={snagitPreview.counts.unsupported}
+                    detail={`${formatBytes(snagitPreview.bytes.unsupported)} · not copied`}
+                  />
+                  <ImportCount
+                    label="Unreadable"
+                    value={snagitPreview.counts.unreadable}
+                    detail={`${formatBytes(snagitPreview.bytes.unreadable)} · not copied`}
+                  />
                 </div>
-                <div className="snagit-total tiny muted">{snagitPreview.totalFiles} files · {formatBytes(snagitPreview.totalBytes)} total</div>
-                {snagitPreview.limitReached && <div className="snagit-warning tiny">{snagitPreview.limitReached}</div>}
+                <div className="snagit-total tiny muted">
+                  {snagitPreview.totalFiles} files · {formatBytes(snagitPreview.totalBytes)} total
+                </div>
+                {snagitPreview.limitReached && (
+                  <div className="snagit-warning tiny">{snagitPreview.limitReached}</div>
+                )}
                 {snagitPreview.samples.nativeProjects.length > 0 && (
-                  <div className="snagit-native-note tiny">Native `.snagx`, `.snag`, and `.snagarchive` files are not editable in ClipThat. Batch-convert or export them from Snagit first.</div>
+                  <div className="snagit-native-note tiny">
+                    Native `.snagx`, `.snag`, and `.snagarchive` files are not editable in ClipThat.
+                    Batch-convert or export them from Snagit first.
+                  </div>
                 )}
                 <div className="row" style={{ justifyContent: 'flex-end', gap: 8 }}>
-                  <button className="btn" onClick={() => { cancelSnagit(); setSnagitPreview(null); setSnagitProgress(null) }}>Cancel</button>
-                  <button className="btn primary" disabled={snagitPreview.importableFiles === 0} onClick={() => void importSnagit()}>
-                    <Icon name="download" size={14} /> Import {snagitPreview.importableFiles} item{snagitPreview.importableFiles === 1 ? '' : 's'}
+                  <button
+                    className="btn"
+                    onClick={() => {
+                      cancelSnagit()
+                      setSnagitPreview(null)
+                      setSnagitProgress(null)
+                    }}
+                  >
+                    Cancel
+                  </button>
+                  <button
+                    className="btn primary"
+                    disabled={snagitPreview.importableFiles === 0}
+                    onClick={() => void importSnagit()}
+                  >
+                    <Icon name="download" size={14} /> Import {snagitPreview.importableFiles} item
+                    {snagitPreview.importableFiles === 1 ? '' : 's'}
                   </button>
                 </div>
               </>
@@ -603,46 +869,13 @@ function ImportCount(props: { label: string; value: number; detail: string }): R
   )
 }
 
-/** Bucket captures into Today / Yesterday / weekday / date headings. */
-function groupByDay(items: LibraryItem[]): Array<{ label: string; items: LibraryItem[] }> {
-  const startOfDay = (t: number) => {
-    const d = new Date(t)
-    d.setHours(0, 0, 0, 0)
-    return d.getTime()
-  }
-  const today = startOfDay(Date.now())
-  const day = 86_400_000
-
-  const groups: Array<{ label: string; items: LibraryItem[] }> = []
-  for (const item of items) {
-    const start = startOfDay(item.createdAt)
-    const age = Math.round((today - start) / day)
-    const label =
-      age <= 0
-        ? 'Today'
-        : age === 1
-          ? 'Yesterday'
-          : age < 7
-            ? new Date(item.createdAt).toLocaleDateString(undefined, { weekday: 'long' })
-            : new Date(item.createdAt).toLocaleDateString(undefined, {
-                month: 'long',
-                day: 'numeric',
-                year: start < today - day * 300 ? 'numeric' : undefined
-              })
-    const last = groups[groups.length - 1]
-    if (last && last.label === label) last.items.push(item)
-    else groups.push({ label, items: [item] })
-  }
-  return groups
-}
-
-/* ------------------------------------------------------------------ */
-
 function Card(props: {
   item: LibraryItem
   view: 'grid' | 'list'
   selected: boolean
+  cardRef: (node: HTMLElement | null) => void
   onSelect: (e: React.MouseEvent) => void
+  onFocus: (event: React.FocusEvent<HTMLElement>) => void
   onOpen: () => void
 }): React.ReactElement {
   const { item } = props
@@ -650,13 +883,29 @@ function Card(props: {
 
   return (
     <article
+      ref={props.cardRef}
       className={`lib-card ${props.selected ? 'selected' : ''}`}
+      role="button"
+      tabIndex={0}
+      aria-pressed={props.selected}
+      aria-label={`${item.title}, ${item.kind === 'video' ? 'recording' : 'image'}, ${formatRelative(item.createdAt)}`}
       onMouseDown={props.onSelect}
       onDoubleClick={props.onOpen}
+      onFocus={props.onFocus}
+      onKeyDown={(event) => {
+        if (event.key !== 'Enter' && event.key !== ' ') return
+        event.preventDefault()
+        event.stopPropagation()
+        props.onOpen()
+      }}
       title={item.title}
     >
       <div className="lib-thumb">
-        {src ? <img src={src} alt="" loading="lazy" /> : <Icon name={item.kind === 'video' ? 'video' : 'image'} size={26} />}
+        {src ? (
+          <img src={src} alt="" loading="lazy" />
+        ) : (
+          <Icon name={item.kind === 'video' ? 'video' : 'image'} size={26} />
+        )}
         {item.kind === 'video' && (
           <span className="lib-badge">
             <Icon name="play" size={9} />
@@ -675,6 +924,20 @@ function Card(props: {
           {formatRelative(item.createdAt)} · {item.width}×{item.height}
         </div>
       </div>
+      {props.view === 'list' && (
+        <div className="lib-list-facts" aria-hidden="true">
+          <span>{item.kind === 'video' ? 'Recording' : 'Image'}</span>
+          <span>{formatBytes(item.byteSize)}</span>
+          <span>{new Date(item.createdAt).toLocaleDateString()}</span>
+          <span className="truncate">
+            {item.tags.length
+              ? item.tags.slice(0, 2).join(', ')
+              : item.favorite
+                ? 'Favourite'
+                : 'Untagged'}
+          </span>
+        </div>
+      )}
     </article>
   )
 }

@@ -46,6 +46,29 @@ test('library index retains an atomic backup and recovers from corruption', asyn
   }
 })
 
+test('library index accepts legacy OCR and persists versioned trusted OCR atomically', async () => {
+  const root = await mkdtemp(join(tmpdir(), 'clipthat-ocr-index-'))
+  try {
+    const primary = join(root, 'index.json')
+    const backup = join(root, 'index.json.bak')
+    const legacy = { ...item('legacy', 'Legacy'), ocrText: 'unversioned raw OCR' }
+    const trusted = { ...item('trusted', 'Trusted'), ocrText: 'Ready', ocrVersion: 1 }
+    persistLibraryIndex(primary, backup, [legacy, trusted])
+    const loaded = loadLibraryIndex(primary, backup)
+    assert.equal(loaded.source, 'primary')
+    assert.equal(loaded.items[0].ocrVersion, undefined)
+    assert.equal(loaded.items[1].ocrVersion, 1)
+
+    await writeFile(primary, JSON.stringify([{ ...trusted, ocrVersion: -1 }]), 'utf8')
+    const recovered = loadLibraryIndex(primary, backup)
+    assert.equal(recovered.source, 'primary')
+    assert.equal(recovered.needsRepair, true)
+    assert.deepEqual(recovered.items, [])
+  } finally {
+    await rm(root, { recursive: true, force: true })
+  }
+})
+
 test('recording chunks survive reinitialization in exact byte order', async () => {
   const root = await mkdtemp(join(tmpdir(), 'clipthat-recording-'))
   const options = {
