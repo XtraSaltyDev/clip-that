@@ -6,6 +6,7 @@ import type {
   Hotkeys,
   LibraryItemPatch,
   LibraryQuery,
+  OcrResult,
   Settings,
   RecordingOptions,
   Rect,
@@ -1044,11 +1045,31 @@ export function toastValue(value: unknown): Toast {
   }
 }
 
-export function ocrResponse(value: unknown): { id: string; text: string } {
+function ocrResultValue(value: unknown): OcrResult {
+  const input = record(value, 'OCR result')
+  rejectUnknown(input, ['text', 'words'], 'OCR result')
+  if (!Array.isArray(input.words) || input.words.length > 100_000) {
+    throw new TypeError('OCR result words are invalid')
+  }
+  const words = input.words.map((value, index) => {
+    const word = record(value, `OCR word ${index}`)
+    rejectUnknown(word, ['text', 'confidence', 'bbox'], `OCR word ${index}`)
+    const bbox = record(word.bbox, `OCR word ${index} box`)
+    rejectUnknown(bbox, ['x', 'y', 'width', 'height'], `OCR word ${index} box`)
+    return {
+      text: stringValue(word.text, `OCR word ${index} text`, 10_000),
+      confidence: finite(word.confidence, `OCR word ${index} confidence`, 0, 100),
+      bbox: rectValue(bbox, `OCR word ${index} box`)
+    }
+  })
+  return { text: stringValue(input.text, 'OCR result text', 4_000_000), words }
+}
+
+export function ocrResponse(value: unknown): { id: string; result: OcrResult } {
   const input = record(value, 'OCR response')
-  rejectUnknown(input, ['id', 'text'], 'OCR response')
+  rejectUnknown(input, ['id', 'result'], 'OCR response')
   return {
     id: stringValue(input.id, 'OCR response id', 256),
-    text: stringValue(input.text, 'OCR response text', 4_000_000)
+    result: ocrResultValue(input.result)
   }
 }

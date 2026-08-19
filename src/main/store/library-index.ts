@@ -75,6 +75,11 @@ function isLibraryItem(value: unknown): value is LibraryItem {
     Number.isFinite(item.byteSize) &&
     (item.projectPath === undefined || typeof item.projectPath === 'string') &&
     (item.exportPath === undefined || typeof item.exportPath === 'string') &&
+    (item.ocrVersion === undefined ||
+      (typeof item.ocrVersion === 'number' &&
+        Number.isInteger(item.ocrVersion) &&
+        item.ocrVersion >= 0 &&
+        item.ocrVersion <= 1_000)) &&
     (item.ocrText === undefined || typeof item.ocrText === 'string') &&
     (item.importedFrom === undefined || item.importedFrom === 'snagit') &&
     (item.contentHash === undefined || (typeof item.contentHash === 'string' && /^[0-9a-f]{64}$/i.test(item.contentHash))) &&

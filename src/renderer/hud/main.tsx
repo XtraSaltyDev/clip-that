@@ -18,9 +18,9 @@ function OcrWorker(): React.ReactElement {
         try {
           const { runOcr } = await import('../shared/ocr')
           const result = await runOcr(dataUrl, rect as never)
-          api.ocr.respond(id, result.text)
+          api.ocr.respond(id, result)
         } catch {
-          api.ocr.respond(id, '')
+          api.ocr.respond(id, { text: '', words: [] })
         }
       }),
     []

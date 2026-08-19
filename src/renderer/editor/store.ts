@@ -65,6 +65,8 @@ interface EditorState {
   ocrBusy: boolean
   /** Word boxes from the last OCR pass — powers Live Text and the context panel. */
   ocr: OcrResult | null
+  /** Unfiltered engine output, kept separate so uncertain text never powers actions. */
+  rawOcr: OcrResult | null
   /** Selectable text overlay, macOS Live Text style. */
   liveTextOn: boolean
   /** Inclusive word-index range currently selected in the Live Text layer. */
@@ -81,6 +83,7 @@ interface EditorState {
   setZoom: (zoom: number, autoFit?: boolean) => void
   setOcrBusy: (busy: boolean) => void
   setOcr: (result: OcrResult | null) => void
+  setOcrResults: (trusted: OcrResult | null, raw: OcrResult | null) => void
   setLiveText: (on: boolean) => void
   setLiveSelection: (range: [number, number] | null) => void
   setPanel: (panel: 'inspect' | 'context' | 'layers') => void
@@ -191,6 +194,7 @@ export const useEditor = create<EditorState>((set, get) => ({
   cutOutRendering: false,
   ocrBusy: false,
   ocr: null,
+  rawOcr: null,
   liveTextOn: false,
   liveSelection: null,
   panel: 'inspect',
@@ -232,6 +236,7 @@ export const useEditor = create<EditorState>((set, get) => ({
       cutOutDraft: null,
       cutOutRendering: false,
       ocr: null,
+      rawOcr: null,
       liveTextOn: false,
       liveSelection: null,
       panel: 'inspect',
@@ -273,6 +278,13 @@ export const useEditor = create<EditorState>((set, get) => ({
   setZoom: (zoom, autoFit = false) => set({ zoom: Math.max(0.05, Math.min(8, zoom)), autoFit }),
   setOcrBusy: (ocrBusy) => set({ ocrBusy }),
   setOcr: (ocr) => set({ ocr }),
+  setOcrResults: (ocr, rawOcr) =>
+    set((state) => ({
+      ocr,
+      rawOcr,
+      liveTextOn: ocr?.words.length ? state.liveTextOn : false,
+      liveSelection: null
+    })),
   setLiveText: (liveTextOn) => set({ liveTextOn, liveSelection: null, selectedIds: [] }),
   setLiveSelection: (liveSelection) => set({ liveSelection }),
   setPanel: (panel) => set({ panel }),

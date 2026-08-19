@@ -2,12 +2,13 @@ import { ipcMain, type IpcMainEvent } from 'electron'
 import { IPC } from '@shared/ipc'
 import { promises as fs } from 'node:fs'
 import { extname } from 'node:path'
-import type { Rect } from '@shared/types'
+import type { OcrResult, Rect } from '@shared/types'
 import { closeWorkerWindow, getWorkerWindow } from './windows/manager'
 import { library } from './store/library'
 import { settings } from './store/settings'
 import { assertIpcSender } from './ipc/sender'
 import { ocrResponse } from './ipc/validation'
+import { needsOcrUpgrade, trustedOcrText } from './store/library-ocr'
 
 let sequence = 0
 let activeRequests = 0
@@ -40,13 +41,13 @@ export async function requestOcr(
   dataUrl: string,
   rect?: Rect,
   timeoutMs = 90_000
-): Promise<string> {
+): Promise<OcrResult> {
   beginOcrRequest()
   try {
     const worker = await getWorkerWindow()
     const id = `ocr-${++sequence}`
 
-    return await new Promise<string>((resolve, reject) => {
+    return await new Promise<OcrResult>((resolve, reject) => {
       let settled = false
       const cleanup = () => {
         clearTimeout(timer)
@@ -54,11 +55,11 @@ export async function requestOcr(
         worker.webContents.removeListener('render-process-gone', onGone)
         worker.removeListener('closed', onClosed)
       }
-      const succeed = (text: string) => {
+      const succeed = (result: OcrResult) => {
         if (settled) return
         settled = true
         cleanup()
-        resolve(text)
+        resolve(result)
       }
       const fail = (error: Error) => {
         if (settled) return
@@ -66,7 +67,7 @@ export async function requestOcr(
         cleanup()
         reject(error)
       }
-      const timer = setTimeout(() => succeed(''), timeoutMs)
+      const timer = setTimeout(() => succeed({ text: '', words: [] }), timeoutMs)
 
       const onResult = (event: IpcMainEvent, payload: unknown) => {
         let safe: ReturnType<typeof ocrResponse>
@@ -77,7 +78,7 @@ export async function requestOcr(
           return
         }
         if (safe.id !== id) return
-        succeed(safe.text)
+        succeed(safe.result)
       }
 
       const onGone = (_event: Electron.Event, details: Electron.RenderProcessGoneDetails) =>
@@ -110,7 +111,10 @@ const MIME: Record<string, string> = {
 }
 
 const queue: string[] = []
+const failedThisRun = new Set<string>()
 let running = false
+let backlogTimer: NodeJS.Timeout | null = null
+const BACKLOG_BATCH = 200
 
 /**
  * Read every capture's text so the library is searchable by what's *in* the picture,
@@ -119,6 +123,7 @@ let running = false
  */
 export function indexCapture(id: string): void {
   if (!settings.get().autoOcr) return
+  failedThisRun.delete(id)
   if (queue.includes(id)) return
   queue.push(id)
   void drain()
@@ -127,11 +132,13 @@ export function indexCapture(id: string): void {
 /** Catch up on anything that predates this feature, or that failed earlier. */
 export function indexBacklog(): void {
   if (!settings.get().autoOcr) return
-  const pending = library
-    .list({ kind: 'image', limit: 100000 })
-    .filter((item) => item.ocrText === undefined)
-    .slice(0, 200)
-  for (const item of pending) indexCapture(item.id)
+  if (backlogTimer) clearTimeout(backlogTimer)
+  backlogTimer = null
+  const pending = library.ocrUpgradeBatch(BACKLOG_BATCH, failedThisRun)
+  for (const item of pending) {
+    if (!queue.includes(item.id)) queue.push(item.id)
+  }
+  void drain()
 }
 
 async function drain(): Promise<void> {
@@ -139,17 +146,22 @@ async function drain(): Promise<void> {
   running = true
   try {
     while (queue.length > 0) {
+      if (!settings.get().autoOcr) {
+        queue.length = 0
+        break
+      }
       const id = queue.shift()!
       const item = library.get(id)
-      if (!item || item.kind !== 'image' || item.ocrText !== undefined) continue
+      if (!item || !needsOcrUpgrade(item)) continue
 
       try {
         const mime = MIME[extname(item.filePath).toLowerCase()] ?? 'image/png'
         const buffer = await fs.readFile(item.filePath)
-        const text = await requestOcr(`data:${mime};base64,${buffer.toString('base64')}`)
+        const result = await requestOcr(`data:${mime};base64,${buffer.toString('base64')}`)
         // Store even an empty result: it marks the item as "already looked at".
-        library.update(id, { ocrText: text.trim() })
+        library.updateOcrIndex(id, trustedOcrText(result))
       } catch (err) {
+        failedThisRun.add(id)
         console.error('[ocr-index] failed for', id, err)
       }
 
@@ -158,5 +170,8 @@ async function drain(): Promise<void> {
     }
   } finally {
     running = false
+    if (settings.get().autoOcr && library.ocrUpgradeBatch(1, failedThisRun).length > 0) {
+      backlogTimer = setTimeout(indexBacklog, 1_000)
+    }
   }
 }

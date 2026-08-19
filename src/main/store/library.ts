@@ -26,6 +26,13 @@ import {
   persistLibraryIndex,
   type LibraryIndexLoadResult
 } from './library-index'
+import {
+  needsOcrUpgrade,
+  nextOcrUpgradeBatch,
+  publicLibraryItem,
+  searchableOcrText,
+  withTrustedOcr
+} from './library-ocr'
 
 const THUMB_MAX = 480
 
@@ -171,18 +178,30 @@ class LibraryStore extends EventEmitter {
       // Every term must appear somewhere in the title, tags or OCR'd text.
       const terms = query.search.toLowerCase().split(/\s+/).filter(Boolean)
       items = items.filter((i) => {
-        const haystack = `${i.title} ${i.tags.join(' ')} ${i.ocrText ?? ''}`.toLowerCase()
+        const haystack = `${i.title} ${i.tags.join(' ')} ${searchableOcrText(i)}`.toLowerCase()
         return terms.every((t) => haystack.includes(t))
       })
     }
 
     const offset = query.offset ?? 0
     const limit = query.limit ?? 500
-    return items.slice(offset, offset + limit)
+    return items.slice(offset, offset + limit).map(publicLibraryItem)
   }
 
   get(id: string): LibraryItem | undefined {
     return this.load().find((i) => i.id === id)
+  }
+
+  ocrUpgradeBatch(limit: number, excludedIds: ReadonlySet<string> = new Set()): LibraryItem[] {
+    return nextOcrUpgradeBatch(this.load(), limit, excludedIds)
+  }
+
+  updateOcrIndex(id: string, text: string): LibraryItem | undefined {
+    const current = this.get(id)
+    if (!current || current.kind !== 'image') return undefined
+    const item = withTrustedOcr(current, text.slice(0, 2_000_000))
+    this.commit(this.load().map((candidate) => (candidate.id === id ? item : candidate)))
+    return publicLibraryItem(item)
   }
 
   allTags(): string[] {
@@ -230,7 +249,7 @@ class LibraryStore extends EventEmitter {
 
     this.commit([item, ...this.load()])
     this.emit('added', item)
-    return item
+    return publicLibraryItem(item)
   }
 
   async addVideo(input: AddVideoInput): Promise<LibraryItem> {
@@ -266,7 +285,7 @@ class LibraryStore extends EventEmitter {
     }
 
     this.commit([item, ...this.load()])
-    return item
+    return publicLibraryItem(item)
   }
 
   /** Import already-validated, ClipThat-staged files with one durable index write. */
@@ -345,10 +364,12 @@ class LibraryStore extends EventEmitter {
     item.height = size.height
     item.updatedAt = Date.now()
     if (ocrText !== undefined) item.ocrText = ocrText
+    delete item.ocrVersion
     const stat = await fs.stat(item.filePath).catch(() => null)
     item.byteSize = stat?.size ?? item.byteSize
     this.commit(this.load().map((candidate) => (candidate.id === id ? item : candidate)))
-    return item
+    this.emit('ocr-stale', item)
+    return publicLibraryItem(item)
   }
 
   update(id: string, patch: LibraryItemPatch): LibraryItem | undefined {
@@ -361,7 +382,10 @@ class LibraryStore extends EventEmitter {
       item.tags = [...new Set(patch.tags.map((tag) => tag.trim()).filter(Boolean))].slice(0, 50)
     }
     if (patch.favorite !== undefined) item.favorite = patch.favorite
-    if (patch.ocrText !== undefined) item.ocrText = patch.ocrText.slice(0, 2_000_000)
+    if (patch.ocrText !== undefined) {
+      item.ocrText = patch.ocrText.slice(0, 2_000_000)
+      delete item.ocrVersion
+    }
     if (patch.videoEdit !== undefined) {
       if (current.kind !== 'video') throw new TypeError('Only recordings can have video edit drafts')
       if (patch.videoEdit === null) delete item.videoEdit
@@ -369,7 +393,8 @@ class LibraryStore extends EventEmitter {
     }
     item.updatedAt = Date.now()
     this.commit(this.load().map((candidate) => (candidate.id === id ? item : candidate)))
-    return item
+    if (patch.ocrText !== undefined) this.emit('ocr-stale', item)
+    return publicLibraryItem(item)
   }
 
   /** Deterministic timeline seeding for the development-only visual harness. */
@@ -439,7 +464,12 @@ class LibraryStore extends EventEmitter {
     if (!item?.projectPath) return null
     try {
       if (!(await isRealPathInside(projectsDir(), item.projectPath))) return null
-      return clipDocument(JSON.parse(await fs.readFile(item.projectPath, 'utf8')))
+      const project = clipDocument(JSON.parse(await fs.readFile(item.projectPath, 'utf8')))
+      // A legacy project can contain raw OCR. Prefer the versioned trusted cache, or
+      // withhold it until the non-blocking background upgrade completes.
+      if (needsOcrUpgrade(item)) delete project.ocrText
+      else project.ocrText = item.ocrText
+      return project
     } catch {
       return null
     }

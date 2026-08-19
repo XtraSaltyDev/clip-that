@@ -66,3 +66,34 @@ test('external links remain limited to HTTP and HTTPS', () => {
   assert.throws(() => validation.externalUrl('javascript:alert(1)'), /HTTP or HTTPS/)
   assert.throws(() => validation.externalUrl('file:///etc/passwd'), /HTTP or HTTPS/)
 })
+
+test('OCR IPC preserves validated confidence and geometry', () => {
+  const payload = {
+    id: 'ocr-1',
+    result: {
+      text: 'Ready',
+      words: [{ text: 'Ready', confidence: 94, bbox: { x: 10, y: 20, width: 52, height: 18 } }]
+    }
+  }
+  assert.deepEqual(validation.ocrResponse(payload), payload)
+  assert.notEqual(validation.ocrResponse(payload).result.words[0], payload.result.words[0])
+})
+
+test('OCR IPC rejects malformed confidence, geometry, and unknown fields', () => {
+  const word = { text: 'Ready', confidence: 94, bbox: { x: 10, y: 20, width: 52, height: 18 } }
+  const response = (entry) => ({ id: 'ocr-1', result: { text: entry.text, words: [entry] } })
+  assert.throws(
+    () => validation.ocrResponse(response({ ...word, confidence: Number.NaN })),
+    /range/
+  )
+  assert.throws(() => validation.ocrResponse(response({ ...word, confidence: 101 })), /range/)
+  assert.throws(
+    () => validation.ocrResponse(response({ ...word, bbox: { x: 10, y: 20 } })),
+    /range/
+  )
+  assert.throws(() => validation.ocrResponse(response({ ...word, raw: true })), /not supported/)
+  assert.throws(
+    () => validation.ocrResponse({ id: 'ocr-1', result: { text: '', words: new Array(100_001) } }),
+    /words are invalid/
+  )
+})

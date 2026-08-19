@@ -340,6 +340,8 @@ export interface LibraryItem {
   thumbnail: string
   tags: string[]
   favorite: boolean
+  /** Version of the confidence rules that produced searchable OCR text. */
+  ocrVersion?: number
   ocrText?: string
   durationMs?: number
   videoEdit?: VideoEditDraft

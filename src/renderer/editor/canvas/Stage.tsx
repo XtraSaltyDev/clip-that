@@ -1574,27 +1574,30 @@ function FloatingToolbar({
       {QUICK_COLOURS.map((c) => (
         <button
           key={c}
-          className="float-swatch"
+          className="float-swatch float-style-control"
           style={{ background: c }}
-          title={c}
+          title={`Set colour ${c}`}
+          aria-label={`Set annotation colour ${c}`}
           onClick={() => setColour(c)}
         />
       ))}
 
       {width !== null && (
         <>
-          <span className="float-sep" />
+          <span className="float-sep float-style-control" />
           <button
-            className="float-btn"
+            className="float-btn float-style-control"
             title="Thinner"
+            aria-label="Decrease stroke width"
             onClick={() => apply({ strokeWidth: Math.max(1, width - 2) } as Partial<Shape>)}
           >
             <Icon name="minus" size={13} />
           </button>
-          <span className="float-value mono">{Math.round(width)}</span>
+          <span className="float-value mono float-style-control">{Math.round(width)}</span>
           <button
-            className="float-btn"
+            className="float-btn float-style-control"
             title="Thicker"
+            aria-label="Increase stroke width"
             onClick={() => apply({ strokeWidth: Math.min(60, width + 2) } as Partial<Shape>)}
           >
             <Icon name="plus" size={13} />
@@ -1606,6 +1609,7 @@ function FloatingToolbar({
       <button
         className="float-btn"
         title="Duplicate  ·  ⌘D"
+        aria-label="Duplicate selected annotation"
         onClick={() => useEditor.getState().duplicateSelected()}
       >
         <Icon name="copy" size={13} />
@@ -1613,6 +1617,7 @@ function FloatingToolbar({
       <button
         className="float-btn"
         title="Bring to front"
+        aria-label="Bring selected annotation to front"
         onClick={() => selectedIds.forEach((id) => useEditor.getState().reorder(id, 'front'))}
       >
         <Icon name="layers" size={13} />
@@ -1620,6 +1625,7 @@ function FloatingToolbar({
       <button
         className="float-btn danger"
         title="Delete  ·  ⌫"
+        aria-label="Delete selected annotation"
         onClick={() => useEditor.getState().removeShapes(selectedIds)}
       >
         <Icon name="trash" size={13} />
