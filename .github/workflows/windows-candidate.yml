@@ -181,7 +181,11 @@ jobs:
             $hash = Get-FileHash -Algorithm SHA256 -LiteralPath $artifact
             "$($hash.Hash.ToLowerInvariant())  $([IO.Path]::GetFileName($artifact))"
           }
-          Set-Content -LiteralPath $checksumPath -Value $checksums -Encoding ascii
+          [IO.File]::WriteAllText(
+            $checksumPath,
+            ($checksums -join "`n") + "`n",
+            [Text.Encoding]::ASCII
+          )
           Write-Host "Verified unsigned Windows x64 candidate and pinned LGPL-compatible FFmpeg package"
 
       - name: Upload Windows candidate artifacts
