@@ -160,6 +160,26 @@ export const RELEASE_NOTES = [
         body: 'ClipThat now explains that macOS may ask for audio-capture permission the first time you enable system audio.'
       }
     ]
+  },
+  {
+    version: '0.1.13',
+    title: 'A safer, more transparent release',
+    summary:
+      'ClipThat now ships through a hardened public release pipeline with auditable media and OCR dependencies.',
+    items: [
+      {
+        title: 'Auditable bundled components',
+        body: 'The packaged OCR assets, JavaScript dependencies, and Apple-silicon media tools are pinned to verified sources with their license and provenance records included.'
+      },
+      {
+        title: 'Safer update checks',
+        body: 'Update availability is checked only against the public ClipThat GitHub release channel, and downloads still begin only after you explicitly request them.'
+      },
+      {
+        title: 'Stronger release verification',
+        body: 'Every supported Mac release is checked for Developer ID signing, hardened runtime, Apple notarization, expected architecture, bundled licenses, and accidental secrets before publication.'
+      }
+    ]
   }
 ] as const satisfies readonly ReleaseNotes[]
 
