@@ -121,8 +121,9 @@ async function verifySource() {
 async function verifyPackage(resourcesPath) {
   const asarPath = join(resourcesPath, 'app.asar')
   for (const asset of assets) {
-    const packaged = extractFile(asarPath, `out/renderer/ocr/${asset.name}`)
-    verifyDigest(asset, packaged, `${asarPath}:out/renderer/ocr/${asset.name}`)
+    const archivePath = join('out', 'renderer', 'ocr', asset.name)
+    const packaged = extractFile(asarPath, archivePath)
+    verifyDigest(asset, packaged, `${asarPath}:${archivePath}`)
   }
   await verifyLicenses(join(resourcesPath, 'third-party/ocr'))
   console.log(`Verified packaged OCR assets and licenses: ${resourcesPath}`)
