@@ -499,10 +499,10 @@ function ShapeStyle({ shape }: { shape: Shape }): React.ReactElement {
       <div className="divider" />
 
       <div className="row" style={{ gap: 4 }}>
-        <button className="btn sm ghost tip" data-tip="Bring to front" onClick={() => reorder(shape.id, 'front')}>
+        <button className="btn sm ghost tip" data-tip="Bring to front" aria-label="Bring to front" onClick={() => reorder(shape.id, 'front')}>
           <Icon name="chevronDown" size={13} style={{ transform: 'rotate(180deg)' }} />
         </button>
-        <button className="btn sm ghost tip" data-tip="Send to back" onClick={() => reorder(shape.id, 'back')}>
+        <button className="btn sm ghost tip" data-tip="Send to back" aria-label="Send to back" onClick={() => reorder(shape.id, 'back')}>
           <Icon name="chevronDown" size={13} />
         </button>
         <button
@@ -516,7 +516,7 @@ function ShapeStyle({ shape }: { shape: Shape }): React.ReactElement {
           {shape.locked ? 'Locked' : 'Lock'}
         </button>
         <span className="spacer" />
-        <button className="btn sm danger" onClick={() => removeShapes([shape.id])}>
+        <button className="btn sm danger" aria-label="Delete annotation" onClick={() => removeShapes([shape.id])}>
           <Icon name="trash" size={13} />
         </button>
       </div>

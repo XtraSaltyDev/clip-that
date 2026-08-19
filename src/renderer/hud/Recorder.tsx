@@ -361,7 +361,11 @@ export default function Recorder(): React.ReactElement {
           <Icon name="video" size={16} />
           <h1>Recover recordings</h1>
           <span className="spacer" />
-          <button className="btn ghost icon no-drag" onClick={() => api.hud.close()}>
+          <button
+            className="btn ghost icon no-drag"
+            aria-label="Close recovery"
+            onClick={() => api.hud.close()}
+          >
             <Icon name="close" />
           </button>
         </header>
@@ -406,7 +410,11 @@ export default function Recorder(): React.ReactElement {
           <Icon name="video" size={16} />
           <h1>{activeRecovery?.state === 'failed' ? 'Recover recording' : 'Review recording'}</h1>
           <span className="spacer" />
-          <button className="btn ghost icon no-drag" onClick={() => void discard()}>
+          <button
+            className="btn ghost icon no-drag"
+            aria-label="Discard recording"
+            onClick={() => void discard()}
+          >
             <Icon name="close" />
           </button>
         </header>
@@ -497,7 +505,11 @@ export default function Recorder(): React.ReactElement {
         <Icon name="video" size={16} />
         <h1>Record screen</h1>
         <span className="spacer" />
-        <button className="btn ghost icon no-drag" onClick={() => api.hud.close()}>
+        <button
+          className="btn ghost icon no-drag"
+          aria-label="Close recording setup"
+          onClick={() => api.hud.close()}
+        >
           <Icon name="close" />
         </button>
       </header>

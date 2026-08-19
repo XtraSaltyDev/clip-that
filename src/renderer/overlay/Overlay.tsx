@@ -515,7 +515,12 @@ export default function Overlay(): React.ReactElement | null {
             <h1>Pick a window</h1>
             <span className="spacer" />
             {editorToggle}
-            <button className="btn ghost icon" onClick={cancel} title="Cancel (Esc)">
+            <button
+              className="btn ghost icon"
+              onClick={cancel}
+              title="Cancel (Esc)"
+              aria-label="Cancel capture"
+            >
               <Icon name="close" />
             </button>
           </header>

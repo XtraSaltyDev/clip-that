@@ -46,6 +46,10 @@ function optionalString(value: unknown, label: string, max = 10_000): string | u
   return value === undefined ? undefined : stringValue(value, label, max)
 }
 
+function optionalBoolean(value: unknown, label: string): boolean | undefined {
+  return value === undefined ? undefined : booleanValue(value, label)
+}
+
 function finite(value: unknown, label: string, min: number, max: number): number {
   if (typeof value !== 'number' || !Number.isFinite(value) || value < min || value > max) {
     throw new TypeError(`${label} is outside the supported range`)
@@ -75,6 +79,39 @@ function colorValue(value: unknown, label: string): string {
     throw new TypeError(`${label} must be a six or eight digit hex colour`)
   }
   return color
+}
+
+function shapeColorValue(value: unknown, label: string): string {
+  if (value === 'transparent') return value
+  return colorValue(value, label)
+}
+
+function optionalFinite(
+  value: unknown,
+  label: string,
+  min: number,
+  max: number
+): number | undefined {
+  return value === undefined ? undefined : finite(value, label, min, max)
+}
+
+function finiteList(
+  value: unknown,
+  label: string,
+  minLength: number,
+  maxLength: number,
+  min: number,
+  max: number
+): number[] {
+  if (
+    !Array.isArray(value) ||
+    value.length < minLength ||
+    value.length > maxLength ||
+    value.length % 2 !== 0
+  ) {
+    throw new TypeError(`${label} is invalid`)
+  }
+  return value.map((entry, index) => finite(entry, `${label}[${index}]`, min, max))
 }
 
 export function imageDataUrl(value: unknown, label = 'image'): string {
@@ -177,7 +214,7 @@ export function clipDocument(value: unknown): ClipDocument {
   if (!Array.isArray(input.shapes) || input.shapes.length > 20_000) {
     throw new TypeError('project has too many shapes')
   }
-  input.shapes.forEach((shape, index) => validateShapeCutOutFields(shape, index))
+  input.shapes.forEach((shape, index) => validateShape(shape, index, 'project shape'))
   if (input.cutOuts !== undefined) {
     if (!Array.isArray(input.cutOuts) || input.cutOuts.length > 32) {
       throw new TypeError('project Cut Out operations are invalid')
@@ -212,29 +249,7 @@ export function annotationShapes(value: unknown): Shape[] {
   if (!Array.isArray(value) || value.length > 1_000) {
     throw new TypeError('annotation clipboard is invalid')
   }
-  value.forEach((shape, index) => {
-    const input = record(shape, `annotation ${index + 1}`)
-    stringValue(input.id, `annotation ${index + 1} id`, 256)
-    enumValue(input.type, `annotation ${index + 1} type`, [
-      'arrow',
-      'line',
-      'measure',
-      'pen',
-      'highlighter',
-      'rect',
-      'ellipse',
-      'blur',
-      'pixelate',
-      'redact',
-      'spotlight',
-      'magnify',
-      'text',
-      'callout',
-      'step'
-    ] as const)
-    finite(input.z, `annotation ${index + 1} order`, -1_000_000, 1_000_000)
-    validateShapeCutOutFields(shape, index)
-  })
+  value.forEach((shape, index) => validateShape(shape, index, 'annotation'))
   const serialized = JSON.stringify(value)
   if (serialized.length > 8 * 1024 * 1024) throw new TypeError('annotation clipboard is too large')
   return JSON.parse(serialized) as Shape[]
@@ -274,16 +289,227 @@ export function cutOutOperation(
   return { source, axis, start, size, edge }
 }
 
-function validateShapeCutOutFields(value: unknown, index: number): void {
-  const shape = record(value, `project shape ${index + 1}`)
+const BASE_SHAPE_FIELDS = [
+  'id',
+  'type',
+  'z',
+  'locked',
+  'hidden',
+  'opacity',
+  'rotation',
+  'clipRects'
+] as const
+const STROKE_FIELDS = ['stroke', 'strokeWidth', 'dash'] as const
+const FILL_FIELDS = ['fill', 'fillOpacity'] as const
+const SHADOW_FIELDS = [
+  'shadow',
+  'shadowColor',
+  'shadowBlur',
+  'shadowOffsetX',
+  'shadowOffsetY'
+] as const
+
+function validateShape(value: unknown, index: number, root: string): void {
+  const label = `${root} ${index + 1}`
+  const shape = record(value, label)
+  stringValue(shape.id, `${label} id`, 256)
+  const type = enumValue(shape.type, `${label} type`, [
+    'arrow',
+    'line',
+    'measure',
+    'pen',
+    'highlighter',
+    'rect',
+    'ellipse',
+    'blur',
+    'pixelate',
+    'redact',
+    'spotlight',
+    'magnify',
+    'text',
+    'callout',
+    'step'
+  ] as const)
+  finite(shape.z, `${label} order`, -1_000_000, 1_000_000)
+  optionalBoolean(shape.locked, `${label} locked`)
+  optionalBoolean(shape.hidden, `${label} hidden`)
+  optionalFinite(shape.opacity, `${label} opacity`, 0, 1)
+  optionalFinite(shape.rotation, `${label} rotation`, -360_000, 360_000)
+  validateShapeCutOutFields(shape, label)
+
+  const stroke = () => {
+    shapeColorValue(shape.stroke, `${label} stroke`)
+    finite(shape.strokeWidth, `${label} stroke width`, 0, 10_000)
+    if (shape.dash !== undefined) finiteList(shape.dash, `${label} dash`, 2, 32, 0, 100_000)
+  }
+  const fill = () => {
+    if (shape.fill !== undefined) shapeColorValue(shape.fill, `${label} fill`)
+    optionalFinite(shape.fillOpacity, `${label} fill opacity`, 0, 1)
+  }
+  const shadow = () => {
+    optionalBoolean(shape.shadow, `${label} shadow`)
+    if (shape.shadowColor !== undefined)
+      shapeColorValue(shape.shadowColor, `${label} shadow colour`)
+    optionalFinite(shape.shadowBlur, `${label} shadow blur`, 0, 100_000)
+    optionalFinite(shape.shadowOffsetX, `${label} shadow x offset`, -1_000_000, 1_000_000)
+    optionalFinite(shape.shadowOffsetY, `${label} shadow y offset`, -1_000_000, 1_000_000)
+  }
+
+  if (type === 'arrow' || type === 'line' || type === 'measure') {
+    rejectUnknown(
+      shape,
+      [
+        ...BASE_SHAPE_FIELDS,
+        ...STROKE_FIELDS,
+        ...SHADOW_FIELDS,
+        'points',
+        'headScale',
+        'startHead',
+        'endHead',
+        'curve'
+      ],
+      label
+    )
+    stroke()
+    shadow()
+    finiteList(shape.points, `${label} points`, 4, 20_000, -1_000_000, 1_000_000)
+    optionalFinite(shape.headScale, `${label} head scale`, 0, 1_000)
+    optionalBoolean(shape.startHead, `${label} start head`)
+    optionalBoolean(shape.endHead, `${label} end head`)
+    optionalFinite(shape.curve, `${label} curve`, -1_000_000, 1_000_000)
+    return
+  }
+
+  if (type === 'pen' || type === 'highlighter') {
+    rejectUnknown(shape, [...BASE_SHAPE_FIELDS, ...STROKE_FIELDS, 'points', 'smoothing'], label)
+    stroke()
+    finiteList(shape.points, `${label} points`, 2, 200_000, -1_000_000, 1_000_000)
+    optionalFinite(shape.smoothing, `${label} smoothing`, 0, 1_000)
+    return
+  }
+
+  if (['rect', 'ellipse', 'blur', 'pixelate', 'redact', 'spotlight', 'magnify'].includes(type)) {
+    rejectUnknown(
+      shape,
+      [
+        ...BASE_SHAPE_FIELDS,
+        ...STROKE_FIELDS,
+        ...FILL_FIELDS,
+        ...SHADOW_FIELDS,
+        'x',
+        'y',
+        'width',
+        'height',
+        'cornerRadius',
+        'intensity',
+        'dim'
+      ],
+      label
+    )
+    stroke()
+    fill()
+    shadow()
+    finite(shape.x, `${label} x`, -1_000_000, 1_000_000)
+    finite(shape.y, `${label} y`, -1_000_000, 1_000_000)
+    finite(shape.width, `${label} width`, 0, 1_000_000)
+    finite(shape.height, `${label} height`, 0, 1_000_000)
+    optionalFinite(shape.cornerRadius, `${label} corner radius`, 0, 1_000_000)
+    optionalFinite(shape.intensity, `${label} intensity`, 0, 100_000)
+    optionalFinite(shape.dim, `${label} dim`, 0, 1)
+    return
+  }
+
+  if (type === 'text' || type === 'callout') {
+    rejectUnknown(
+      shape,
+      [
+        ...BASE_SHAPE_FIELDS,
+        ...FILL_FIELDS,
+        ...SHADOW_FIELDS,
+        'x',
+        'y',
+        'width',
+        'height',
+        'text',
+        'fontFamily',
+        'fontSize',
+        'fontStyle',
+        'align',
+        'color',
+        'background',
+        'padding',
+        'cornerRadius',
+        'tail',
+        'stroke',
+        'strokeWidth'
+      ],
+      label
+    )
+    fill()
+    shadow()
+    finite(shape.x, `${label} x`, -1_000_000, 1_000_000)
+    finite(shape.y, `${label} y`, -1_000_000, 1_000_000)
+    finite(shape.width, `${label} width`, 0, 1_000_000)
+    optionalFinite(shape.height, `${label} height`, 0, 1_000_000)
+    stringValue(shape.text, `${label} text`, 2_000_000)
+    stringValue(shape.fontFamily, `${label} font family`, 256)
+    finite(shape.fontSize, `${label} font size`, 0.1, 10_000)
+    optionalString(shape.fontStyle, `${label} font style`, 64)
+    if (shape.align !== undefined)
+      enumValue(shape.align, `${label} alignment`, ['left', 'center', 'right'] as const)
+    shapeColorValue(shape.color, `${label} colour`)
+    if (shape.background !== undefined) shapeColorValue(shape.background, `${label} background`)
+    optionalFinite(shape.padding, `${label} padding`, 0, 1_000_000)
+    optionalFinite(shape.cornerRadius, `${label} corner radius`, 0, 1_000_000)
+    if (shape.tail !== undefined) {
+      const tail = record(shape.tail, `${label} tail`)
+      rejectUnknown(tail, ['x', 'y'], `${label} tail`)
+      finite(tail.x, `${label} tail.x`, -1_000_000, 1_000_000)
+      finite(tail.y, `${label} tail.y`, -1_000_000, 1_000_000)
+    }
+    if (shape.stroke !== undefined) shapeColorValue(shape.stroke, `${label} stroke`)
+    optionalFinite(shape.strokeWidth, `${label} stroke width`, 0, 10_000)
+    return
+  }
+
+  rejectUnknown(
+    shape,
+    [
+      ...BASE_SHAPE_FIELDS,
+      ...SHADOW_FIELDS,
+      'x',
+      'y',
+      'radius',
+      'index',
+      'fill',
+      'color',
+      'fontSize',
+      'shape'
+    ],
+    label
+  )
+  shadow()
+  finite(shape.x, `${label} x`, -1_000_000, 1_000_000)
+  finite(shape.y, `${label} y`, -1_000_000, 1_000_000)
+  finite(shape.radius, `${label} radius`, 0.1, 1_000_000)
+  const stepIndex = finite(shape.index, `${label} index`, 0, 1_000_000)
+  if (!Number.isInteger(stepIndex)) throw new TypeError(`${label} index must be an integer`)
+  shapeColorValue(shape.fill, `${label} fill`)
+  shapeColorValue(shape.color, `${label} colour`)
+  finite(shape.fontSize, `${label} font size`, 0.1, 10_000)
+  if (shape.shape !== undefined)
+    enumValue(shape.shape, `${label} shape`, ['circle', 'square', 'diamond'] as const)
+}
+
+function validateShapeCutOutFields(shape: UnknownRecord, label: string): void {
   if (shape.clipRects === undefined) return
   if (!Array.isArray(shape.clipRects) || shape.clipRects.length > 4) {
-    throw new TypeError(`project shape ${index + 1} clip rectangles are invalid`)
+    throw new TypeError(`${label} clip rectangles are invalid`)
   }
   shape.clipRects.forEach((rect, rectIndex) => {
-    const parsed = rectValue(rect, `project shape ${index + 1} clip ${rectIndex + 1}`)
+    const parsed = rectValue(rect, `${label} clip ${rectIndex + 1}`)
     if (parsed.width <= 0 || parsed.height <= 0) {
-      throw new TypeError(`project shape ${index + 1} clip rectangle is empty`)
+      throw new TypeError(`${label} clip rectangle is empty`)
     }
   })
 }

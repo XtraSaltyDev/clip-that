@@ -203,11 +203,11 @@ npm run build:linux    # unsigned development packages; not runtime acceptance
 node build/gen-icons.mjs   # regenerate the icon set from source, no image deps
 ```
 
-ClipThat deliberately has no automated test or UI-driving harness. Automated Electron
-acceptance previously took over the active displays and input devices. Validate changes by
-driving the real app manually while leaving the user's mouse and keyboard under their control.
-The build retains non-interactive source checks: ESLint, Prettier, TypeScript, and the
-production bundle.
+ClipThat keeps automated checks non-interactive: unit tests cover pure security, persistence,
+updater, release-contract, and protocol logic without launching Electron or taking over the
+active displays and input devices. Installed-app acceptance remains manual so validation leaves
+the user's mouse and keyboard under their control. The production build runs those tests plus
+ESLint, Prettier, TypeScript, provenance checks, and the renderer bundle.
 
 Useful non-driving diagnostics remain available:
 

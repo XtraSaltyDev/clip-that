@@ -7,8 +7,16 @@ import type { EditorActions } from './actions'
 
 const mod = navigator.userAgent.includes('Mac') ? '⌘' : 'Ctrl'
 
+export interface AnnotationClipboardActions {
+  copy: () => void | Promise<unknown>
+  paste: () => void | Promise<unknown>
+}
+
 /** Everything the editor can do, in one searchable list. */
-export function editorCommands(actions: EditorActions): Command[] {
+export function editorCommands(
+  actions: EditorActions,
+  annotationClipboard: AnnotationClipboardActions
+): Command[] {
   const state = () => useEditor.getState()
   const hasSelection = () => state().selectedIds.length > 0
 
@@ -138,7 +146,9 @@ export function editorCommands(actions: EditorActions): Command[] {
     ...(['macos', 'windows', 'none'] as const).map((frame) => ({
       id: `canvas.frame.${frame}`,
       title:
-        frame === 'none' ? 'Remove window frame' : `Add ${frame === 'macos' ? 'macOS' : 'Windows'} window frame`,
+        frame === 'none'
+          ? 'Remove window frame'
+          : `Add ${frame === 'macos' ? 'macOS' : 'Windows'} window frame`,
       group: 'Canvas',
       icon: 'frame' as const,
       run: () => {
@@ -175,6 +185,25 @@ export function editorCommands(actions: EditorActions): Command[] {
       disabled: !hasSelection()
     },
     {
+      id: 'edit.copyAnnotations',
+      title: 'Copy selected annotations',
+      group: 'Edit',
+      icon: 'copy',
+      shortcut: `${mod}C`,
+      keywords: 'clipboard shapes markup',
+      run: () => void annotationClipboard.copy(),
+      disabled: !hasSelection()
+    },
+    {
+      id: 'edit.pasteAnnotations',
+      title: 'Paste annotations',
+      group: 'Edit',
+      icon: 'clipboard',
+      shortcut: `${mod}V`,
+      keywords: 'clipboard shapes markup',
+      run: () => void annotationClipboard.paste()
+    },
+    {
       id: 'edit.delete',
       title: 'Delete selection',
       group: 'Edit',
@@ -208,7 +237,6 @@ export function editorCommands(actions: EditorActions): Command[] {
       title: 'Copy image to clipboard',
       group: 'Export',
       icon: 'copy',
-      shortcut: `${mod}C`,
       run: () => void actions.copy()
     },
     {
