@@ -13,6 +13,7 @@
     "src/main/ipc/validation.ts",
     "src/main/protocol/byte-range.ts",
     "src/main/recording/recovery-store.ts",
+    "src/main/recording/ffmpeg-path.ts",
     "src/main/store/library-index.ts",
     "src/main/store/library-ocr.ts",
     "src/main/store/path-guard.ts",

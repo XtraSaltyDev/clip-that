@@ -66,11 +66,14 @@ dmg:
 
 win:
   artifactName: ${productName}-${version}-${arch}.${ext}
+  extraResources:
+    - from: build/vendor/ffmpeg/windows-x64/package
+      to: third-party/ffmpeg
   target:
     - target: nsis
-      # Windows packages are unsupported candidates and deliberately contain no bundled
-      # FFmpeg. Keep the candidate matrix narrow until a compliant media toolchain and
-      # real-hardware acceptance exist.
+      # Windows packages remain unsupported candidates until code signing and real-hardware
+      # acceptance exist. Their FFmpeg toolchain is built from the same pinned LGPL-compatible
+      # sources as macOS, with Media Foundation providing the H.264 encoder.
       arch: [x64]
     - target: portable
       arch: [x64]
