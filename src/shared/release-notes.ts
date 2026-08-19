@@ -180,6 +180,26 @@ export const RELEASE_NOTES = [
         body: 'Every supported Mac release is checked for Developer ID signing, hardened runtime, Apple notarization, expected architecture, bundled licenses, and accidental secrets before publication.'
       }
     ]
+  },
+  {
+    version: '0.1.14',
+    title: 'Faster capture and annotation reuse',
+    summary:
+      'Copy fresh captures automatically and reuse annotations through native editor context menus.',
+    items: [
+      {
+        title: 'Automatically copy new captures',
+        body: 'Enable the new Capture setting to copy each new screenshot to the clipboard while preserving your existing after-capture workflow.'
+      },
+      {
+        title: 'Right-click editing',
+        body: 'Right-click the canvas or an annotation selection to access relevant copy, paste, duplicate, select, and delete actions.'
+      },
+      {
+        title: 'Reuse annotations across clips',
+        body: 'Copy one or more annotations and paste them into another open clip without replacing the image or text already on your system clipboard.'
+      }
+    ]
   }
 ] as const satisfies readonly ReleaseNotes[]
 

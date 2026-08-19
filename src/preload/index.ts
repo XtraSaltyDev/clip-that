@@ -10,6 +10,8 @@ import type {
   CaptureResult,
   ClipDocument,
   DisplayInfo,
+  EditorContextMenuAction,
+  EditorContextMenuRequest,
   LibraryItem,
   LibraryHealth,
   LibraryItemPatch,
@@ -25,6 +27,7 @@ import type {
   SnagitImportSummary,
   ScrollCaptureConfig,
   Settings,
+  Shape,
   Toast,
   VideoExportOptions,
   WindowInfo
@@ -80,6 +83,12 @@ const api = {
     closeReady: (): Promise<boolean> => ipcRenderer.invoke(IPC.editorCloseReady),
     confirmClose: (allow: boolean): Promise<boolean> =>
       ipcRenderer.invoke(IPC.editorConfirmClose, allow),
+    contextMenu: (request: EditorContextMenuRequest): Promise<EditorContextMenuAction | null> =>
+      ipcRenderer.invoke(IPC.editorContextMenu, request),
+    copyAnnotations: (shapes: Shape[]): Promise<number> =>
+      ipcRenderer.invoke(IPC.editorAnnotationClipboardWrite, shapes),
+    readAnnotations: (): Promise<Shape[]> =>
+      ipcRenderer.invoke(IPC.editorAnnotationClipboardRead),
     onCloseRequested: (handler: () => void) => on(IPC.editorCloseRequested, handler)
   },
 

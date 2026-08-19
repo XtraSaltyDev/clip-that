@@ -85,6 +85,7 @@ export function defaultSettings(picturesDir: string): Settings {
     filenameTemplate: 'ClipThat {yyyy}-{MM}-{dd} at {HH}.{mm}.{ss}',
     imageFormat: 'png',
     jpegQuality: 92,
+    copyNewCapturesToClipboard: false,
     copyOnSave: true,
     theme: 'system',
     accent: '#4f8cff',

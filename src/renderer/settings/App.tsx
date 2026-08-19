@@ -381,6 +381,11 @@ function Capture({
             <option value="pipeline">Run my pipeline</option>
           </select>
         </Field>
+        <Toggle
+          label="Automatically copy new captures to the clipboard"
+          checked={settings.copyNewCapturesToClipboard}
+          onChange={(copyNewCapturesToClipboard) => patch({ copyNewCapturesToClipboard })}
+        />
         {settings.afterCapture === 'pipeline' && (
           <div className="col" style={{ gap: 10, paddingLeft: 2 }}>
             <Toggle

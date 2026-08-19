@@ -10,6 +10,7 @@ import type {
   RecordingOptions,
   Rect,
   SaveImageRequest,
+  Shape,
   Toast,
   VideoExportOptions
 } from '@shared/types'
@@ -205,6 +206,38 @@ export function clipDocument(value: unknown): ClipDocument {
   const serialized = JSON.stringify(input)
   if (serialized.length > MAX_PROJECT_JSON) throw new TypeError('project is too large')
   return value as ClipDocument
+}
+
+export function annotationShapes(value: unknown): Shape[] {
+  if (!Array.isArray(value) || value.length > 1_000) {
+    throw new TypeError('annotation clipboard is invalid')
+  }
+  value.forEach((shape, index) => {
+    const input = record(shape, `annotation ${index + 1}`)
+    stringValue(input.id, `annotation ${index + 1} id`, 256)
+    enumValue(input.type, `annotation ${index + 1} type`, [
+      'arrow',
+      'line',
+      'measure',
+      'pen',
+      'highlighter',
+      'rect',
+      'ellipse',
+      'blur',
+      'pixelate',
+      'redact',
+      'spotlight',
+      'magnify',
+      'text',
+      'callout',
+      'step'
+    ] as const)
+    finite(input.z, `annotation ${index + 1} order`, -1_000_000, 1_000_000)
+    validateShapeCutOutFields(shape, index)
+  })
+  const serialized = JSON.stringify(value)
+  if (serialized.length > 8 * 1024 * 1024) throw new TypeError('annotation clipboard is too large')
+  return JSON.parse(serialized) as Shape[]
 }
 
 export function cutOutOperation(
@@ -439,6 +472,7 @@ export function settingsPatch(value: unknown, current: Settings): Partial<Settin
       'filenameTemplate',
       'imageFormat',
       'jpegQuality',
+      'copyNewCapturesToClipboard',
       'copyOnSave',
       'theme',
       'accent',
@@ -507,6 +541,11 @@ export function settingsPatch(value: unknown, current: Settings): Partial<Settin
     ] as const)
   if (input.jpegQuality !== undefined)
     patch.jpegQuality = finite(input.jpegQuality, 'JPEG quality', 1, 100)
+  if (input.copyNewCapturesToClipboard !== undefined)
+    patch.copyNewCapturesToClipboard = booleanValue(
+      input.copyNewCapturesToClipboard,
+      'copy new captures to clipboard'
+    )
   if (input.copyOnSave !== undefined)
     patch.copyOnSave = booleanValue(input.copyOnSave, 'copy on save')
   if (input.theme !== undefined)

@@ -30,6 +30,9 @@ export const IPC = {
   editorCloseRequested: 'editor:close-requested',
   editorCloseReady: 'editor:close-ready',
   editorConfirmClose: 'editor:confirm-close',
+  editorContextMenu: 'editor:context-menu',
+  editorAnnotationClipboardWrite: 'editor:annotation-clipboard-write',
+  editorAnnotationClipboardRead: 'editor:annotation-clipboard-read',
 
   // export
   saveImage: 'export:save-image',

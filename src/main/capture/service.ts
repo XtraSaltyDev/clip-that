@@ -460,6 +460,14 @@ export async function routeResult(
 ): Promise<void> {
   const s = settings.get()
   const action = overrideAction ?? s.afterCapture
+  const actionCopiesCapture =
+    action === 'clipboard' ||
+    action === 'clipboardAndFile' ||
+    (action === 'pipeline' && s.pipeline.copy)
+
+  if (s.copyNewCapturesToClipboard && !actionCopiesCapture) {
+    copyImageToClipboard(result.dataUrl)
+  }
 
   if (action === 'pipeline') {
     await runPipeline(result, s.pipeline, openResultInEditor)

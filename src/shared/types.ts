@@ -224,6 +224,20 @@ export interface StepShape extends BaseShape, ShadowStyle {
 
 export type Shape = ArrowShape | FreehandShape | BoxShape | TextShape | StepShape
 
+export type EditorContextMenuAction =
+  | 'copy-image'
+  | 'copy-annotations'
+  | 'paste-annotations'
+  | 'duplicate-annotations'
+  | 'select-all-annotations'
+  | 'delete-annotations'
+
+export interface EditorContextMenuRequest {
+  kind: 'canvas' | 'selection'
+  selectionCount: number
+  annotationCount: number
+}
+
 /* ---- Beautify / canvas presentation ---- */
 
 export type BackgroundKind = 'none' | 'solid' | 'gradient' | 'image' | 'desktop'
@@ -518,6 +532,7 @@ export interface Settings {
   filenameTemplate: string
   imageFormat: 'png' | 'jpg' | 'webp'
   jpegQuality: number
+  copyNewCapturesToClipboard: boolean
   copyOnSave: boolean
   theme: 'system' | 'light' | 'dark'
   accent: string

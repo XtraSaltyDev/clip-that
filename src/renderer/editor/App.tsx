@@ -1,6 +1,6 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react'
 import type Konva from 'konva'
-import type { LibraryItem } from '@shared/types'
+import type { EditorContextMenuAction, LibraryItem } from '@shared/types'
 import { ToastHost, useHotkeys, useImage, useSize, useTheme, toast } from '../shared/ui'
 import { api } from '../shared/api'
 import { Icon } from '../shared/icons'
@@ -47,6 +47,49 @@ export default function App(): React.ReactElement {
 
   // Rebuilt when the palette opens so disabled states reflect the current selection.
   const commands = useMemo(() => editorCommands(actions), [actions, paletteOpen])
+
+  const openContextMenu = async (target: {
+    kind: 'canvas' | 'selection'
+    point: { x: number; y: number }
+  }): Promise<void> => {
+    const before = useEditor.getState()
+    const action = await api.editor.contextMenu({
+      kind: target.kind,
+      selectionCount: before.selectedIds.length,
+      annotationCount: before.doc?.shapes.length ?? 0
+    })
+    if (!action) return
+
+    const state = useEditor.getState()
+    const run: Record<EditorContextMenuAction, () => void | Promise<void>> = {
+      'copy-image': async () => {
+        await actions.copy()
+      },
+      'copy-annotations': async () => {
+        const count = await api.editor.copyAnnotations(state.selectedShapes())
+        toast('success', count === 1 ? 'Annotation copied' : `${count} annotations copied`)
+      },
+      'paste-annotations': async () => {
+        const shapes = await api.editor.readAnnotations()
+        state.pasteShapes(shapes, target.point)
+        toast(
+          'success',
+          shapes.length === 1 ? 'Annotation pasted' : `${shapes.length} annotations pasted`
+        )
+      },
+      'duplicate-annotations': () => state.duplicateSelected(),
+      'select-all-annotations': () => {
+        if (state.doc) state.select(state.doc.shapes.map((shape) => shape.id))
+      },
+      'delete-annotations': () => state.removeShapes(state.selectedIds)
+    }
+
+    try {
+      await run[action]()
+    } catch (error) {
+      toast('error', 'Editor action failed', (error as Error).message)
+    }
+  }
 
   /* ---------- derived Cut Out image ---------- */
 
@@ -381,6 +424,7 @@ export default function App(): React.ReactElement {
                   containerHeight={viewport.height}
                   stageRef={stageRef}
                   viewportRef={viewportRef}
+                  onContextMenuRequest={(target) => void openContextMenu(target)}
                 />
               </div>
             </div>
