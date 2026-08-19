@@ -59,6 +59,7 @@ export default function TopBar({
         <button
           className="btn ghost icon tip"
           data-tip="Undo  ·  ⌘Z"
+          aria-label="Undo"
           disabled={past === 0}
           onClick={undo}
         >
@@ -67,6 +68,7 @@ export default function TopBar({
         <button
           className="btn ghost icon tip"
           data-tip="Redo  ·  ⇧⌘Z"
+          aria-label="Redo"
           disabled={future === 0}
           onClick={redo}
         >
@@ -76,18 +78,19 @@ export default function TopBar({
         <div className="topbar-sep" />
 
         <div className="zoombox">
-          <button className="btn ghost icon sm" onClick={() => setZoom(zoom / 1.25)}>
+          <button className="btn ghost icon sm" aria-label="Zoom out" onClick={() => setZoom(zoom / 1.25)}>
             <Icon name="zoomOut" size={14} />
           </button>
           <button className="zoomval mono" onClick={() => setZoom(1)} title="Reset to 100%">
             {Math.round(zoom * 100)}%
           </button>
-          <button className="btn ghost icon sm" onClick={() => setZoom(zoom * 1.25)}>
+          <button className="btn ghost icon sm" aria-label="Zoom in" onClick={() => setZoom(zoom * 1.25)}>
             <Icon name="zoomIn" size={14} />
           </button>
           <button
             className="btn ghost icon sm tip"
             data-tip="Fit to window  ·  ⌘0"
+            aria-label="Fit to window"
             onClick={() => setZoom(zoom, true)}
           >
             <Icon name="fit" size={14} />
@@ -170,6 +173,7 @@ export default function TopBar({
         <button
           className="btn ghost icon tip"
           data-tip="Auto-blur sensitive data"
+          aria-label="Auto-blur sensitive data"
           disabled={ocrBusy}
           onClick={() => void actions.autoRedact()}
         >
@@ -178,6 +182,7 @@ export default function TopBar({
         <button
           className="btn ghost icon tip"
           data-tip="Command palette  ·  ⌘K"
+          aria-label="Command palette"
           onClick={onOpenPalette}
         >
           <Icon name="search" />
@@ -240,6 +245,7 @@ export default function TopBar({
           <button
             className="btn ghost icon tip"
             data-tip="New capture"
+            aria-label="New capture"
             onClick={() => setMenu(menu === 'capture' ? null : 'capture')}
           >
             <Icon name="plus" />
@@ -272,6 +278,7 @@ export default function TopBar({
         <button
           className="btn ghost icon tip"
           data-tip="Library"
+          aria-label="Library"
           onClick={() => api.system.window('library')}
         >
           <Icon name="grid" />
@@ -279,6 +286,7 @@ export default function TopBar({
         <button
           className="btn ghost icon tip"
           data-tip="Settings"
+          aria-label="Settings"
           onClick={() => api.system.window('settings')}
         >
           <Icon name="settings" />

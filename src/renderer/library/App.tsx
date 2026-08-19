@@ -306,7 +306,7 @@ export default function App(): React.ReactElement {
             onChange={(e) => setSearch(e.target.value)}
           />
           {search && (
-            <button className="btn ghost icon sm" onClick={() => setSearch('')}>
+            <button className="btn ghost icon sm" aria-label="Clear search" onClick={() => setSearch('')}>
               <Icon name="close" size={13} />
             </button>
           )}

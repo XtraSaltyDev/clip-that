@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useRef, useState } from 'react'
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import type Konva from 'konva'
 import type { EditorContextMenuAction, LibraryItem } from '@shared/types'
 import { ToastHost, useHotkeys, useImage, useSize, useTheme, toast } from '../shared/ui'
@@ -16,6 +16,7 @@ import CommandPalette from '../shared/CommandPalette'
 import { editorCommands } from './commands'
 import { orderWords, selectedText } from './canvas/LiveText'
 import { renderCutOutImage } from './cut-out-image'
+import { editorCopyTarget } from './clipboard-intent'
 import './editor.css'
 
 function loadImageDataUrl(dataUrl: string): Promise<HTMLImageElement> {
@@ -45,8 +46,41 @@ export default function App(): React.ReactElement {
   const videoDraftFlush = useRef<(() => Promise<void>) | null>(null)
   const documentHandoff = useRef(Promise.resolve())
 
+  const copySelectedAnnotations = useCallback(async (): Promise<boolean> => {
+    const state = useEditor.getState()
+    const shapes = state.selectedShapes()
+    if (shapes.length === 0) return false
+    const count = await api.editor.copyAnnotations(shapes)
+    toast('success', count === 1 ? 'Annotation copied' : `${count} annotations copied`)
+    return true
+  }, [])
+
+  const pasteAnnotations = useCallback(
+    async (point?: { x: number; y: number }): Promise<boolean> => {
+      const shapes = await api.editor.readAnnotations()
+      if (shapes.length === 0) {
+        toast('info', 'No copied annotations', 'Copy an annotation before pasting.')
+        return false
+      }
+      useEditor.getState().pasteShapes(shapes, point)
+      toast(
+        'success',
+        shapes.length === 1 ? 'Annotation pasted' : `${shapes.length} annotations pasted`
+      )
+      return true
+    },
+    []
+  )
+
   // Rebuilt when the palette opens so disabled states reflect the current selection.
-  const commands = useMemo(() => editorCommands(actions), [actions, paletteOpen])
+  const commands = useMemo(
+    () =>
+      editorCommands(actions, {
+        copy: copySelectedAnnotations,
+        paste: pasteAnnotations
+      }),
+    [actions, copySelectedAnnotations, paletteOpen, pasteAnnotations]
+  )
 
   const openContextMenu = async (target: {
     kind: 'canvas' | 'selection'
@@ -66,16 +100,10 @@ export default function App(): React.ReactElement {
         await actions.copy()
       },
       'copy-annotations': async () => {
-        const count = await api.editor.copyAnnotations(state.selectedShapes())
-        toast('success', count === 1 ? 'Annotation copied' : `${count} annotations copied`)
+        await copySelectedAnnotations()
       },
       'paste-annotations': async () => {
-        const shapes = await api.editor.readAnnotations()
-        state.pasteShapes(shapes, target.point)
-        toast(
-          'success',
-          shapes.length === 1 ? 'Annotation pasted' : `${shapes.length} annotations pasted`
-        )
+        await pasteAnnotations(target.point)
       },
       'duplicate-annotations': () => state.duplicateSelected(),
       'select-all-annotations': () => {
@@ -245,7 +273,11 @@ export default function App(): React.ReactElement {
       'mod+c': () => {
         // With Live Text active, ⌘C means "copy the words I selected", not the picture.
         const s = useEditor.getState()
-        if (s.liveTextOn && s.liveSelection && s.ocr) {
+        const copyTarget = editorCopyTarget(
+          Boolean(s.liveTextOn && s.liveSelection && s.ocr),
+          s.selectedIds.length
+        )
+        if (copyTarget === 'text' && s.liveSelection && s.ocr) {
           const text = selectedText(orderWords(s.ocr.words), s.liveSelection)
           if (text) {
             void navigator.clipboard.writeText(text)
@@ -253,8 +285,13 @@ export default function App(): React.ReactElement {
             return
           }
         }
+        if (copyTarget === 'annotations') {
+          void copySelectedAnnotations()
+          return
+        }
         void actions.copy()
       },
+      'mod+v': () => void pasteAnnotations(),
       'mod+s': () => void actions.save(false),
       'mod+shift+s': () => void actions.save(true),
       'mod+e': () => void actions.exportAs('png'),
@@ -281,6 +318,30 @@ export default function App(): React.ReactElement {
         else if (s.tool === 'cutOut' && s.cutOutDraft && s.cutOutDraft.size >= 4) {
           s.applyCutOut(s.cutOutDraft)
         }
+      },
+      'shift+f10': () => {
+        const state = useEditor.getState()
+        const stage = stageRef.current
+        const scale = stage?.scaleX() || 1
+        void openContextMenu({
+          kind: state.selectedIds.length > 0 ? 'selection' : 'canvas',
+          point: {
+            x: stage ? stage.width() / scale / 2 : 0,
+            y: stage ? stage.height() / scale / 2 : 0
+          }
+        })
+      },
+      contextmenu: () => {
+        const state = useEditor.getState()
+        const stage = stageRef.current
+        const scale = stage?.scaleX() || 1
+        void openContextMenu({
+          kind: state.selectedIds.length > 0 ? 'selection' : 'canvas',
+          point: {
+            x: stage ? stage.width() / scale / 2 : 0,
+            y: stage ? stage.height() / scale / 2 : 0
+          }
+        })
       },
       arrowup: (e) => nudge(0, e.shiftKey ? -10 : -1),
       arrowdown: (e) => nudge(0, e.shiftKey ? 10 : 1),

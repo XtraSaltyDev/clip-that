@@ -12,10 +12,11 @@ installed-app acceptance is manual.
 | Installed app       | Manually exercise the checklist below   | the actual signed app behaves correctly with real permissions and hardware                                                                    |
 | Display diagnostics | `CLIPTHAT_DIAG_DISPLAYS=1 <app binary>` | read-only per-display capture health for support                                                                                              |
 
-There is intentionally no automated test or UI-driving acceptance command. Release review must
-not synthesize mouse or keyboard input, open capture overlays in a loop, or take over the active
-desktop. Record the installed app version and the manually observed result for each checklist
-item instead.
+Automated unit tests cover pure security boundaries, persistence, updater metadata, release
+contracts, and byte-range behavior without launching Electron. There is intentionally no
+UI-driving acceptance command: release review must not synthesize mouse or keyboard input, open
+capture overlays in a loop, or take over the active desktop. Record the installed app version and
+the manually observed result for each checklist item instead.
 
 The log lives at `<userData>/logs/clipthat.log` (shown in Settings → About).
 
@@ -87,10 +88,9 @@ Configure these repository secrets before the first hosted release:
 | `APPLE_APP_SPECIFIC_PASSWORD` | App-specific password for that Apple ID                    |
 | `APPLE_TEAM_ID`               | Apple Developer team identifier                            |
 
-Routine CI deliberately does not package desktop applications. It runs one capped Linux
-job after a push to `main`, skips documentation-only pushes, cancels superseded runs, and
-runs lint, formatting, typechecking, and the production bundle. Pull requests do not trigger a
-second duplicate run; use the manual CI button when a branch needs validation before merging.
+Routine CI deliberately does not package desktop applications. It runs one capped Linux job for
+pull requests and pushes to `main`, skips documentation-only changes, cancels superseded runs, and
+runs lint, formatting, typechecking, unit tests, provenance checks, and the production bundle.
 
 ## Unsupported Windows / Linux candidates
 

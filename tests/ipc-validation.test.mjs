@@ -1,0 +1,68 @@
+import assert from 'node:assert/strict'
+import test from 'node:test'
+import { load } from './helpers.mjs'
+
+const validation = await load('src/main/ipc/validation.js')
+
+const arrow = {
+  id: 'arrow-1',
+  type: 'arrow',
+  z: 1,
+  stroke: '#ff3b30',
+  strokeWidth: 4,
+  points: [10, 20, 100, 120],
+  endHead: true,
+  shadow: true,
+  shadowColor: '#000000',
+  shadowBlur: 6,
+  shadowOffsetX: 0,
+  shadowOffsetY: 2
+}
+
+const textShape = {
+  id: 'text-1',
+  type: 'text',
+  z: 2,
+  x: 20,
+  y: 30,
+  width: 240,
+  text: 'Review this',
+  fontFamily: 'Inter, system-ui, sans-serif',
+  fontSize: 28,
+  color: '#ffffff',
+  background: '#ff3b30',
+  padding: 8,
+  fillOpacity: 1
+}
+
+test('annotation clipboard accepts complete valid shape families and clones them', () => {
+  const source = [arrow, textShape]
+  const parsed = validation.annotationShapes(source)
+  assert.deepEqual(parsed, source)
+  assert.notEqual(parsed, source)
+})
+
+test('annotation clipboard rejects malformed geometry, styles and extra fields', () => {
+  assert.throws(
+    () => validation.annotationShapes([{ ...arrow, points: [0, Number.NaN, 1, 1] }]),
+    /outside the supported range/
+  )
+  assert.throws(
+    () => validation.annotationShapes([{ ...arrow, stroke: 'url(https://example.test/x)' }]),
+    /hex colour/
+  )
+  assert.throws(
+    () => validation.annotationShapes([{ ...textShape, fontSize: -1 }]),
+    /outside the supported range/
+  )
+  assert.throws(
+    () => validation.annotationShapes([{ ...arrow, command: 'open /tmp' }]),
+    /not supported/
+  )
+})
+
+test('external links remain limited to HTTP and HTTPS', () => {
+  assert.equal(validation.externalUrl('https://example.com/path'), 'https://example.com/path')
+  assert.throws(() => validation.externalUrl('javascript:alert(1)'), /HTTP or HTTPS/)
+  assert.throws(() => validation.externalUrl('file:///etc/passwd'), /HTTP or HTTPS/)
+})

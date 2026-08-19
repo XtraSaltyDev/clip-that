@@ -636,7 +636,12 @@ function HotkeyInput(props: {
         {recording ? 'Press keys…' : prettify(props.value) || 'Not set'}
       </button>
       {props.value && (
-        <button className="btn ghost icon sm" onClick={() => props.onChange('')} title="Clear">
+        <button
+          className="btn ghost icon sm"
+          onClick={() => props.onChange('')}
+          title="Clear"
+          aria-label="Clear shortcut"
+        >
           <Icon name="close" size={13} />
         </button>
       )}
