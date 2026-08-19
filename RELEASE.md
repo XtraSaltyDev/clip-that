@@ -95,10 +95,11 @@ runs lint, formatting, typechecking, unit tests, provenance checks, and the prod
 ## Unsupported Windows / Linux candidates
 
 `npm run release:win` intentionally refuses to create a production release. The unsigned
-Windows candidate contains no bundled FFmpeg and therefore requires a compatible system
-installation for video conversion. Re-enable production packaging only after adding a
-pinned, auditable Windows FFmpeg build, corresponding-source delivery, license notices,
-package checks, code signing, and real-hardware acceptance. Windows ARM64 is not advertised.
+Windows x64 candidate includes a pinned LGPL-compatible FFmpeg, libvpx, and Opus build plus
+its exact corresponding sources, build record, and license notices. The candidate workflow
+verifies the packaged codecs and performs real MP4, GIF, and WebM encode smoke tests before
+uploading artifacts. Re-enable production packaging only after adding Windows code signing
+and completing the real-hardware acceptance checklist. Windows ARM64 is not advertised.
 
 ```bash
 npm run build:linux      # AppImage, deb, rpm (unsigned development artifacts)

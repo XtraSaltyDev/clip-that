@@ -22,6 +22,7 @@
     "build": "npm run build:native && npm run verify:third-party && npm run quality && npm run typecheck && npm test && electron-vite build",
     "build:native": "node scripts/build-window-info-helper.mjs",
     "build:ffmpeg:mac": "bash scripts/build-ffmpeg-mac.sh",
+    "build:ffmpeg:win": "bash scripts/build-ffmpeg-win.sh",
     "verify:ocr-assets": "node scripts/verify-ocr-assets.mjs --source",
     "verify:js-licenses": "node scripts/verify-js-licenses.mjs --source",
     "verify:third-party": "npm run verify:ocr-assets && npm run verify:js-licenses",

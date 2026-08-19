@@ -171,9 +171,10 @@ src/
   are recorded in `third_party/ocr/PROVENANCE.md` and verified during every build.
 - Bundled JavaScript dependency versions and exact license notices are recorded under
   `third_party/js/` and verified against the locked npm packages during every build.
-- **FFmpeg 9.0.1** is built from pinned upstream source for Apple silicon with GPL and
-  nonfree components disabled. The app carries its license/build record, and every release
-  includes the exact FFmpeg, libvpx and Opus source archives used to build it.
+- **FFmpeg 9.0.1** is built from pinned upstream source for Apple silicon and Windows x64
+  with GPL and nonfree components disabled. The app carries its license/build record, and
+  every distributed binary includes the exact FFmpeg, libvpx and Opus source archives used
+  to build it. Windows MP4 export uses the system Media Foundation H.264 encoder.
 - **No native node modules**, so `npm install` never needs a compiler.
 
 Renderers run sandboxed with `contextIsolation` on and `nodeIntegration` off, behind a strict CSP.
@@ -197,6 +198,7 @@ outside the library directory.
 npm run dev            # run the app
 npm run build          # lint + format check + typecheck + bundle
 npm run build:ffmpeg:mac # pinned LGPL-compatible Apple-silicon media tools
+npm run build:ffmpeg:win # pinned LGPL-compatible Windows x64 media tools (MSYS2 MINGW64)
 npm run build:mac      # Apple-silicon dmg + zip
 npm run build:win      # experimental x64 packages; not runtime acceptance
 npm run build:linux    # unsigned development packages; not runtime acceptance

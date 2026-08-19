@@ -16,7 +16,7 @@ concurrency:
 jobs:
   package:
     runs-on: windows-latest
-    timeout-minutes: 30
+    timeout-minutes: 60
     steps:
       - uses: actions/checkout@v7
 
@@ -25,11 +25,36 @@ jobs:
           node-version: 22
           cache: npm
 
+      - uses: msys2/setup-msys2@66cd2cce69caa17b53920067426061ca1de3a884
+        with:
+          msystem: MINGW64
+          update: true
+          install: >-
+            base-devel
+            autoconf
+            automake
+            libtool
+            make
+            perl
+            mingw-w64-x86_64-binutils
+            mingw-w64-x86_64-gcc
+            mingw-w64-x86_64-nasm
+            mingw-w64-x86_64-pkgconf
+
+      - uses: actions/cache@v4
+        with:
+          path: build/vendor/ffmpeg/windows-x64
+          key: clipthat-windows-ffmpeg-${{ hashFiles('scripts/build-ffmpeg-win.sh') }}
+
       - name: Install dependencies
         run: npm ci
 
       - name: Run source gates
         run: npm run build
+
+      - name: Build pinned LGPL-compatible Windows FFmpeg
+        shell: msys2 {0}
+        run: bash scripts/build-ffmpeg-win.sh
 
       - name: Package unsigned Windows x64 candidate
         run: npx electron-builder --win --x64 --publish never
@@ -39,10 +64,13 @@ jobs:
         run: |
           $ErrorActionPreference = 'Stop'
           $version = (node -p "require('./package.json').version").Trim()
+          $sourceBundle = "dist/ClipThat-$version-windows-third-party-sources.tar.gz"
+          Copy-Item -LiteralPath 'build/vendor/ffmpeg/windows-x64/ClipThat-windows-third-party-sources.tar.gz' -Destination $sourceBundle
           $artifacts = @(
             "dist/ClipThat-$version-x64-setup.exe",
             "dist/ClipThat-$version-x64-portable.exe",
-            "dist/ClipThat-$version-x64.zip"
+            "dist/ClipThat-$version-x64.zip",
+            $sourceBundle
           )
 
           foreach ($artifact in $artifacts) {
@@ -62,19 +90,28 @@ jobs:
               throw "$($artifacts[2]) does not contain ClipThat.exe"
             }
 
+            $resourcesPath = Join-Path $packedExecutable.DirectoryName 'resources'
+            $ffmpegPath = Join-Path $resourcesPath 'third-party\ffmpeg\bin\ffmpeg.exe'
+            $ffprobePath = Join-Path $resourcesPath 'third-party\ffmpeg\bin\ffprobe.exe'
+            $buildInfoPath = Join-Path $resourcesPath 'third-party\ffmpeg\BUILD-FFMPEG.txt'
+            foreach ($requiredPath in @($ffmpegPath, $ffprobePath, $buildInfoPath)) {
+              if (-not (Test-Path -LiteralPath $requiredPath -PathType Leaf)) {
+                throw "Missing audited Windows media component: $requiredPath"
+              }
+            }
+
             $forbiddenFiles = Get-ChildItem -Path $extractDir -File -Force -Recurse |
               Where-Object {
                 $_.Name -eq '.env' -or
                 $_.Name -like '.env.*' -or
                 $_.Extension -in @('.p12', '.pfx', '.mobileprovision', '.provisionprofile') -or
                 $_.FullName -match '@ffmpeg-installer' -or
-                $_.Name -eq 'ffmpeg.exe'
+                ($_.Name -eq 'ffmpeg.exe' -and $_.FullName -ne $ffmpegPath)
               }
             if (@($forbiddenFiles).Count -ne 0) {
               throw "$($artifacts[2]) contains a forbidden credential file, environment file, or unaudited FFmpeg binary"
             }
 
-            $resourcesPath = Join-Path $packedExecutable.DirectoryName 'resources'
             node scripts/verify-package-secrets.mjs $resourcesPath
             if ($LASTEXITCODE -ne 0) {
               throw 'Windows candidate package credential scan failed'
@@ -89,6 +126,50 @@ jobs:
             if ($LASTEXITCODE -ne 0) {
               throw 'Windows candidate JavaScript license verification failed'
             }
+
+            $buildConfiguration = (& $ffmpegPath -hide_banner -buildconf 2>&1) -join "`n"
+            if ($LASTEXITCODE -ne 0) {
+              throw 'Packaged FFmpeg could not report its build configuration'
+            }
+            foreach ($requiredFlag in @('--disable-gpl', '--disable-nonfree', '--enable-mediafoundation', '--enable-libvpx', '--enable-libopus')) {
+              if ($buildConfiguration -notmatch [regex]::Escape($requiredFlag)) {
+                throw "Packaged FFmpeg is missing required flag: $requiredFlag"
+              }
+            }
+            if ($buildConfiguration -match '--enable-(gpl|nonfree)' -or $buildConfiguration -match 'build[/\\]vendor|[A-Z]:[/\\]a[/\\]') {
+              throw 'Packaged FFmpeg has a forbidden license mode or build-host path'
+            }
+
+            $encoders = (& $ffmpegPath -hide_banner -encoders 2>&1) -join "`n"
+            if ($LASTEXITCODE -ne 0) {
+              throw 'Packaged FFmpeg could not enumerate encoders'
+            }
+            foreach ($encoder in @('h264_mf', 'libvpx-vp9', 'libopus', 'gif', 'aac')) {
+              if ($encoders -notmatch "\s$([regex]::Escape($encoder))\s") {
+                throw "Packaged FFmpeg is missing required encoder: $encoder"
+              }
+            }
+
+            $smokeDir = Join-Path $env:RUNNER_TEMP 'clipthat-ffmpeg-smoke'
+            New-Item -ItemType Directory -Path $smokeDir -Force | Out-Null
+            $webmPath = Join-Path $smokeDir 'smoke.webm'
+            $mp4Path = Join-Path $smokeDir 'smoke.mp4'
+            $palettePath = Join-Path $smokeDir 'palette.png'
+            $gifPath = Join-Path $smokeDir 'smoke.gif'
+
+            & $ffmpegPath -hide_banner -loglevel error -y -f lavfi -i 'testsrc2=duration=1:size=320x180:rate=30' -f lavfi -i 'sine=frequency=440:duration=1' -c:v libvpx-vp9 -c:a libopus $webmPath
+            if ($LASTEXITCODE -ne 0) { throw 'Bundled FFmpeg WebM smoke encode failed' }
+            & $ffmpegPath -hide_banner -loglevel error -y -i $webmPath -vf 'format=yuv420p' -c:v h264_mf -rate_control quality -quality 70 -scenario archive -hw_encoding 0 -c:a aac -b:a 160k $mp4Path
+            if ($LASTEXITCODE -ne 0) { throw 'Bundled FFmpeg Media Foundation MP4 smoke encode failed' }
+            & $ffmpegPath -hide_banner -loglevel error -y -i $webmPath -vf 'fps=15,scale=320:-2,palettegen' $palettePath
+            if ($LASTEXITCODE -ne 0) { throw 'Bundled FFmpeg GIF palette smoke encode failed' }
+            & $ffmpegPath -hide_banner -loglevel error -y -i $webmPath -i $palettePath -lavfi 'fps=15,scale=320:-2[x];[x][1:v]paletteuse' -loop 0 $gifPath
+            if ($LASTEXITCODE -ne 0) { throw 'Bundled FFmpeg GIF smoke encode failed' }
+            foreach ($smokeArtifact in @($webmPath, $mp4Path, $gifPath)) {
+              if (-not (Test-Path -LiteralPath $smokeArtifact -PathType Leaf) -or (Get-Item -LiteralPath $smokeArtifact).Length -eq 0) {
+                throw "Bundled FFmpeg smoke artifact is missing or empty: $smokeArtifact"
+              }
+            }
           } finally {
             if (Test-Path -LiteralPath $extractDir) {
               Remove-Item -LiteralPath $extractDir -Recurse -Force
@@ -101,7 +182,7 @@ jobs:
             "$($hash.Hash.ToLowerInvariant())  $([IO.Path]::GetFileName($artifact))"
           }
           Set-Content -LiteralPath $checksumPath -Value $checksums -Encoding ascii
-          Write-Host "Verified unsigned Windows x64 candidate contains no unaudited FFmpeg package"
+          Write-Host "Verified unsigned Windows x64 candidate and pinned LGPL-compatible FFmpeg package"
 
       - name: Upload Windows candidate artifacts
         uses: actions/upload-artifact@v4
@@ -114,3 +195,4 @@ jobs:
             dist/ClipThat-*-x64-portable.exe
             dist/ClipThat-*-x64.zip
             dist/ClipThat-*-windows-SHA256SUMS.txt
+            dist/ClipThat-*-windows-third-party-sources.tar.gz

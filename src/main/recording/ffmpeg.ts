@@ -5,15 +5,19 @@ import { join } from 'node:path'
 import { app } from 'electron'
 import type { VideoExportOptions } from '@shared/types'
 import { tempDir } from '../store/paths'
+import { bundledFfmpegPath } from './ffmpeg-path'
 
-/** Resolve ClipThat's audited macOS build first, then an explicit or system installation. */
+/** Resolve an explicit override, ClipThat's audited bundle, then a system installation. */
 function resolveFfmpeg(): string | null {
   const explicit = process.env['CLIPTHAT_FFMPEG']
   if (explicit && existsSync(explicit)) return explicit
 
-  const bundled = app.isPackaged
-    ? join(process.resourcesPath, 'third-party', 'ffmpeg', 'bin', 'ffmpeg')
-    : join(app.getAppPath(), 'build', 'vendor', 'ffmpeg', 'package', 'bin', 'ffmpeg')
+  const bundled = bundledFfmpegPath({
+    platform: process.platform,
+    packaged: app.isPackaged,
+    resourcesPath: process.resourcesPath,
+    appPath: app.getAppPath()
+  })
   if (existsSync(bundled)) return bundled
 
   if (process.platform === 'darwin') {
@@ -116,6 +120,12 @@ const VIDEOTOOLBOX_QUALITY: Record<VideoExportOptions['quality'], string> = {
   high: '65'
 }
 
+const MEDIA_FOUNDATION_QUALITY: Record<VideoExportOptions['quality'], string> = {
+  low: '45',
+  medium: '70',
+  high: '90'
+}
+
 let encodersPromise: Promise<Set<string>> | null = null
 const failedHardwareEncoders = new Set<string>()
 
@@ -195,6 +205,21 @@ function hardwareH264Candidates(quality: VideoExportOptions['quality']): Hardwar
           '-qp_b',
           qp
         ]
+      },
+      {
+        name: 'h264_mf',
+        args: [
+          '-c:v',
+          'h264_mf',
+          '-rate_control',
+          'quality',
+          '-quality',
+          MEDIA_FOUNDATION_QUALITY[quality],
+          '-scenario',
+          'archive',
+          '-hw_encoding',
+          '0'
+        ]
       }
     ]
   }
@@ -261,22 +286,26 @@ export async function toMp4(
     )
   }
 
-  await runFfmpeg(
-    [
-      ...beforeCodec,
-      '-c:v',
-      'libx264',
-      '-preset',
-      'veryfast',
-      '-crf',
-      CRF[opts.quality],
-      ...afterCodec
-    ],
-    totalMs,
-    onProgress,
-    signal
-  )
-  return output
+  if (available.has('libx264')) {
+    await runFfmpeg(
+      [
+        ...beforeCodec,
+        '-c:v',
+        'libx264',
+        '-preset',
+        'veryfast',
+        '-crf',
+        CRF[opts.quality],
+        ...afterCodec
+      ],
+      totalMs,
+      onProgress,
+      signal
+    )
+    return output
+  }
+
+  throw new Error('No compatible H.264 encoder is available for MP4 export.')
 }
 
 /** Two-pass palette GIF — the only way to get a GIF that doesn't look like 1998. */

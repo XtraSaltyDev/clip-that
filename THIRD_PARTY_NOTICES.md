@@ -1,9 +1,10 @@
 # Third-party notices
 
-ClipThat's Apple-silicon macOS release includes the native media components and bundled
-JavaScript dependencies below. The packaged app contains their license texts and build record at
-`Contents/Resources/third-party/ffmpeg/`. Every binary release must also carry
-`ClipThat-<version>-third-party-sources.tar.gz` on the same distribution server.
+ClipThat's Apple-silicon macOS release and Windows x64 candidate include the native media
+components and bundled JavaScript dependencies below. The packaged app contains their license
+texts and build record under `Resources/third-party/ffmpeg/`. Every distributed binary must
+also carry its matching `ClipThat-<version>-third-party-sources.tar.gz` or
+`ClipThat-<version>-windows-third-party-sources.tar.gz` on the same distribution server.
 
 ## FFmpeg 9.0.1
 
