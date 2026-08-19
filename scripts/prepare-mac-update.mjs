@@ -17,7 +17,7 @@ export function createMacUpdateMetadata({ archivePath, publishedAt, version }) {
     throw new Error('Update publication time must be an ISO timestamp.')
   }
   const fileName = `ClipThat-${version}-arm64-mac.zip`
-  const file = `releases/${version}/${fileName}`
+  const file = fileName
   const digest = sha512(archivePath)
   const size = statSync(archivePath).size
   if (size <= 0) throw new Error('Update ZIP must not be empty.')
@@ -48,9 +48,7 @@ export function verifyMacUpdateFiles({ archivePath, blockmapPath, metadataPath, 
   assert.ok(
     Array.isArray(blockmap.files) &&
       blockmap.files.length > 0 &&
-      blockmap.files.every(
-        (file) => Array.isArray(file.checksums) && file.checksums.length > 0
-      ),
+      blockmap.files.every((file) => Array.isArray(file.checksums) && file.checksums.length > 0),
     'ZIP blockmap has no usable block checksums'
   )
 }

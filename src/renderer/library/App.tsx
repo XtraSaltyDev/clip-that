@@ -101,7 +101,7 @@ export default function App(): React.ReactElement {
     void api.system.checkForUpdate().then((status) => {
       if (active) setUpdate(status)
     }).catch(() => {
-      // Update discovery is intentionally quiet when GitHub Releases is unavailable off VPN.
+      // Update discovery is intentionally quiet when the public release channel is unavailable.
     })
     const unsubscribe = api.system.onUpdateStatus((status) => {
       if (active) setUpdate(status)

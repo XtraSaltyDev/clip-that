@@ -793,10 +793,10 @@ function About({
   }, [openingManualUpdate])
 
   let updateTitle = 'Checking for updates…'
-  let updateDetail = 'Contacting the public GitHub update channel.'
+  let updateDetail = 'Checking the public GitHub release channel.'
   if (!checkingUpdate && updateCheckFailed) {
     updateTitle = 'The update check could not be completed'
-    updateDetail = 'Try again, or confirm ClipThat can reach the public channel.'
+    updateDetail = 'Try again, or confirm ClipThat can reach GitHub.'
   } else if (!checkingUpdate && update?.state === 'available') {
     updateTitle = `ClipThat ${update.latestVersion} is available`
     updateDetail = `You have ${update.currentVersion}. Download the signed update inside ClipThat.`
@@ -808,23 +808,23 @@ function About({
     updateDetail = 'Restart when no recording or editor work is active.'
   } else if (!checkingUpdate && update?.state === 'current') {
     updateTitle = 'No newer release is available'
-    updateDetail = `ClipThat ${update.currentVersion} is current on the public GitHub channel.`
+    updateDetail = `ClipThat ${update.currentVersion} is current.`
   } else if (!checkingUpdate && update?.state === 'unsupported') {
     updateTitle = 'Update checking is unavailable for this build'
-    updateDetail = 'The public channel supports macOS on Apple silicon.'
+    updateDetail = 'Updates support macOS on Apple silicon.'
   } else if (!checkingUpdate && update?.state === 'unavailable') {
     updateTitle =
       update.reason === 'trust'
-        ? "GitHub.s certificate could not be verified"
+        ? "GitHub's certificate could not be verified"
         : update.reason === 'invalid-response'
           ? 'The update response could not be validated'
-          : 'The public update channel is unavailable'
+          : 'The update service is unavailable'
     updateDetail =
       update.reason === 'trust'
-        ? 'Do not download a release until the internal certificate is fixed.'
+        ? 'Check the network trust configuration before downloading a release.'
         : update.reason === 'invalid-response'
           ? 'Try again later or contact support before downloading a release.'
-          : 'Connect to VPN, then try again.'
+          : 'Check your connection, then try again.'
   }
 
   return (
@@ -838,6 +838,9 @@ function About({
           <div style={{ fontSize: 17, fontWeight: 600 }}>ClipThat {version}</div>
           <div className="muted">Screen capture, annotation and recording.</div>
           <div className="tiny muted">Supported release: macOS on Apple silicon.</div>
+          <div className="tiny muted">
+            FFmpeg and Tesseract notices, licenses and provenance accompany every release.
+          </div>
         </div>
       </div>
 

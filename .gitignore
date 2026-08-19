@@ -5,3 +5,10 @@ dist/
 .DS_Store
 .cache/
 build/clipthat-window-info
+build/vendor/
+.env
+.env.*
+*.p12
+*.pfx
+*.mobileprovision
+*.provisionprofile

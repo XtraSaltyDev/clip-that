@@ -93,6 +93,7 @@ else
 fi
 
 echo "Building, Developer ID signing, and notarizing ClipThat $VERSION for macOS"
+npm run build:ffmpeg:mac
 npm run build
 npx electron-builder --mac --arm64 --publish never -c.forceCodeSigning=true
 
@@ -100,7 +101,9 @@ dmg="dist/ClipThat-$VERSION-arm64.dmg"
 zip="dist/ClipThat-$VERSION-arm64-mac.zip"
 zip_blockmap="$zip.blockmap"
 latest_macos="dist/latest-mac.yml"
-for artifact in "$dmg" "$zip" "$zip_blockmap"; do
+source_bundle="dist/ClipThat-$VERSION-third-party-sources.tar.gz"
+cp "build/vendor/ffmpeg/ClipThat-third-party-sources.tar.gz" "$source_bundle"
+for artifact in "$dmg" "$zip" "$zip_blockmap" "$source_bundle"; do
   if [ ! -f "$artifact" ]; then
     echo "Missing macOS release artifact: $artifact" >&2
     exit 1
@@ -145,6 +148,7 @@ bash scripts/verify-mac-release.sh
     "ClipThat-$VERSION-arm64.dmg" \
     "ClipThat-$VERSION-arm64-mac.zip" \
     "ClipThat-$VERSION-arm64-mac.zip.blockmap" \
+    "ClipThat-$VERSION-third-party-sources.tar.gz" \
     latest-mac.yml
 ) > "dist/ClipThat-$VERSION-SHA256SUMS.txt"
 

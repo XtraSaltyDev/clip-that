@@ -1,4 +1,4 @@
-provider: generic
-url: https://github.com/XtraSaltyDev/clip-that/releases
-useMultipleRangeRequest: false
+provider: github
+owner: XtraSaltyDev
+repo: clip-that
 updaterCacheDirName: clipthat-updater

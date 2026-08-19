@@ -6,20 +6,21 @@ import { app } from 'electron'
 import type { VideoExportOptions } from '@shared/types'
 import { tempDir } from '../store/paths'
 
-/**
- * Resolve the bundled ffmpeg. `@ffmpeg-installer` reports a path inside `app.asar`,
- * which isn't executable — electron-builder unpacks it, so rewrite to `app.asar.unpacked`.
- */
+/** Resolve ClipThat's audited macOS build first, then an explicit or system installation. */
 function resolveFfmpeg(): string | null {
-  try {
-    const installer = require('@ffmpeg-installer/ffmpeg') as { path: string }
-    let p = installer.path
-    if (app.isPackaged) p = p.replace('app.asar', 'app.asar.unpacked')
-    if (existsSync(p)) return p
-  } catch {
-    /* fall through */
+  const explicit = process.env['CLIPTHAT_FFMPEG']
+  if (explicit && existsSync(explicit)) return explicit
+
+  const bundled = app.isPackaged
+    ? join(process.resourcesPath, 'third-party', 'ffmpeg', 'bin', 'ffmpeg')
+    : join(app.getAppPath(), 'build', 'vendor', 'ffmpeg', 'package', 'bin', 'ffmpeg')
+  if (existsSync(bundled)) return bundled
+
+  if (process.platform === 'darwin') {
+    for (const candidate of ['/opt/homebrew/bin/ffmpeg', '/usr/local/bin/ffmpeg']) {
+      if (existsSync(candidate)) return candidate
+    }
   }
-  // Last resort: whatever is on PATH.
   return 'ffmpeg'
 }
 
@@ -157,7 +158,7 @@ function hardwareH264Candidates(quality: VideoExportOptions['quality']): Hardwar
           '-q:v',
           VIDEOTOOLBOX_QUALITY[quality],
           '-allow_sw',
-          '0',
+          '1',
           '-profile:v',
           'high'
         ]
@@ -166,9 +167,9 @@ function hardwareH264Candidates(quality: VideoExportOptions['quality']): Hardwar
   }
   if (process.platform === 'win32') {
     const qp = CRF[quality]
-    // The bundled Windows FFmpeg advertises all three vendor encoders. A candidate can
-    // still fail when its matching GPU is absent, so failures are remembered and the next
-    // encoder (ultimately libx264) is tried without changing the user's export settings.
+    // A user-provided Windows FFmpeg may advertise all three vendor encoders. A candidate
+    // can still fail when its matching GPU is absent, so failures are remembered and the
+    // next encoder (ultimately libx264) is tried without changing the export settings.
     return [
       {
         name: 'h264_nvenc',
@@ -252,6 +253,12 @@ export async function toMp4(
       failedHardwareEncoders.add(encoder.name)
       console.warn(`[ffmpeg] ${encoder.name} unavailable; falling back`, (err as Error).message)
     }
+  }
+
+  if (process.platform === 'darwin') {
+    throw new Error(
+      'The macOS video encoder is unavailable. ClipThat does not ship the GPL libx264 encoder.'
+    )
   }
 
   await runFfmpeg(

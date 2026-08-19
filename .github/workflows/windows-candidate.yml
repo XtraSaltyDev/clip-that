@@ -25,8 +25,6 @@ jobs:
           node-version: 22
           cache: npm
 
-      # A normal install is intentional here: @ffmpeg-installer/ffmpeg must resolve
-      # the Windows x64 executable before electron-builder packages the app.
       - name: Install dependencies
         run: npm ci
 
@@ -64,16 +62,26 @@ jobs:
               throw "$($artifacts[2]) does not contain ClipThat.exe"
             }
 
-            $packedFfmpeg = Get-ChildItem -Path $extractDir -Filter 'ffmpeg.exe' -File -Recurse |
-              Where-Object { $_.FullName -match '@ffmpeg-installer[\\/]win32-x64' } |
-              Select-Object -First 1
-            if ($null -eq $packedFfmpeg) {
-              throw "$($artifacts[2]) does not contain the Windows x64 FFmpeg binary"
+            $forbiddenFiles = Get-ChildItem -Path $extractDir -File -Force -Recurse |
+              Where-Object {
+                $_.Name -eq '.env' -or
+                $_.Name -like '.env.*' -or
+                $_.FullName -match '@ffmpeg-installer' -or
+                $_.Name -eq 'ffmpeg.exe'
+              }
+            if (@($forbiddenFiles).Count -ne 0) {
+              throw "$($artifacts[2]) contains a forbidden environment file or unaudited FFmpeg binary"
             }
 
-            & $packedFfmpeg.FullName -version | Select-Object -First 1
+            node scripts/verify-package-secrets.mjs $extractDir
             if ($LASTEXITCODE -ne 0) {
-              throw 'Bundled Windows FFmpeg did not run successfully'
+              throw 'Windows candidate package credential scan failed'
+            }
+
+            $resourcesPath = Join-Path $packedExecutable.DirectoryName 'resources'
+            node scripts/verify-ocr-assets.mjs --package $resourcesPath
+            if ($LASTEXITCODE -ne 0) {
+              throw 'Windows candidate OCR provenance verification failed'
             }
           } finally {
             if (Test-Path -LiteralPath $extractDir) {
@@ -87,7 +95,7 @@ jobs:
             "$($hash.Hash.ToLowerInvariant())  $([IO.Path]::GetFileName($artifact))"
           }
           Set-Content -LiteralPath $checksumPath -Value $checksums -Encoding ascii
-          Write-Host "Verified unsigned Windows x64 candidate for ClipThat $version"
+          Write-Host "Verified unsigned Windows x64 candidate contains no unaudited FFmpeg package"
 
       - name: Upload Windows candidate artifacts
         uses: actions/upload-artifact@v4

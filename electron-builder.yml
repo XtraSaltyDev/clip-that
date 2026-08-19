@@ -10,9 +10,6 @@ files:
   - package.json
   - '!**/*.map'
 
-asarUnpack:
-  - '**/node_modules/@ffmpeg-installer/**'
-
 # Tray icons are loaded from disk at runtime, so they must sit outside the asar.
 extraResources:
   - from: build
@@ -20,10 +17,16 @@ extraResources:
     filter:
       - '*.png'
       - 'clipthat-window-info'
-  # electron-builder only generates this for archive/installer targets. Shipping the
-  # same fixed config explicitly keeps `npm run install:mac` representative too.
+  # Directory builds do not generate updater metadata. Keep local installs and release
+  # packages on the same public GitHub channel.
   - from: build/app-update.yml
     to: app-update.yml
+  - from: third_party/ocr
+    to: third-party/ocr
+  - from: third_party/js
+    to: third-party/js
+  - from: THIRD_PARTY_NOTICES.md
+    to: third-party/THIRD_PARTY_NOTICES.md
 
 extraMetadata:
   main: out/main/index.js
@@ -41,6 +44,9 @@ mac:
   gatekeeperAssess: false
   entitlements: build/entitlements.mac.plist
   entitlementsInherit: build/entitlements.mac.plist
+  extraResources:
+    - from: build/vendor/ffmpeg/package
+      to: third-party/ffmpeg
   extendInfo:
     NSCameraUsageDescription: ClipThat uses your camera for webcam overlays in screen recordings.
     NSMicrophoneUsageDescription: ClipThat uses your microphone to record narration.
@@ -62,9 +68,9 @@ win:
   artifactName: ${productName}-${version}-${arch}.${ext}
   target:
     - target: nsis
-      # The bundled recorder encoder currently has an x64 Windows build. Windows 11 on
-      # ARM can run this package through x64 emulation; a native ARM64 artifact would
-      # silently lose MP4/GIF export, so it is intentionally not advertised yet.
+      # Windows packages are unsupported candidates and deliberately contain no bundled
+      # FFmpeg. Keep the candidate matrix narrow until a compliant media toolchain and
+      # real-hardware acceptance exist.
       arch: [x64]
     - target: portable
       arch: [x64]
@@ -96,8 +102,6 @@ linux:
       Categories: Graphics;Utility;
 
 publish:
-  - provider: generic
-    url: https://github.com/XtraSaltyDev/clip-that/releases
-    # GitHub.supports normal byte ranges. Separate requests are easier to audit and
-    # avoid multipart-range proxy differences on the private channel.
-    useMultipleRangeRequest: false
+  - provider: github
+    owner: XtraSaltyDev
+    repo: clip-that

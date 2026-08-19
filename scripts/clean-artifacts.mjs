@@ -21,7 +21,7 @@ function compareVersions(left, right) {
 
 function deliveryVersion(name) {
   return name.match(
-    /^ClipThat-(\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?)(?=-(?:arm64|x64|SHA256SUMS))/
+    /^ClipThat-(\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?)(?=-(?:arm64|x64|third-party-sources|SHA256SUMS))/
   )?.[1]
 }
 
@@ -40,7 +40,7 @@ function isCurrentDeliveryFile(name) {
   if (name === 'latest-mac.yml') return true
   const version = deliveryVersion(name)
   if (!version || !retainedVersions.has(version)) return false
-  return /\.(?:dmg|zip|blockmap|exe|AppImage|deb|rpm|txt)$/i.test(name)
+  return /\.(?:dmg|zip|blockmap|exe|AppImage|deb|rpm|txt|tar\.gz)$/i.test(name)
 }
 
 function isGeneratedDistFile(name) {

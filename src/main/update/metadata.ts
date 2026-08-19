@@ -1,4 +1,4 @@
-import { compareSemanticVersions } from './contract'
+import { compareSemanticVersions } from './version'
 
 const MAX_UPDATE_BYTES = 3_000_000_000
 const SHA512 = /^[A-Za-z0-9+/]{86}==$/
@@ -29,7 +29,7 @@ export function validateMacUpdateMetadata(info: MacUpdateMetadata): {
     throw new InvalidUpdateMetadataError('update metadata has an invalid version')
   }
 
-  const expectedZip = `releases/${info.version}/ClipThat-${info.version}-arm64-mac.zip`
+  const expectedZip = `ClipThat-${info.version}-arm64-mac.zip`
   if (info.files.length !== 1 || info.files[0]?.url !== expectedZip) {
     throw new InvalidUpdateMetadataError(
       'update metadata does not contain exactly the expected ZIP'

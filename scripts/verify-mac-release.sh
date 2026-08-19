@@ -18,12 +18,39 @@ dmgs=(dist/ClipThat-"$VERSION"-arm64.dmg)
 zips=(dist/ClipThat-"$VERSION"-arm64-mac.zip)
 zip_blockmap=dist/ClipThat-"$VERSION"-arm64-mac.zip.blockmap
 latest_macos=dist/latest-mac.yml
+source_bundle=dist/ClipThat-"$VERSION"-third-party-sources.tar.gz
 
-for artifact in "${dmgs[@]}" "${zips[@]}" "$zip_blockmap" "$latest_macos"; do
+for artifact in "${dmgs[@]}" "${zips[@]}" "$zip_blockmap" "$latest_macos" "$source_bundle"; do
   if [ ! -f "$artifact" ]; then
     echo "Missing release artifact: $artifact" >&2
     exit 1
   fi
+done
+
+verify_source_hash() {
+  local member=$1
+  local expected=$2
+  local actual
+  actual=$(tar -xOf "$source_bundle" "./$member" | shasum -a 256 | awk '{print $1}')
+  if [[ "$actual" != "$expected" ]]; then
+    echo "$source_bundle contains an unexpected $member digest." >&2
+    exit 1
+  fi
+}
+verify_source_hash ffmpeg-9.0.1.tar.xz cf38e0e28c7e5605942c4a77755349b0145804a397af37eb1fb4c77cb237f635
+verify_source_hash libvpx-1.16.0.tar.gz b19c48b6384c5f9352d4c861a9659e3e7041918aad23da63e84559674816adac
+verify_source_hash opus-1.6.1.tar.gz 6ffcb593207be92584df15b32466ed64bbec99109f007c82205f0194572411a1
+
+source_listing=$(tar -tzf "$source_bundle")
+for source_file in \
+  "ffmpeg-9.0.1.tar.xz" \
+  "libvpx-1.16.0.tar.gz" \
+  "opus-1.6.1.tar.gz" \
+  "BUILD-FFMPEG.txt"; do
+  grep -q "${source_file}$" <<<"$source_listing" || {
+    echo "$source_bundle does not contain $source_file." >&2
+    exit 1
+  }
 done
 
 node scripts/prepare-mac-update.mjs verify \
@@ -89,6 +116,49 @@ verify_delivery_app() {
     echo "$app_path has architecture $actual_arch; expected $expected_arch." >&2
     exit 1
   fi
+
+  local ffmpeg="$app_path/Contents/Resources/third-party/ffmpeg/bin/ffmpeg"
+  local ffprobe="$app_path/Contents/Resources/third-party/ffmpeg/bin/ffprobe"
+  local build_info="$app_path/Contents/Resources/third-party/ffmpeg/BUILD-FFMPEG.txt"
+  [[ -x "$ffmpeg" && -x "$ffprobe" && -s "$build_info" ]] || {
+    echo "$app_path does not contain the audited FFmpeg package." >&2
+    exit 1
+  }
+  local buildconf encoders
+  buildconf=$("$ffmpeg" -hide_banner -buildconf 2>&1)
+  grep -q -- '--disable-gpl' <<<"$buildconf"
+  grep -q -- '--disable-nonfree' <<<"$buildconf"
+  if grep -qE -- '--enable-(gpl|nonfree)' <<<"$buildconf"; then
+    echo "$app_path contains a GPL or nonfree FFmpeg build." >&2
+    exit 1
+  fi
+  if grep -qE '/Users/|build/vendor' <<<"$buildconf"; then
+    echo "$app_path contains local FFmpeg build-host paths." >&2
+    exit 1
+  fi
+  encoders=$("$ffmpeg" -hide_banner -encoders 2>&1)
+  grep -q 'h264_videotoolbox' <<<"$encoders"
+  grep -q 'libvpx-vp9' <<<"$encoders"
+  grep -q 'libopus' <<<"$encoders"
+  if find "$app_path/Contents/Resources" \( -name '.env' -o -name '.env.*' -o -path '*@ffmpeg-installer*' \) -print | grep -q .; then
+    echo "$app_path contains a forbidden environment file or legacy FFmpeg package." >&2
+    exit 1
+  fi
+  [[ -s "$app_path/Contents/Resources/third-party/THIRD_PARTY_NOTICES.md" ]] || {
+    echo "$app_path does not contain the combined third-party notices." >&2
+    exit 1
+  }
+  local updater_config="$app_path/Contents/Resources/app-update.yml"
+  [[ -s "$updater_config" ]] || {
+    echo "$app_path does not contain updater configuration." >&2
+    exit 1
+  }
+  grep -q '^provider: github$' "$updater_config"
+  grep -q '^owner: XtraSaltyDev$' "$updater_config"
+  grep -q '^repo: clip-that$' "$updater_config"
+  node scripts/verify-ocr-assets.mjs --package "$app_path/Contents/Resources"
+  node scripts/verify-js-licenses.mjs --package "$app_path/Contents/Resources"
+  node scripts/verify-package-secrets.mjs "$app_path/Contents/Resources"
 }
 
 for index in 0; do
@@ -108,4 +178,4 @@ for index in 0; do
   rm -rf "$zip_dir"
 done
 
-echo "Verified ClipThat $VERSION: Developer ID signature, Team ID, hardened runtime, notarization, stapling, version, and Apple-silicon delivery artifacts."
+echo "Verified ClipThat $VERSION: signatures, notarization, Apple-silicon artifacts, audited LGPL FFmpeg, and matching source bundle."
