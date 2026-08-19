@@ -66,22 +66,28 @@ jobs:
               Where-Object {
                 $_.Name -eq '.env' -or
                 $_.Name -like '.env.*' -or
+                $_.Extension -in @('.p12', '.pfx', '.mobileprovision', '.provisionprofile') -or
                 $_.FullName -match '@ffmpeg-installer' -or
                 $_.Name -eq 'ffmpeg.exe'
               }
             if (@($forbiddenFiles).Count -ne 0) {
-              throw "$($artifacts[2]) contains a forbidden environment file or unaudited FFmpeg binary"
+              throw "$($artifacts[2]) contains a forbidden credential file, environment file, or unaudited FFmpeg binary"
             }
 
-            node scripts/verify-package-secrets.mjs $extractDir
+            $resourcesPath = Join-Path $packedExecutable.DirectoryName 'resources'
+            node scripts/verify-package-secrets.mjs $resourcesPath
             if ($LASTEXITCODE -ne 0) {
               throw 'Windows candidate package credential scan failed'
             }
 
-            $resourcesPath = Join-Path $packedExecutable.DirectoryName 'resources'
             node scripts/verify-ocr-assets.mjs --package $resourcesPath
             if ($LASTEXITCODE -ne 0) {
               throw 'Windows candidate OCR provenance verification failed'
+            }
+
+            node scripts/verify-js-licenses.mjs --package $resourcesPath
+            if ($LASTEXITCODE -ne 0) {
+              throw 'Windows candidate JavaScript license verification failed'
             }
           } finally {
             if (Test-Path -LiteralPath $extractDir) {
