@@ -200,6 +200,30 @@ export const RELEASE_NOTES = [
         body: 'Copy one or more annotations and paste them into another open clip without replacing the image or text already on your system clipboard.'
       }
     ]
+  },
+  {
+    version: '0.1.15',
+    title: 'Keyboard annotation workflows and stronger safeguards',
+    summary:
+      'Reuse annotations more quickly from the keyboard while ClipThat adds broader release checks and stricter clipboard validation.',
+    items: [
+      {
+        title: 'Copy and paste selected annotations',
+        body: 'Press Command-C with annotations selected, then Command-V in the same or another open clip. Live Text selection still takes precedence when active.'
+      },
+      {
+        title: 'Open context actions from the keyboard',
+        body: 'Use Shift-F10 or the keyboard Context Menu key to open the same annotation and canvas actions available by right-clicking.'
+      },
+      {
+        title: 'Safer clipboard and release boundaries',
+        body: 'Annotation data is validated before it crosses the system clipboard boundary, and new automated checks cover persistence, updater metadata, release consistency, and protocol behavior.'
+      },
+      {
+        title: 'Clearer controls for assistive technology',
+        body: 'Previously unlabeled editor, capture, recording, Library, and Settings controls now expose meaningful accessible names.'
+      }
+    ]
   }
 ] as const satisfies readonly ReleaseNotes[]
 
