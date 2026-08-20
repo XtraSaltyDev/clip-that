@@ -483,7 +483,7 @@ export default function App(): React.ReactElement {
             onChange={setView}
           />
           <button
-            className="btn lib-toolbar-action"
+            className="btn primary lib-toolbar-action lib-primary-action"
             title="Capture region"
             aria-label="Capture region"
             onClick={() => void api.capture.start({ mode: 'region' })}
@@ -491,7 +491,7 @@ export default function App(): React.ReactElement {
             <Icon name="region" size={14} /> <span className="lib-action-label">Capture</span>
           </button>
           <button
-            className="btn lib-toolbar-action"
+            className="btn lib-toolbar-action lib-primary-action"
             title="Record screen"
             aria-label="Record screen"
             onClick={() => api.system.window('record')}
@@ -499,7 +499,7 @@ export default function App(): React.ReactElement {
             <Icon name="record" size={11} /> <span className="lib-action-label">Record</span>
           </button>
           <button
-            className="btn lib-toolbar-action"
+            className="btn ghost lib-toolbar-action lib-import-action"
             title={snagitScanning ? 'Scanning Snagit library' : 'Import Snagit library'}
             aria-label={snagitScanning ? 'Scanning Snagit library' : 'Import Snagit library'}
             onClick={() => void beginSnagitImport()}

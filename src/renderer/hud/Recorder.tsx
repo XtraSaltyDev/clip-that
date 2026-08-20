@@ -21,6 +21,7 @@ import {
   type CaptureHandles
 } from './pipeline'
 import { reconcileRecordingSources } from './recording-sources'
+import { capabilityStateLabel, recordingReadiness } from './preflight-summary'
 import './hud.css'
 
 type Phase = 'setup' | 'recovery' | 'countdown' | 'recording' | 'review' | 'encoding'
@@ -413,14 +414,16 @@ export default function Recorder(): React.ReactElement {
 
   if (phase === 'recording') {
     return (
-      <div className="hud-bar drag-region">
+      <div className="hud-bar drag-region" role="status" aria-live="polite">
         <span className={`hud-rec ${paused ? 'paused' : ''}`} />
+        <span className="hud-recording-state">{paused ? 'Paused' : 'Recording'}</span>
         <span className="hud-time mono">{formatDuration(elapsed)}</span>
         <span className="spacer" />
         <button
           className="hud-btn no-drag"
           onClick={togglePause}
           title={paused ? 'Resume' : 'Pause'}
+          aria-label={paused ? 'Resume recording' : 'Pause recording'}
         >
           <Icon name={paused ? 'play' : 'pause'} size={15} />
         </button>
@@ -428,10 +431,16 @@ export default function Recorder(): React.ReactElement {
           className="hud-btn stop no-drag"
           onClick={() => void finishRecording()}
           title="Stop and review"
+          aria-label="Stop and review recording"
         >
           <Icon name="stop" size={15} />
         </button>
-        <button className="hud-btn no-drag" onClick={() => void cancelRecording()} title="Discard">
+        <button
+          className="hud-btn no-drag"
+          onClick={() => void cancelRecording()}
+          title="Discard"
+          aria-label="Discard recording"
+        >
           <Icon name="trash" size={15} />
         </button>
       </div>
@@ -563,9 +572,24 @@ export default function Recorder(): React.ReactElement {
           <Segmented
             value={format}
             options={[
-              { value: 'mp4', label: 'MP4' },
-              { value: 'gif', label: 'GIF' },
-              { value: 'webm', label: 'WebM' }
+              {
+                value: 'mp4',
+                label: 'MP4',
+                disabled: !sources?.media.mp4,
+                tip: sources?.media.mp4 ? undefined : 'MP4 encoder unavailable'
+              },
+              {
+                value: 'gif',
+                label: 'GIF',
+                disabled: !sources?.media.gif,
+                tip: sources?.media.gif ? undefined : 'GIF encoder unavailable'
+              },
+              {
+                value: 'webm',
+                label: 'WebM',
+                disabled: !sources?.media.webm,
+                tip: sources?.media.webm ? undefined : 'WebM encoder unavailable'
+              }
             ]}
             onChange={setFormat}
           />
@@ -610,6 +634,21 @@ export default function Recorder(): React.ReactElement {
   /* ---------- setup ---------- */
 
   const set = (patch: Partial<RecordingOptions>) => setOptions((o) => ({ ...o, ...patch }))
+  const readiness = recordingReadiness(
+    preflight?.items ?? [],
+    Boolean(preflight?.canStart),
+    preflightBusy
+  )
+  const copySupportSummary = () => {
+    const lines = [
+      `ClipThat ${navigator.userAgent.includes('Windows') ? 'Windows unsigned experimental preview' : 'recording support summary'}`,
+      ...(preflight?.items ?? []).map((item) => `${item.label}: ${item.state} — ${item.detail}`),
+      ...(sources?.capabilities ?? []).map(
+        (item) => `${item.label}: ${item.state} — ${item.detail}`
+      )
+    ]
+    void navigator.clipboard.writeText(lines.join('\n'))
+  }
 
   return (
     <div className="hud-card hud-setup">
@@ -838,43 +877,66 @@ export default function Recorder(): React.ReactElement {
           onChange={(countdown) => set({ countdown })}
         />
 
-        <div className="hud-preflight">
-          <div className="row">
-            <strong>Recording preflight</strong>
-            <span className="spacer" />
-            <button
-              className="btn sm ghost"
-              onClick={() => {
-                const lines = [
-                  `ClipThat ${navigator.userAgent.includes('Windows') ? 'Windows unsigned experimental preview' : 'recording support summary'}`,
-                  ...(preflight?.items ?? []).map(
-                    (item) => `${item.label}: ${item.state} — ${item.detail}`
-                  ),
-                  ...(sources?.capabilities ?? []).map(
-                    (item) => `${item.label}: ${item.state} — ${item.detail}`
-                  )
-                ]
-                void navigator.clipboard.writeText(lines.join('\n'))
-              }}
-            >
-              Copy summary
-            </button>
+        <div className="hud-readiness" data-tone={readiness.tone} role="status" aria-live="polite">
+          <span className="hud-readiness-mark" aria-hidden="true">
+            <Icon
+              name={
+                readiness.tone === 'ready'
+                  ? 'check'
+                  : readiness.tone === 'checking'
+                    ? 'refresh'
+                    : 'alert'
+              }
+              className={readiness.tone === 'checking' ? 'spin' : undefined}
+              size={15}
+            />
+          </span>
+          <span className="hud-readiness-copy">
+            <strong>{readiness.title}</strong>
+            <span>{readiness.detail}</span>
+          </span>
+        </div>
+
+        {readiness.actionItems.length > 0 && (
+          <div className="hud-actions" aria-label="Recording checks that need attention">
+            {readiness.actionItems.slice(0, 3).map((item) => (
+              <div className="hud-action" key={item.id} data-state={item.state}>
+                <strong>{item.label}</strong>
+                <span>{item.detail}</span>
+              </div>
+            ))}
+            {readiness.actionItems.length > 3 && (
+              <div className="tiny muted">
+                And {readiness.actionItems.length - 3} more in details
+              </div>
+            )}
           </div>
-          {preflightBusy && (
-            <div className="tiny muted">
-              Checking source, devices, media tools, and destination…
-            </div>
-          )}
-          {!preflightBusy &&
-            preflight?.items.map((item) => (
+        )}
+
+        <div className="hud-preflight-tools">
+          <span className="label">Support details</span>
+          <span className="spacer" />
+          <button className="btn sm ghost" onClick={copySupportSummary}>
+            Copy summary
+          </button>
+        </div>
+        <details className="hud-preflight">
+          <summary>
+            <span>Technical checks</span>
+            <span className="spacer" />
+            <span>{preflight?.items.length ?? 0}</span>
+          </summary>
+          <div className="hud-checks">
+            {preflight?.items.map((item) => (
               <div className="hud-check" key={item.id} data-state={item.state}>
-                <span className="hud-check-dot" />
+                <span className="hud-check-dot" aria-hidden="true" />
                 <span>{item.label}</span>
-                <span className="spacer" />
+                <span className="hud-state-label">{capabilityStateLabel(item.state)}</span>
                 <span className="tiny muted">{item.detail}</span>
               </div>
             ))}
-        </div>
+          </div>
+        </details>
         {error && <div className="hud-error">{error}</div>}
       </div>
 

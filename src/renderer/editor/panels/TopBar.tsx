@@ -268,8 +268,9 @@ export default function TopBar({
         )}
 
         <button
-          className={`btn tip topbar-expanded-action ${panel === 'context' ? 'primary' : ''}`}
+          className={`btn ghost tip topbar-expanded-action ${panel === 'context' ? 'context-active' : ''}`}
           data-tip="Screen context — text, links, tables, colours"
+          aria-pressed={panel === 'context'}
           onClick={() => {
             setPanel(panel === 'context' ? 'inspect' : 'context')
             onShowInspector()
@@ -299,7 +300,7 @@ export default function TopBar({
         <div className="topbar-sep topbar-expanded-action" />
 
         <button
-          className="btn tip topbar-expanded-action"
+          className="btn ghost tip topbar-expanded-action"
           data-tip="Drag me into another app"
           draggable
           onDragStart={(e) => {

@@ -18,6 +18,9 @@
   flex: none;
   gap: 6px;
 }
+.lib-toolbar .segmented {
+  margin-right: 2px;
+}
 .lib-toolbar button:focus-visible,
 .lib-nav:focus-visible {
   outline: 2px solid var(--accent);
@@ -133,6 +136,7 @@ body.mac .lib-top {
   background: color-mix(in srgb, var(--accent) 18%, transparent);
   color: var(--ink-0);
   font-weight: 500;
+  box-shadow: inset 3px 0 var(--accent);
 }
 .lib-stats {
   padding: 10px;
@@ -174,7 +178,10 @@ body.mac .lib-top {
   border-radius: var(--radius-lg);
   border: 1px solid transparent;
   cursor: default;
-  transition: background 120ms ease, border-color 120ms ease, transform 120ms ease;
+  transition:
+    background 120ms ease,
+    border-color 120ms ease,
+    transform 120ms ease;
 }
 .lib-card:hover {
   background: var(--bg-1);
@@ -183,6 +190,7 @@ body.mac .lib-top {
 .lib-card.selected {
   background: color-mix(in srgb, var(--accent) 14%, var(--bg-1));
   border-color: var(--accent);
+  box-shadow: 0 0 0 2px color-mix(in srgb, var(--accent) 18%, transparent);
 }
 .lib-card:focus-visible {
   outline: 2px solid var(--accent);
@@ -253,7 +261,10 @@ body.mac .lib-top {
 }
 .lib-list-facts {
   display: grid;
-  grid-template-columns: minmax(72px, 0.8fr) minmax(64px, 0.7fr) minmax(90px, 1fr) minmax(90px, 1.2fr);
+  grid-template-columns: minmax(72px, 0.8fr) minmax(64px, 0.7fr) minmax(90px, 1fr) minmax(
+      90px,
+      1.2fr
+    );
   align-items: center;
   gap: 12px;
   width: min(52%, 430px);
@@ -443,7 +454,9 @@ body.mac .lib-top {
   color: var(--ink-3);
   font-size: 10px;
 }
-.snagit-total { text-align: right; }
+.snagit-total {
+  text-align: right;
+}
 .snagit-warning,
 .snagit-native-note {
   padding: 9px 10px;
@@ -451,7 +464,10 @@ body.mac .lib-top {
   background: color-mix(in srgb, var(--warn) 12%, var(--bg-2));
   color: var(--ink-1);
 }
-.snagit-progress { display: grid; gap: 8px; }
+.snagit-progress {
+  display: grid;
+  gap: 8px;
+}
 .snagit-progress-track {
   height: 7px;
   overflow: hidden;
@@ -471,9 +487,14 @@ body.mac .lib-top {
   border-radius: var(--radius);
   background: color-mix(in srgb, var(--accent) 10%, var(--bg-2));
 }
-.snagit-summary-count { font-size: 20px; font-weight: 600; }
+.snagit-summary-count {
+  font-size: 20px;
+  font-weight: 600;
+}
 @media (max-width: 760px) {
-  .snagit-counts { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+  .snagit-counts {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
 }
 
 /* ---------- timeline grouping ---------- */
@@ -526,12 +547,12 @@ body.mac .lib-top {
     flex: 1 1 280px;
     width: auto;
   }
-  .lib-toolbar-action {
+  .lib-import-action .lib-action-label {
+    display: none;
+  }
+  .lib-import-action {
     width: var(--hit);
     padding: 0;
-  }
-  .lib-action-label {
-    display: none;
   }
 }
 
@@ -560,5 +581,15 @@ body.mac .lib-top {
   }
   .lib-list-facts span:nth-child(n + 3) {
     display: none;
+  }
+}
+
+@media (max-width: 740px) {
+  .lib-action-label {
+    display: none;
+  }
+  .lib-toolbar-action {
+    width: var(--hit);
+    padding: 0;
   }
 }

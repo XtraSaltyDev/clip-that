@@ -46,6 +46,7 @@ export default function Sidebar({
                 key={t.id}
                 className={panel === t.id ? 'active' : ''}
                 data-tip={t.id === 'context' ? 'Screen context' : undefined}
+                aria-pressed={panel === t.id}
                 onClick={() => setPanel(t.id)}
               >
                 <Icon

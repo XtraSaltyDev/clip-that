@@ -92,7 +92,7 @@ export function toast(kind: Toast['kind'], message: string, detail?: string): vo
 
 export function Segmented<T extends string>(props: {
   value: T
-  options: Array<{ value: T; label: React.ReactNode; tip?: string }>
+  options: Array<{ value: T; label: React.ReactNode; tip?: string; disabled?: boolean }>
   onChange: (value: T) => void
 }): React.ReactElement {
   return (
@@ -101,8 +101,10 @@ export function Segmented<T extends string>(props: {
         <button
           key={o.value}
           aria-pressed={props.value === o.value}
+          aria-label={o.tip}
           data-tip={o.tip}
           className={o.tip ? 'tip' : undefined}
+          disabled={o.disabled}
           onClick={() => props.onChange(o.value)}
         >
           {o.label}
@@ -172,10 +174,7 @@ export function Toggle(props: {
   onChange: (checked: boolean) => void
 }): React.ReactElement {
   return (
-    <label
-      className="row"
-      style={{ gap: 10, opacity: props.disabled ? 0.5 : 1, cursor: props.disabled ? 'default' : 'pointer' }}
-    >
+    <label className={`row toggle-row ${props.disabled ? 'disabled' : ''}`}>
       <input
         type="checkbox"
         checked={props.checked}
@@ -266,10 +265,7 @@ export function ColorPicker(props: {
  * ------------------------------------------------------------------ */
 
 /** Global keyboard shortcuts. Handlers are keyed by a normalised combo string. */
-export function useHotkeys(
-  map: Record<string, (e: KeyboardEvent) => void>,
-  enabled = true
-): void {
+export function useHotkeys(map: Record<string, (e: KeyboardEvent) => void>, enabled = true): void {
   const ref = useRef(map)
   useLayoutEffect(() => {
     ref.current = map
@@ -281,9 +277,7 @@ export function useHotkeys(
       const target = e.target as HTMLElement | null
       const typing =
         target &&
-        (target.tagName === 'INPUT' ||
-          target.tagName === 'TEXTAREA' ||
-          target.isContentEditable)
+        (target.tagName === 'INPUT' || target.tagName === 'TEXTAREA' || target.isContentEditable)
 
       const parts: string[] = []
       if (e.metaKey) parts.push('mod')
@@ -309,7 +303,10 @@ export function useHotkeys(
 }
 
 /** Element size, tracked with a ResizeObserver. */
-export function useSize<T extends HTMLElement>(): [React.RefObject<T>, { width: number; height: number }] {
+export function useSize<T extends HTMLElement>(): [
+  React.RefObject<T>,
+  { width: number; height: number }
+] {
   const ref = useRef<T>(null)
   const [size, setSize] = useState({ width: 0, height: 0 })
   useLayoutEffect(() => {

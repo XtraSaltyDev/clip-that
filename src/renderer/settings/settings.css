@@ -60,6 +60,7 @@ body.mac .set-side {
   background: color-mix(in srgb, var(--accent) 18%, transparent);
   color: var(--ink-0);
   font-weight: 500;
+  box-shadow: inset 3px 0 var(--accent);
 }
 .set-nav:focus-visible,
 .set-card:focus-visible {
@@ -128,6 +129,11 @@ body.mac .set-side {
   background: var(--bg-1);
   border: 1px solid var(--line);
 }
+.set-group-body > .set-field + .set-field,
+.set-group-body > .toggle-row + .toggle-row {
+  padding-top: 14px;
+  border-top: 1px solid var(--line);
+}
 
 .set-field {
   display: flex;
@@ -180,7 +186,10 @@ body.mac .set-side {
   border: 1px solid var(--line);
   color: var(--ink-0);
   text-align: left;
-  transition: border-color 120ms ease, transform 120ms ease, background 120ms ease;
+  transition:
+    border-color 120ms ease,
+    transform 120ms ease,
+    background 120ms ease;
 }
 .set-card:hover {
   border-color: var(--accent);
