@@ -1,7 +1,10 @@
 import assert from 'node:assert/strict'
 import { join } from 'node:path'
 import test from 'node:test'
-import { bundledFfmpegPath } from '../.cache/test/src/main/recording/ffmpeg-path.js'
+import {
+  bundledFfmpegPath,
+  bundledFfprobePath
+} from '../.cache/test/src/main/recording/ffmpeg-path.js'
 
 test('packaged Windows builds resolve the bundled ffmpeg executable', () => {
   assert.equal(
@@ -12,6 +15,15 @@ test('packaged Windows builds resolve the bundled ffmpeg executable', () => {
       appPath: 'C:\\ClipThat'
     }),
     join('C:\\ClipThat\\resources', 'third-party', 'ffmpeg', 'bin', 'ffmpeg.exe')
+  )
+  assert.equal(
+    bundledFfprobePath({
+      platform: 'win32',
+      packaged: true,
+      resourcesPath: 'C:\\ClipThat\\resources',
+      appPath: 'C:\\ClipThat'
+    }),
+    join('C:\\ClipThat\\resources', 'third-party', 'ffmpeg', 'bin', 'ffprobe.exe')
   )
 })
 

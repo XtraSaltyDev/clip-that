@@ -1,8 +1,10 @@
 import React, { useCallback, useEffect, useRef, useState } from 'react'
 import type {
   DisplayInfo,
+  PlatformCapability,
   RecoverableRecording,
   RecordingOptions,
+  RecordingPreflight,
   VideoExportOptions,
   WindowInfo
 } from '@shared/types'
@@ -10,14 +12,22 @@ import { DEFAULT_RECORDING } from '@shared/defaults'
 import { api } from '../shared/api'
 import { Icon } from '../shared/icons'
 import { Segmented, Slider, Toggle, formatDuration, useTheme } from '../shared/ui'
-import { listDevices, posterFromUrl, startCapture, type CaptureHandles } from './pipeline'
+import {
+  checkRecordingDevices,
+  listDevices,
+  posterFromUrl,
+  startMicrophoneMonitor,
+  startCapture,
+  type CaptureHandles
+} from './pipeline'
 import { reconcileRecordingSources } from './recording-sources'
+import { capabilityStateLabel, recordingReadiness } from './preflight-summary'
 import './hud.css'
 
 type Phase = 'setup' | 'recovery' | 'countdown' | 'recording' | 'review' | 'encoding'
 
 const SIZES: Record<Phase, [number, number]> = {
-  setup: [440, 620],
+  setup: [460, 720],
   recovery: [520, 420],
   countdown: [260, 260],
   recording: [332, 60],
@@ -33,8 +43,20 @@ export default function Recorder(): React.ReactElement {
     displays: DisplayInfo[]
     windows: WindowInfo[]
     systemAudioSupported: boolean
-    ffmpeg: boolean
+    media: {
+      ffmpeg: boolean
+      ffprobe: boolean
+      encoders: string[]
+      mp4: boolean
+      webm: boolean
+      gif: boolean
+    }
+    capabilities: PlatformCapability[]
   } | null>(null)
+  const [preflight, setPreflight] = useState<RecordingPreflight | null>(null)
+  const [preflightBusy, setPreflightBusy] = useState(true)
+  const [microphoneLevel, setMicrophoneLevel] = useState(0)
+  const [microphoneMonitorError, setMicrophoneMonitorError] = useState<string | null>(null)
   const [devices, setDevices] = useState<{
     microphones: MediaDeviceInfo[]
     cameras: MediaDeviceInfo[]
@@ -55,6 +77,7 @@ export default function Recorder(): React.ReactElement {
   const [trim, setTrim] = useState<[number, number]>([0, 0])
   const [format, setFormat] = useState<VideoExportOptions['format']>('mp4')
   const [quality, setQuality] = useState<VideoExportOptions['quality']>('high')
+  const isWindows = navigator.userAgent.includes('Windows')
 
   const capture = useRef<CaptureHandles | null>(null)
   const startedAt = useRef(0)
@@ -84,7 +107,14 @@ export default function Recorder(): React.ReactElement {
         )
       )
     })
-    void listDevices().then(setDevices)
+    void listDevices().then((next) => {
+      setDevices(next)
+      setOptions((current) => ({
+        ...current,
+        microphone: next.microphones.length > 0 && current.microphone,
+        webcam: next.cameras.length > 0 && current.webcam
+      }))
+    })
     void api.recording.recoveries().then((items) => {
       setRecoveries(items)
       if (items.length > 0) setPhase('recovery')
@@ -92,6 +122,61 @@ export default function Recorder(): React.ReactElement {
   }, [])
 
   useEffect(() => api.recording.onProgress(({ percent }) => setProgress(percent)), [])
+
+  useEffect(() => {
+    if (!sources || phase !== 'setup') return
+    const timer = setTimeout(() => void api.recording.configure(options), 250)
+    return () => clearTimeout(timer)
+  }, [options, phase, sources])
+
+  useEffect(() => {
+    if (!options.microphone || phase !== 'setup') {
+      setMicrophoneLevel(0)
+      setMicrophoneMonitorError(null)
+      return
+    }
+    let dispose: (() => void) | undefined
+    let active = true
+    setMicrophoneMonitorError(null)
+    void startMicrophoneMonitor(options.microphoneDeviceId, setMicrophoneLevel, (message) => {
+      if (active) setMicrophoneMonitorError(message)
+    }).then((next) => {
+      if (active) dispose = next
+      else next()
+    })
+    return () => {
+      active = false
+      dispose?.()
+    }
+  }, [options.microphone, options.microphoneDeviceId, phase])
+
+  useEffect(() => {
+    if (!sources) return
+    let active = true
+    setPreflightBusy(true)
+    const timer = setTimeout(() => {
+      void Promise.all([api.recording.preflight(options), checkRecordingDevices(options)])
+        .then(([main, devices]) => {
+          if (!active) return
+          const items = [...main.items, ...devices]
+          setPreflight({
+            ...main,
+            items,
+            canStart: main.canStart && devices.every((item) => item.state === 'supported')
+          })
+        })
+        .catch((err) => {
+          if (active) setError((err as Error).message || 'Recording preflight failed')
+        })
+        .finally(() => {
+          if (active) setPreflightBusy(false)
+        })
+    }, 300)
+    return () => {
+      active = false
+      clearTimeout(timer)
+    }
+  }, [options, sources])
 
   /* ---------- elapsed ticker ---------- */
 
@@ -108,6 +193,10 @@ export default function Recorder(): React.ReactElement {
   const beginRecording = useCallback(async () => {
     const run = ++countdownRun.current
     setError(null)
+    if (!preflight?.canStart) {
+      setError('Resolve the unavailable recording checks before starting.')
+      return
+    }
     await api.recording.configure(options)
 
     if (options.countdown > 0) {
@@ -140,7 +229,7 @@ export default function Recorder(): React.ReactElement {
       setPhase('setup')
       await api.recording.cancel()
     }
-  }, [options])
+  }, [options, preflight?.canStart])
 
   const finishRecording = useCallback(async () => {
     const handles = capture.current
@@ -177,9 +266,19 @@ export default function Recorder(): React.ReactElement {
   useEffect(() => {
     const handles = capture.current
     if (phase !== 'recording' || !handles) return
-    const onEnded = () => void finishRecording()
+    const onEnded = () => {
+      if (capture.current !== handles) return
+      setError(
+        'The selected source or device ended. The recording was stopped so it cannot silently switch content.'
+      )
+      void finishRecording()
+    }
     handles.sourceTrack.addEventListener('ended', onEnded, { once: true })
-    return () => handles.sourceTrack.removeEventListener('ended', onEnded)
+    handles.recorder.addEventListener('stop', onEnded, { once: true })
+    return () => {
+      handles.sourceTrack.removeEventListener('ended', onEnded)
+      handles.recorder.removeEventListener('stop', onEnded)
+    }
   }, [finishRecording, phase])
 
   const cancelRecording = useCallback(async () => {
@@ -317,12 +416,18 @@ export default function Recorder(): React.ReactElement {
     return (
       <div className="hud-bar drag-region">
         <span className={`hud-rec ${paused ? 'paused' : ''}`} />
-        <span className="hud-time mono">{formatDuration(elapsed)}</span>
+        <span className="hud-recording-state" role="status" aria-live="polite">
+          {paused ? 'Paused' : 'Recording'}
+        </span>
+        <span className="hud-time mono" aria-live="off">
+          {formatDuration(elapsed)}
+        </span>
         <span className="spacer" />
         <button
           className="hud-btn no-drag"
           onClick={togglePause}
           title={paused ? 'Resume' : 'Pause'}
+          aria-label={paused ? 'Resume recording' : 'Pause recording'}
         >
           <Icon name={paused ? 'play' : 'pause'} size={15} />
         </button>
@@ -330,10 +435,16 @@ export default function Recorder(): React.ReactElement {
           className="hud-btn stop no-drag"
           onClick={() => void finishRecording()}
           title="Stop and review"
+          aria-label="Stop and review recording"
         >
           <Icon name="stop" size={15} />
         </button>
-        <button className="hud-btn no-drag" onClick={() => void cancelRecording()} title="Discard">
+        <button
+          className="hud-btn no-drag"
+          onClick={() => void cancelRecording()}
+          title="Discard"
+          aria-label="Discard recording"
+        >
           <Icon name="trash" size={15} />
         </button>
       </div>
@@ -350,6 +461,9 @@ export default function Recorder(): React.ReactElement {
             <span style={{ width: `${progress}%` }} />
           </div>
         </div>
+        <button className="btn ghost" onClick={() => void api.recording.cancelExport()}>
+          Cancel
+        </button>
       </div>
     )
   }
@@ -404,6 +518,7 @@ export default function Recorder(): React.ReactElement {
   }
 
   if (phase === 'review') {
+    const selectedEncoderAvailable = Boolean(sources?.media[format])
     return (
       <div className="hud-card hud-review">
         <header className="drag-region">
@@ -461,9 +576,24 @@ export default function Recorder(): React.ReactElement {
           <Segmented
             value={format}
             options={[
-              { value: 'mp4', label: 'MP4' },
-              { value: 'gif', label: 'GIF' },
-              { value: 'webm', label: 'WebM' }
+              {
+                value: 'mp4',
+                label: 'MP4',
+                disabled: !sources?.media.mp4,
+                tip: sources?.media.mp4 ? undefined : 'MP4 encoder unavailable'
+              },
+              {
+                value: 'gif',
+                label: 'GIF',
+                disabled: !sources?.media.gif,
+                tip: sources?.media.gif ? undefined : 'GIF encoder unavailable'
+              },
+              {
+                value: 'webm',
+                label: 'WebM',
+                disabled: !sources?.media.webm,
+                tip: sources?.media.webm ? undefined : 'WebM encoder unavailable'
+              }
             ]}
             onChange={setFormat}
           />
@@ -481,13 +611,23 @@ export default function Recorder(): React.ReactElement {
         </div>
 
         {error && <div className="hud-error">{error}</div>}
+        {!selectedEncoderAvailable && (
+          <div className="hud-error">
+            The bundled FFmpeg package cannot encode {format.toUpperCase()} on this machine. Choose
+            a format whose encoder passed preflight.
+          </div>
+        )}
 
         <footer>
           <button className="btn ghost" onClick={discard}>
             Discard
           </button>
           <span className="spacer" />
-          <button className="btn primary" onClick={() => void saveRecording()}>
+          <button
+            className="btn primary"
+            disabled={!selectedEncoderAvailable}
+            onClick={() => void saveRecording()}
+          >
             <Icon name="download" size={14} /> Save {format.toUpperCase()}
           </button>
         </footer>
@@ -498,6 +638,21 @@ export default function Recorder(): React.ReactElement {
   /* ---------- setup ---------- */
 
   const set = (patch: Partial<RecordingOptions>) => setOptions((o) => ({ ...o, ...patch }))
+  const readiness = recordingReadiness(
+    preflight?.items ?? [],
+    Boolean(preflight?.canStart),
+    preflightBusy
+  )
+  const copySupportSummary = () => {
+    const lines = [
+      `ClipThat ${navigator.userAgent.includes('Windows') ? 'Windows unsigned experimental preview' : 'recording support summary'}`,
+      ...(preflight?.items ?? []).map((item) => `${item.label}: ${item.state} — ${item.detail}`),
+      ...(sources?.capabilities ?? []).map(
+        (item) => `${item.label}: ${item.state} — ${item.detail}`
+      )
+    ]
+    void navigator.clipboard.writeText(lines.join('\n'))
+  }
 
   return (
     <div className="hud-card hud-setup">
@@ -521,7 +676,8 @@ export default function Recorder(): React.ReactElement {
             value={options.target}
             options={[
               { value: 'display', label: 'Screen' },
-              { value: 'window', label: 'Window' }
+              { value: 'window', label: 'Window' },
+              { value: 'region', label: 'Region' }
             ]}
             onChange={(target) => set({ target })}
           />
@@ -563,6 +719,24 @@ export default function Recorder(): React.ReactElement {
           </div>
         )}
 
+        {options.target === 'region' && (
+          <div className="hud-field">
+            <span className="label">Region</span>
+            <button
+              className="btn"
+              onClick={() => {
+                void api.recording.selectRegion().then((selection) => {
+                  if (selection) set({ displayId: selection.displayId, region: selection.region })
+                })
+              }}
+            >
+              {options.region
+                ? `Change ${Math.round(options.region.width)}×${Math.round(options.region.height)} region`
+                : 'Select region…'}
+            </button>
+          </div>
+        )}
+
         <div className="hud-field">
           <span className="label">Frame rate</span>
           <Segmented
@@ -581,8 +755,9 @@ export default function Recorder(): React.ReactElement {
 
         <Toggle
           label="Microphone"
-          hint={devices.microphones[0]?.label || 'Record narration'}
-          checked={options.microphone}
+          hint={devices.microphones[0]?.label || 'No microphone is currently available'}
+          disabled={devices.microphones.length === 0}
+          checked={options.microphone && devices.microphones.length > 0}
           onChange={(microphone) => set({ microphone })}
         />
         {options.microphone && devices.microphones.length > 1 && (
@@ -599,13 +774,26 @@ export default function Recorder(): React.ReactElement {
             ))}
           </select>
         )}
+        {options.microphone && (
+          <div
+            className="hud-mic-level"
+            aria-label={`Microphone level ${Math.round(microphoneLevel * 100)} percent`}
+          >
+            <span style={{ width: `${Math.round(microphoneLevel * 100)}%` }} />
+          </div>
+        )}
+        {microphoneMonitorError && (
+          <div className="tiny hud-device-error">{microphoneMonitorError}</div>
+        )}
 
         <Toggle
           label="System audio"
           hint={
             sources?.systemAudioSupported
-              ? 'Capture what the computer plays — macOS may ask on first use'
-              : 'Requires macOS 13 or later'
+              ? isWindows
+                ? 'Capture Windows playback audio — verified when recording starts'
+                : 'Capture what the computer plays — macOS may ask on first use'
+              : 'System audio capture is unavailable on this platform'
           }
           disabled={!sources?.systemAudioSupported}
           checked={options.systemAudio && Boolean(sources?.systemAudioSupported)}
@@ -614,8 +802,9 @@ export default function Recorder(): React.ReactElement {
 
         <Toggle
           label="Webcam bubble"
-          hint={devices.cameras[0]?.label || 'Overlay your camera in a corner'}
-          checked={options.webcam}
+          hint={devices.cameras[0]?.label || 'No camera is currently available'}
+          disabled={devices.cameras.length === 0}
+          checked={options.webcam && devices.cameras.length > 0}
           onChange={(webcam) => set({ webcam })}
         />
         {options.webcam && (
@@ -639,10 +828,10 @@ export default function Recorder(): React.ReactElement {
               <Segmented
                 value={options.webcamPosition}
                 options={[
-                  { value: 'tl', label: '◤' },
-                  { value: 'tr', label: '◥' },
-                  { value: 'bl', label: '◣' },
-                  { value: 'br', label: '◢' }
+                  { value: 'tl', label: '◤', ariaLabel: 'Top left' },
+                  { value: 'tr', label: '◥', ariaLabel: 'Top right' },
+                  { value: 'bl', label: '◣', ariaLabel: 'Bottom left' },
+                  { value: 'br', label: '◢', ariaLabel: 'Bottom right' }
                 ]}
                 onChange={(webcamPosition) => set({ webcamPosition })}
               />
@@ -692,12 +881,66 @@ export default function Recorder(): React.ReactElement {
           onChange={(countdown) => set({ countdown })}
         />
 
-        {sources && !sources.ffmpeg && (
-          <div className="hud-error">
-            <Icon name="alert" size={14} /> ffmpeg wasn't found, so MP4 and GIF export is
-            unavailable. WebM still works.
+        <div className="hud-readiness" data-tone={readiness.tone} role="status" aria-live="polite">
+          <span className="hud-readiness-mark" aria-hidden="true">
+            <Icon
+              name={
+                readiness.tone === 'ready'
+                  ? 'check'
+                  : readiness.tone === 'checking'
+                    ? 'refresh'
+                    : 'alert'
+              }
+              className={readiness.tone === 'checking' ? 'spin' : undefined}
+              size={15}
+            />
+          </span>
+          <span className="hud-readiness-copy">
+            <strong>{readiness.title}</strong>
+            <span>{readiness.detail}</span>
+          </span>
+        </div>
+
+        {readiness.actionItems.length > 0 && (
+          <div className="hud-actions" aria-label="Recording checks that need attention">
+            {readiness.actionItems.slice(0, 3).map((item) => (
+              <div className="hud-action" key={item.id} data-state={item.state}>
+                <strong>{item.label}</strong>
+                <span>{item.detail}</span>
+              </div>
+            ))}
+            {readiness.actionItems.length > 3 && (
+              <div className="tiny muted">
+                And {readiness.actionItems.length - 3} more in details
+              </div>
+            )}
           </div>
         )}
+
+        <div className="hud-preflight-tools">
+          <span className="label">Support details</span>
+          <span className="spacer" />
+          <button className="btn sm ghost" onClick={copySupportSummary}>
+            Copy summary
+          </button>
+        </div>
+        <details className="hud-preflight">
+          <summary>
+            <span>Technical checks</span>
+            <span className="spacer" />
+            <span>{preflight?.items.length ?? 0}</span>
+          </summary>
+          <div className="hud-checks">
+            {preflight?.items.map((item) => (
+              <div className="hud-check" key={item.id} data-state={item.state}>
+                <span className="hud-check-dot" aria-hidden="true" />
+                <span>{item.label}</span>
+                <span className="hud-state-label">{capabilityStateLabel(item.state)}</span>
+                <span className="tiny muted">{item.detail}</span>
+              </div>
+            ))}
+          </div>
+        </details>
         {error && <div className="hud-error">{error}</div>}
       </div>
 
@@ -708,7 +951,7 @@ export default function Recorder(): React.ReactElement {
         <span className="spacer" />
         <button
           className="btn primary"
-          disabled={options.target === 'window' && !options.windowId}
+          disabled={preflightBusy || !preflight?.canStart}
           onClick={() => void beginRecording()}
         >
           <Icon name="record" size={12} /> Start recording

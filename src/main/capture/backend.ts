@@ -4,12 +4,14 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { randomUUID } from 'node:crypto'
 import { app, desktopCapturer, nativeImage, screen } from 'electron'
-import type { DisplaySnapshot, WindowInfo } from '@shared/types'
+import type { DisplaySnapshot, Rect, WindowInfo } from '@shared/types'
 import { editorWindows } from '../windows/manager'
-import { displayPixelSize, findDisplay } from './displays'
+import { displayPixelSize, findDisplay, listDisplays } from './displays'
+import { displayForRect, validRect } from './geometry'
 import { shouldIncludeWindowSource } from './window-sources'
 
 const IS_MAC = process.platform === 'darwin'
+const IS_WINDOWS = process.platform === 'win32'
 
 function run(cmd: string, args: string[]): Promise<string> {
   return new Promise((resolve, reject) => {
@@ -30,6 +32,66 @@ function windowInfoHelper(): string {
     : join(app.getAppPath(), 'build', 'clipthat-window-info')
 }
 
+function windowsWindowInfoHelper(): string {
+  return app.isPackaged
+    ? join(process.resourcesPath, 'build', 'clipthat-window-info.ps1')
+    : join(app.getAppPath(), 'native', 'window-info.ps1')
+}
+
+function windowsHandle(windowId: string): string | null {
+  const match = /^window:(\d+):/.exec(windowId)
+  return match?.[1] ?? null
+}
+
+interface WindowsWindowMeta {
+  handle: string
+  x: number
+  y: number
+  width: number
+  height: number
+  title?: string
+  appName?: string
+}
+
+async function windowsWindowMetadata(
+  windowIds: readonly string[]
+): Promise<Map<string, WindowsWindowMeta>> {
+  const handles = windowIds.map(windowsHandle).filter((value): value is string => Boolean(value))
+  if (handles.length === 0) return new Map()
+  try {
+    const raw = await run('powershell.exe', [
+      '-NoProfile',
+      '-NonInteractive',
+      '-ExecutionPolicy',
+      'Bypass',
+      '-File',
+      windowsWindowInfoHelper(),
+      '-Handles',
+      handles.join(',')
+    ])
+    const parsed = JSON.parse(raw) as WindowsWindowMeta[]
+    return new Map(parsed.map((item) => [item.handle, item]))
+  } catch (error) {
+    console.warn('[clipthat] Windows window geometry unavailable', (error as Error).message)
+    return new Map()
+  }
+}
+
+function windowsMetaToInfo(windowId: string, meta: WindowsWindowMeta): WindowInfo | undefined {
+  const physical: Rect = { x: meta.x, y: meta.y, width: meta.width, height: meta.height }
+  if (!validRect(physical)) return undefined
+  const bounds = screen.screenToDipRect(null, physical)
+  if (!validRect(bounds)) return undefined
+  const display = displayForRect(bounds, listDisplays())
+  return {
+    id: windowId,
+    title: meta.title?.trim() || meta.appName?.trim() || 'Window',
+    appName: meta.appName?.trim() || 'Window',
+    bounds,
+    displayId: display?.id
+  }
+}
+
 function overlapArea(a: Electron.Rectangle, b: Electron.Rectangle): number {
   const width = Math.max(0, Math.min(a.x + a.width, b.x + b.width) - Math.max(a.x, b.x))
   const height = Math.max(0, Math.min(a.y + a.height, b.y + b.height) - Math.max(a.y, b.y))
@@ -38,6 +100,12 @@ function overlapArea(a: Electron.Rectangle, b: Electron.Rectangle): number {
 
 /** Resolve a desktopCapturer window id to global-DIP geometry without Accessibility access. */
 export async function windowInfo(windowId: string): Promise<WindowInfo | undefined> {
+  if (IS_WINDOWS) {
+    const handle = windowsHandle(windowId)
+    if (!handle) return undefined
+    const meta = (await windowsWindowMetadata([windowId])).get(handle)
+    return meta ? windowsMetaToInfo(windowId, meta) : undefined
+  }
   if (!IS_MAC) return undefined
   const cgWindowId = windowId.split(':')[1]
   if (!cgWindowId || !/^\d+$/.test(cgWindowId)) return undefined
@@ -54,9 +122,9 @@ export async function windowInfo(windowId: string): Promise<WindowInfo | undefin
     const bounds = { x: raw.x, y: raw.y, width: raw.width, height: raw.height }
     if (![bounds.x, bounds.y, bounds.width, bounds.height].every(Number.isFinite)) return undefined
     if (bounds.width <= 0 || bounds.height <= 0) return undefined
-    const display = screen.getAllDisplays().sort(
-      (a, b) => overlapArea(b.bounds, bounds) - overlapArea(a.bounds, bounds)
-    )[0]
+    const display = screen
+      .getAllDisplays()
+      .sort((a, b) => overlapArea(b.bounds, bounds) - overlapArea(a.bounds, bounds))[0]
     return {
       id: windowId,
       title: raw.title?.trim() || raw.owner?.trim() || 'Window',
@@ -303,9 +371,12 @@ async function cliShotForDisplay(displayId: string): Promise<CliShot | null> {
  * is what makes 2–3 fps scroll capture possible: photographing and decoding the whole
  * 3024x1964 display per frame managed roughly one frame every three seconds.
  */
-export async function captureRegionCli(
-  rect: { x: number; y: number; width: number; height: number }
-): Promise<{ dataUrl: string; width: number; height: number } | null> {
+export async function captureRegionCli(rect: {
+  x: number
+  y: number
+  width: number
+  height: number
+}): Promise<{ dataUrl: string; width: number; height: number } | null> {
   if (!IS_MAC) return null
   const file = await tempPng()
   try {
@@ -413,7 +484,7 @@ export async function listWindows(withPreview = true): Promise<WindowInfo[]> {
     // adds work to an already fragile ScreenCaptureKit enumeration and yields no icon.
     fetchWindowIcons: batchPreviews
   })
-  const windows = sources
+  const windows: WindowInfo[] = sources
     .filter((s) =>
       shouldIncludeWindowSource(s.name, visibleEditorTitles, s.id, visibleEditorSourceIds)
     )
@@ -425,11 +496,24 @@ export async function listWindows(withPreview = true): Promise<WindowInfo[]> {
         id: s.id,
         title: rest.length ? rest.join(' — ') : s.name,
         appName: rest.length ? head : s.name,
-        thumbnail:
-          batchPreviews && !s.thumbnail.isEmpty() ? s.thumbnail.toDataURL() : undefined,
+        thumbnail: batchPreviews && !s.thumbnail.isEmpty() ? s.thumbnail.toDataURL() : undefined,
         icon
       }
     })
+  if (IS_WINDOWS) {
+    const metadata = await windowsWindowMetadata(windows.map((item) => item.id))
+    for (const item of windows) {
+      const handle = windowsHandle(item.id)
+      const meta = handle ? metadata.get(handle) : undefined
+      const info = meta ? windowsMetaToInfo(item.id, meta) : undefined
+      if (info) {
+        item.bounds = info.bounds
+        item.displayId = info.displayId
+        item.title = info.title || item.title
+        item.appName = info.appName || item.appName
+      }
+    }
+  }
   console.log(
     `[clipthat] windows: ${windows.length} source(s), previews=${batchPreviews ? 'batch' : 'lazy'} in ${Date.now() - t0}ms`
   )

@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react'
+import React, { useCallback, useEffect, useId, useLayoutEffect, useRef, useState } from 'react'
 import type { Settings, Toast } from '@shared/types'
 import { api } from './api'
 
@@ -92,22 +92,41 @@ export function toast(kind: Toast['kind'], message: string, detail?: string): vo
 
 export function Segmented<T extends string>(props: {
   value: T
-  options: Array<{ value: T; label: React.ReactNode; tip?: string }>
+  options: Array<{
+    value: T
+    label: React.ReactNode
+    ariaLabel?: string
+    tip?: string
+    disabled?: boolean
+  }>
   onChange: (value: T) => void
 }): React.ReactElement {
+  const helpId = useId()
   return (
     <div className="segmented">
-      {props.options.map((o) => (
-        <button
-          key={o.value}
-          aria-pressed={props.value === o.value}
-          data-tip={o.tip}
-          className={o.tip ? 'tip' : undefined}
-          onClick={() => props.onChange(o.value)}
-        >
-          {o.label}
-        </button>
-      ))}
+      {props.options.map((o) => {
+        const descriptionId = o.tip ? `${helpId}-${o.value}` : undefined
+        return (
+          <React.Fragment key={o.value}>
+            <button
+              aria-pressed={props.value === o.value}
+              aria-label={o.ariaLabel}
+              aria-describedby={descriptionId}
+              data-tip={o.tip}
+              className={o.tip ? 'tip' : undefined}
+              disabled={o.disabled}
+              onClick={() => props.onChange(o.value)}
+            >
+              {o.label}
+            </button>
+            {o.tip && (
+              <span className="sr-only" id={descriptionId}>
+                {o.tip}
+              </span>
+            )}
+          </React.Fragment>
+        )
+      })}
     </div>
   )
 }
@@ -172,10 +191,7 @@ export function Toggle(props: {
   onChange: (checked: boolean) => void
 }): React.ReactElement {
   return (
-    <label
-      className="row"
-      style={{ gap: 10, opacity: props.disabled ? 0.5 : 1, cursor: props.disabled ? 'default' : 'pointer' }}
-    >
+    <label className={`row toggle-row ${props.disabled ? 'disabled' : ''}`}>
       <input
         type="checkbox"
         checked={props.checked}
@@ -266,10 +282,7 @@ export function ColorPicker(props: {
  * ------------------------------------------------------------------ */
 
 /** Global keyboard shortcuts. Handlers are keyed by a normalised combo string. */
-export function useHotkeys(
-  map: Record<string, (e: KeyboardEvent) => void>,
-  enabled = true
-): void {
+export function useHotkeys(map: Record<string, (e: KeyboardEvent) => void>, enabled = true): void {
   const ref = useRef(map)
   useLayoutEffect(() => {
     ref.current = map
@@ -281,9 +294,7 @@ export function useHotkeys(
       const target = e.target as HTMLElement | null
       const typing =
         target &&
-        (target.tagName === 'INPUT' ||
-          target.tagName === 'TEXTAREA' ||
-          target.isContentEditable)
+        (target.tagName === 'INPUT' || target.tagName === 'TEXTAREA' || target.isContentEditable)
 
       const parts: string[] = []
       if (e.metaKey) parts.push('mod')
@@ -309,7 +320,10 @@ export function useHotkeys(
 }
 
 /** Element size, tracked with a ResizeObserver. */
-export function useSize<T extends HTMLElement>(): [React.RefObject<T>, { width: number; height: number }] {
+export function useSize<T extends HTMLElement>(): [
+  React.RefObject<T>,
+  { width: number; height: number }
+] {
   const ref = useRef<T>(null)
   const [size, setSize] = useState({ width: 0, height: 0 })
   useLayoutEffect(() => {

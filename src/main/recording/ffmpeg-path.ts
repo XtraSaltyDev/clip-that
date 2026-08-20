@@ -1,12 +1,15 @@
 import { join } from 'node:path'
 
-export function bundledFfmpegPath(options: {
-  platform: NodeJS.Platform
-  packaged: boolean
-  resourcesPath: string
-  appPath: string
-}): string {
-  const executable = options.platform === 'win32' ? 'ffmpeg.exe' : 'ffmpeg'
+export function bundledMediaToolPath(
+  options: {
+    platform: NodeJS.Platform
+    packaged: boolean
+    resourcesPath: string
+    appPath: string
+  },
+  tool: 'ffmpeg' | 'ffprobe'
+): string {
+  const executable = options.platform === 'win32' ? `${tool}.exe` : tool
   if (options.packaged) {
     return join(options.resourcesPath, 'third-party', 'ffmpeg', 'bin', executable)
   }
@@ -23,4 +26,12 @@ export function bundledFfmpegPath(options: {
     )
   }
   return join(options.appPath, 'build', 'vendor', 'ffmpeg', 'package', 'bin', executable)
+}
+
+export function bundledFfmpegPath(options: Parameters<typeof bundledMediaToolPath>[0]): string {
+  return bundledMediaToolPath(options, 'ffmpeg')
+}
+
+export function bundledFfprobePath(options: Parameters<typeof bundledMediaToolPath>[0]): string {
+  return bundledMediaToolPath(options, 'ffprobe')
 }

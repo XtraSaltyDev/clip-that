@@ -75,7 +75,8 @@ export function defaultSettings(picturesDir: string): Settings {
       startRecording: `${mod}+Shift+7`,
       stopRecording: `${mod}+Shift+8`,
       openLibrary: `${mod}+Shift+9`,
-      grabText: `${mod}+Shift+T`
+      grabText: `${mod}+Shift+T`,
+      guideCaptureNext: `${mod}+Shift+G`
     },
     // Index the capture first, then use the editor as the working surface.
     afterCapture: 'editor',

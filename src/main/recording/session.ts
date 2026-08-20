@@ -1,4 +1,5 @@
 import { EventEmitter } from 'node:events'
+import { promises as fs } from 'node:fs'
 import { join } from 'node:path'
 import { randomUUID } from 'node:crypto'
 import { desktopCapturer } from 'electron'
@@ -17,6 +18,7 @@ import { recordingSessionsDir, recordingsDir } from '../store/paths'
 import { toGif, toMp4, toWebm } from './ffmpeg'
 import { RecordingRecoveryStore } from './recovery-store'
 import { supportsSystemAudio } from './system-audio'
+import { recordingTransitionAllowed } from './state'
 
 class RecordingSession extends EventEmitter {
   private state: RecordingState = 'idle'
@@ -44,6 +46,9 @@ class RecordingSession extends EventEmitter {
   }
 
   private setState(state: RecordingState): void {
+    if (!recordingTransitionAllowed(this.state, state)) {
+      throw new Error(`Invalid recording state transition: ${this.state} → ${state}`)
+    }
     this.state = state
     this.emit('status', this.status())
   }
@@ -260,7 +265,8 @@ class RecordingSession extends EventEmitter {
   async export(
     opts: VideoExportOptions,
     meta: { width: number; height: number; durationMs: number; posterDataUrl?: string },
-    onProgress?: (percent: number) => void
+    onProgress?: (percent: number) => void,
+    signal?: AbortSignal
   ): Promise<LibraryItem | null> {
     if (this.state !== 'encoding') throw new Error('No recording is ready to export')
     const input = this.rawPath
@@ -273,10 +279,11 @@ class RecordingSession extends EventEmitter {
     const progress = (p: { percent: number }) => onProgress?.(p.percent)
 
     try {
-      if (opts.format === 'mp4') await toMp4(input, output, opts, total, progress)
-      else if (opts.format === 'gif') await toGif(input, output, opts, total, progress)
-      else await toWebm(input, output, opts, total, progress)
+      if (opts.format === 'mp4') await toMp4(input, output, opts, total, progress, signal)
+      else if (opts.format === 'gif') await toGif(input, output, opts, total, progress, signal)
+      else await toWebm(input, output, opts, total, progress, signal)
     } catch (err) {
+      await fs.rm(output, { force: true }).catch(() => {})
       this.emit('error', err)
       throw err
     }

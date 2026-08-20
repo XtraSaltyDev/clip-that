@@ -9,6 +9,7 @@ import {
   type WriteStream
 } from 'node:fs'
 import { join } from 'node:path'
+import { PRODUCT_VERSION } from './product-version'
 
 /**
  * Mirrors console output to a file under userData.
@@ -132,7 +133,7 @@ export function installFileLogger(): void {
   }
 
   console.log(
-    `[clipthat] ${app.getName()} ${app.getVersion()} — ${process.platform}/${process.arch}, ` +
+    `[clipthat] ${app.getName()} ${PRODUCT_VERSION} — ${process.platform}/${process.arch}, ` +
       `electron ${process.versions.electron}, packaged=${app.isPackaged}`
   )
 }

@@ -71,6 +71,171 @@ body {
   font-size: 12px;
 }
 
+.hud-readiness {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  padding: 11px 12px;
+  border: 1px solid var(--line-strong);
+  border-radius: var(--radius);
+  background: var(--bg-2);
+}
+.hud-readiness[data-tone='ready'] {
+  border-color: color-mix(in srgb, var(--ok) 42%, var(--line));
+  background: color-mix(in srgb, var(--ok) 10%, var(--bg-2));
+}
+.hud-readiness[data-tone='warning'] {
+  border-color: color-mix(in srgb, var(--warn) 42%, var(--line));
+  background: color-mix(in srgb, var(--warn) 10%, var(--bg-2));
+}
+.hud-readiness[data-tone='blocked'] {
+  border-color: color-mix(in srgb, var(--danger) 42%, var(--line));
+  background: color-mix(in srgb, var(--danger) 10%, var(--bg-2));
+}
+.hud-readiness-mark {
+  display: grid;
+  place-items: center;
+  width: 26px;
+  height: 26px;
+  flex: none;
+  border-radius: 8px;
+  color: var(--ink-0);
+  background: var(--bg-3);
+}
+.hud-readiness-copy {
+  display: grid;
+  min-width: 0;
+  gap: 2px;
+}
+.hud-readiness-copy strong {
+  font-size: 12px;
+}
+.hud-readiness-copy span {
+  color: var(--ink-1);
+  font-size: 11px;
+}
+
+.hud-actions {
+  display: grid;
+  gap: 6px;
+}
+.hud-action {
+  display: grid;
+  grid-template-columns: minmax(96px, auto) minmax(0, 1fr);
+  gap: 10px;
+  padding: 7px 9px;
+  border-left: 3px solid var(--danger);
+  border-radius: 0 var(--radius-sm) var(--radius-sm) 0;
+  background: color-mix(in srgb, var(--danger) 7%, var(--bg-2));
+  font-size: 11px;
+}
+.hud-action[data-state='unverified'] {
+  border-left-color: var(--warn);
+  background: color-mix(in srgb, var(--warn) 7%, var(--bg-2));
+}
+.hud-action span {
+  min-width: 0;
+  color: var(--ink-1);
+}
+
+.hud-preflight {
+  display: block;
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  background: var(--bg-2);
+}
+.hud-preflight-tools {
+  display: flex;
+  align-items: center;
+  min-height: 28px;
+}
+.hud-preflight > summary {
+  display: flex;
+  align-items: center;
+  min-height: 38px;
+  padding: 4px 6px 4px 11px;
+  color: var(--ink-1);
+  font-size: 11px;
+  font-weight: 600;
+  cursor: pointer;
+  list-style: none;
+}
+.hud-preflight > summary::-webkit-details-marker {
+  display: none;
+}
+.hud-preflight > summary::before {
+  content: '›';
+  margin-right: 7px;
+  color: var(--ink-2);
+  font-size: 15px;
+  transform-origin: center;
+  transition: transform 120ms ease;
+}
+.hud-preflight[open] > summary::before {
+  transform: rotate(90deg);
+}
+.hud-checks {
+  display: grid;
+  gap: 2px;
+  padding: 2px 10px 10px;
+}
+.hud-check {
+  display: grid;
+  grid-template-columns: 7px minmax(86px, auto) max-content minmax(0, 1fr);
+  align-items: center;
+  gap: 7px;
+  min-height: 24px;
+  font-size: 11px;
+}
+.hud-check .muted {
+  min-width: 0;
+  overflow: hidden;
+  text-align: right;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.hud-state-label {
+  padding: 1px 5px;
+  border-radius: 999px;
+  background: var(--bg-3);
+  color: var(--ink-1);
+  font-size: 9px;
+  font-weight: 600;
+}
+.hud-check-dot {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: var(--ink-2);
+  flex: none;
+}
+.hud-check[data-state='supported'] .hud-check-dot {
+  background: var(--ok);
+}
+.hud-check[data-state='unavailable'] .hud-check-dot,
+.hud-check[data-state='permission-error'] .hud-check-dot,
+.hud-check[data-state='device-error'] .hud-check-dot {
+  background: var(--danger);
+}
+.hud-check[data-state='unverified'] .hud-check-dot {
+  background: var(--warn);
+}
+.hud-mic-level {
+  height: 5px;
+  overflow: hidden;
+  border-radius: 99px;
+  background: var(--bg-3);
+}
+.hud-mic-level span {
+  display: block;
+  height: 100%;
+  background: var(--ok);
+  transition: width 80ms linear;
+}
+.hud-device-error {
+  color: var(--danger);
+}
+
 /* ---------- countdown ---------- */
 
 .hud-count {
@@ -148,6 +313,11 @@ body {
   font-variant-numeric: tabular-nums;
   letter-spacing: 0.02em;
 }
+.hud-recording-state {
+  color: var(--ink-1);
+  font-size: 11px;
+  font-weight: 600;
+}
 .hud-btn {
   display: grid;
   place-items: center;
@@ -156,7 +326,9 @@ body {
   border-radius: 50%;
   background: var(--bg-3);
   color: var(--ink-0);
-  transition: background 120ms ease, transform 80ms ease;
+  transition:
+    background 120ms ease,
+    transform 80ms ease;
 }
 .hud-btn:hover {
   background: var(--bg-elevated);
@@ -375,7 +547,9 @@ body {
   color: var(--ink-0);
   font-size: 12px;
   font-weight: 500;
-  transition: background 110ms ease, border-color 110ms ease;
+  transition:
+    background 110ms ease,
+    border-color 110ms ease;
 }
 .qa-btn:hover {
   background: var(--bg-elevated);

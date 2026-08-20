@@ -37,6 +37,11 @@ body.mac .topbar {
   background: var(--line);
   margin: 0 4px;
 }
+.topbar .context-active {
+  color: var(--ink-0);
+  background: color-mix(in srgb, var(--accent) 16%, transparent);
+  border-color: color-mix(in srgb, var(--accent) 36%, transparent);
+}
 /* The title takes the leftover space rather than sitting absolutely centred, so a
    crowded toolbar shrinks it instead of overlapping it. */
 .topbar-title {
@@ -175,8 +180,7 @@ body.mac .topbar {
   outline: 2px solid var(--accent);
   outline-offset: -2px;
 }
-.menu-label,
-.toolgroup-heading {
+.menu-label {
   padding: 5px 9px 3px;
   color: var(--ink-2);
   font-size: 9px;
@@ -194,19 +198,23 @@ body.mac .topbar {
 
 .editor-body {
   display: grid;
-  grid-template-columns: 50px minmax(0, 1fr) 288px;
+  grid-template-columns: 72px minmax(0, 1fr) 288px;
   grid-template-rows: minmax(0, 1fr) 108px;
   flex: 1;
   min-height: 0;
 }
 .editor-body.inspector-collapsed {
-  grid-template-columns: 50px minmax(0, 1fr) 44px;
+  grid-template-columns: 72px minmax(0, 1fr) 44px;
 }
 
 /* ---------- video editor ---------- */
 
-.video-topbar .topbar-left { min-width: 150px; }
-.video-editor-body { grid-template-columns: minmax(0, 1fr) 288px; }
+.video-topbar .topbar-left {
+  min-width: 150px;
+}
+.video-editor-body {
+  grid-template-columns: minmax(0, 1fr) 288px;
+}
 .video-workspace {
   grid-column: 1;
   grid-row: 1;
@@ -240,11 +248,27 @@ body.mac .topbar {
   display: flex;
   align-items: center;
 }
-.video-trim-heading { justify-content: space-between; gap: 12px; }
-.video-trim-heading > div { gap: 7px; min-width: 0; }
-.video-trim-heading strong { color: var(--ink-0); font-size: 12px; }
-.video-trim-heading .muted { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.video-trim-actions { justify-content: flex-end; flex-wrap: wrap; }
+.video-trim-heading {
+  justify-content: space-between;
+  gap: 12px;
+}
+.video-trim-heading > div {
+  gap: 7px;
+  min-width: 0;
+}
+.video-trim-heading strong {
+  color: var(--ink-0);
+  font-size: 12px;
+}
+.video-trim-heading .muted {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.video-trim-actions {
+  justify-content: flex-end;
+  flex-wrap: wrap;
+}
 .video-trim-rail {
   position: relative;
   height: 76px;
@@ -274,10 +298,18 @@ body.mac .topbar {
   background-size: 200% 100%;
   animation: filmstrip-loading 1.4s ease-in-out infinite;
 }
-.video-filmstrip > :last-child { border-right: 0; }
-@keyframes filmstrip-loading { to { background-position: -200% 0; } }
+.video-filmstrip > :last-child {
+  border-right: 0;
+}
+@keyframes filmstrip-loading {
+  to {
+    background-position: -200% 0;
+  }
+}
 @media (prefers-reduced-motion: reduce) {
-  .video-filmstrip span { animation: none; }
+  .video-filmstrip span {
+    animation: none;
+  }
 }
 .video-trim-muted {
   position: absolute;
@@ -287,8 +319,14 @@ body.mac .topbar {
   background: color-mix(in srgb, var(--bg-0) 76%, transparent);
   pointer-events: none;
 }
-.video-trim-muted-start { left: 0; border-radius: 7px 0 0 7px; }
-.video-trim-muted-end { right: 0; border-radius: 0 7px 7px 0; }
+.video-trim-muted-start {
+  left: 0;
+  border-radius: 7px 0 0 7px;
+}
+.video-trim-muted-end {
+  right: 0;
+  border-radius: 0 7px 7px 0;
+}
 .video-trim-selection {
   position: absolute;
   top: 0;
@@ -337,7 +375,9 @@ body.mac .topbar {
   transform: translateX(-50%);
   touch-action: none;
 }
-.video-trim-handle.end { z-index: 6; }
+.video-trim-handle.end {
+  z-index: 6;
+}
 .video-trim-handle::after {
   content: '';
   position: absolute;
@@ -351,7 +391,9 @@ body.mac .topbar {
 }
 .video-trim-handle:focus-visible {
   outline: none;
-  box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent) 35%, transparent), 0 2px 8px #0008;
+  box-shadow:
+    0 0 0 3px color-mix(in srgb, var(--accent) 35%, transparent),
+    0 2px 8px #0008;
 }
 .video-trim-ticks {
   display: flex;
@@ -373,9 +415,15 @@ body.mac .topbar {
   min-width: 0;
   padding: 0 10px;
 }
-.video-trim-value:first-child { padding-left: 0; }
-.video-trim-value:last-child { padding-right: 0; }
-.video-trim-value + .video-trim-value { border-left: 1px solid var(--line); }
+.video-trim-value:first-child {
+  padding-left: 0;
+}
+.video-trim-value:last-child {
+  padding-right: 0;
+}
+.video-trim-value + .video-trim-value {
+  border-left: 1px solid var(--line);
+}
 .video-trim-value output,
 .video-timecode {
   grid-column: 1;
@@ -390,7 +438,9 @@ body.mac .topbar {
   border-radius: 5px;
   background: transparent;
 }
-.video-timecode:hover { border-color: var(--line-strong); }
+.video-timecode:hover {
+  border-color: var(--line-strong);
+}
 .video-timecode:focus {
   outline: none;
   border-color: var(--accent);
@@ -407,9 +457,14 @@ body.mac .topbar {
   gap: 2px;
   text-align: center;
 }
-.video-trim-value.end { text-align: right; }
+.video-trim-value.end {
+  text-align: right;
+}
 .video-trim-value.end output,
-.video-trim-value.end .video-timecode { justify-self: end; text-align: right; }
+.video-trim-value.end .video-timecode {
+  justify-self: end;
+  text-align: right;
+}
 .video-inspector {
   grid-column: 2;
   grid-row: 1 / 3;
@@ -421,13 +476,35 @@ body.mac .topbar {
   border-left: 1px solid var(--line);
   background: var(--bg-1);
 }
-.video-inspector h2 { margin: 0 0 2px; font-size: 14px; }
-.video-facts { display: flex; flex-direction: column; gap: 8px; margin: 0; }
-.video-facts div { display: flex; gap: 8px; }
-.video-facts dt { color: var(--ink-2); }
-.video-facts dd { margin: 0 0 0 auto; text-align: right; color: var(--ink-1); }
-.video-save-note { margin-top: auto; line-height: 1.45; }
-.video-editor-body .editor-library-strip { grid-column: 1; }
+.video-inspector h2 {
+  margin: 0 0 2px;
+  font-size: 14px;
+}
+.video-facts {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin: 0;
+}
+.video-facts div {
+  display: flex;
+  gap: 8px;
+}
+.video-facts dt {
+  color: var(--ink-2);
+}
+.video-facts dd {
+  margin: 0 0 0 auto;
+  text-align: right;
+  color: var(--ink-1);
+}
+.video-save-note {
+  margin-top: auto;
+  line-height: 1.45;
+}
+.video-editor-body .editor-library-strip {
+  grid-column: 1;
+}
 
 /* ---------- Library filmstrip ---------- */
 
@@ -517,7 +594,10 @@ body.mac .topbar {
   border-radius: 9px;
   color: var(--ink-1);
   text-align: left;
-  transition: border-color 100ms ease, background 100ms ease, color 100ms ease;
+  transition:
+    border-color 100ms ease,
+    background 100ms ease,
+    color 100ms ease;
 }
 .editor-library-item:hover {
   background: var(--bg-3);
@@ -585,19 +665,19 @@ body.mac .topbar {
   display: flex;
   flex-direction: column;
   gap: 2px;
-  width: 50px;
+  width: 72px;
   padding: 8px 0;
   background: var(--bg-1);
   border-right: 1px solid var(--line);
   align-items: center;
   flex: none;
-  overflow-y: auto;
+  overflow: visible;
   grid-column: 1;
   grid-row: 1;
+  z-index: 60;
 }
-.toolrail-compact {
-  display: none;
-  overflow: visible;
+.toolrail-drawers {
+  padding-top: 7px;
 }
 .toolgroup-anchor {
   position: relative;
@@ -605,12 +685,12 @@ body.mac .topbar {
 .toolgroup-trigger {
   position: relative;
   display: grid;
-  grid-template-columns: 1fr 9px;
-  grid-template-rows: 23px 13px;
+  grid-template-columns: 1fr 10px;
+  grid-template-rows: 22px 20px;
   align-items: center;
-  width: 54px;
-  height: 46px;
-  padding: 3px 2px 2px 7px;
+  width: 64px;
+  height: 48px;
+  padding: 3px 2px 2px 8px;
   border-radius: 9px;
   color: var(--ink-1);
 }
@@ -632,47 +712,85 @@ body.mac .topbar {
   grid-column: 1 / 3;
   overflow: hidden;
   font-size: 9px;
-  line-height: 12px;
+  line-height: 10px;
   text-align: center;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-.toolgroup-chevron {
-  grid-column: 2;
-  grid-row: 1;
+  text-wrap: balance;
 }
 .toolgroup-menu {
   position: absolute;
   top: 0;
   left: calc(100% + 8px);
   z-index: 70;
-  width: 210px;
-  padding: 5px;
+  width: 296px;
+  padding: 8px;
   border: 1px solid var(--line-strong);
   border-radius: var(--radius);
   background: var(--bg-elevated);
   box-shadow: var(--shadow-2);
   animation: menu-in 120ms ease;
 }
+.toolgroup-menu.align-bottom {
+  top: auto;
+  bottom: 0;
+}
+.toolgroup-heading {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: 4px 8px 8px;
+  border-bottom: 1px solid var(--line);
+  margin-bottom: 4px;
+}
+.toolgroup-heading strong {
+  color: var(--ink-0);
+  font-size: 12px;
+}
+.toolgroup-heading span {
+  color: var(--ink-2);
+  font-size: 10px;
+  line-height: 14px;
+}
 .toolgroup-menu button {
   display: grid;
-  grid-template-columns: 20px minmax(0, 1fr) 16px 24px;
+  grid-template-columns: 20px minmax(0, 1fr) 16px 28px;
   align-items: center;
   gap: 6px;
   width: 100%;
-  height: 32px;
-  padding: 0 8px;
+  min-height: 50px;
+  padding: 6px 8px;
   border-radius: var(--radius-sm);
   color: var(--ink-0);
-  font-size: 12px;
   text-align: left;
 }
 .toolgroup-menu button:hover {
   background: var(--accent);
   color: var(--accent-ink);
 }
+.toolgroup-menu button:disabled {
+  color: var(--ink-2);
+}
+.toolgroup-copy {
+  display: flex;
+  min-width: 0;
+  flex-direction: column;
+  gap: 1px;
+}
+.toolgroup-copy strong {
+  font-size: 12px;
+  font-weight: 600;
+}
+.toolgroup-copy small {
+  color: var(--ink-2);
+  font-size: 10px;
+  line-height: 14px;
+}
+.toolgroup-menu button:hover .toolgroup-copy small,
+.toolgroup-menu button:focus-visible .toolgroup-copy small {
+  color: currentColor;
+  opacity: 0.78;
+}
 .toolrail-sep {
-  width: 22px;
+  width: 30px;
   height: 1px;
   background: var(--line);
   margin: 5px 0;
@@ -686,8 +804,24 @@ body.mac .topbar {
   height: 34px;
   border-radius: 9px;
   color: var(--ink-1);
-  transition: background 120ms ease, color 120ms ease;
+  transition:
+    background 120ms ease,
+    color 120ms ease;
   flex: none;
+}
+.tool-select {
+  flex-direction: column;
+  gap: 2px;
+  width: 64px;
+  height: 48px;
+  padding: 3px 4px 4px;
+}
+.tool-select .toolgroup-label {
+  display: block;
+  width: 100%;
+}
+.toolgroup-trigger[aria-expanded='true']::after {
+  display: none;
 }
 .tool:hover {
   background: var(--bg-3);
@@ -696,6 +830,7 @@ body.mac .topbar {
 .tool.active {
   background: var(--accent);
   color: var(--accent-ink);
+  box-shadow: 0 0 0 2px color-mix(in srgb, var(--accent) 24%, transparent);
 }
 
 .viewport {
@@ -703,9 +838,7 @@ body.mac .topbar {
   flex: 1;
   min-width: 0;
   overflow: auto;
-  background:
-    radial-gradient(circle at 50% 0%, #ffffff08, transparent 60%),
-    var(--bg-0);
+  background: radial-gradient(circle at 50% 0%, #ffffff08, transparent 60%), var(--bg-0);
   display: grid;
   place-items: center;
   grid-column: 2;
@@ -722,7 +855,11 @@ body.mac .topbar {
     linear-gradient(45deg, transparent 75%, #ffffff0a 75%),
     linear-gradient(-45deg, transparent 75%, #ffffff0a 75%);
   background-size: 16px 16px;
-  background-position: 0 0, 0 8px, 8px -8px, -8px 0;
+  background-position:
+    0 0,
+    0 8px,
+    8px -8px,
+    -8px 0;
   box-shadow: 0 12px 48px #00000066;
   border-radius: 3px;
   line-height: 0;
@@ -771,7 +908,9 @@ body.mac .topbar {
   border-radius: 11px;
   background: var(--bg-elevated);
   border: 1px solid var(--line-strong);
-  box-shadow: 0 10px 30px #0000005c, 0 1px 3px #0000003d;
+  box-shadow:
+    0 10px 30px #0000005c,
+    0 1px 3px #0000003d;
   animation: float-in 130ms cubic-bezier(0.16, 1, 0.3, 1);
   white-space: nowrap;
 }
@@ -895,15 +1034,7 @@ body.mac .topbar {
   .editor-body:not(.video-editor-body),
   .editor-body.inspector-collapsed:not(.video-editor-body) {
     position: relative;
-    grid-template-columns: 64px minmax(0, 1fr) 44px;
-  }
-  .toolrail-expanded {
-    display: none;
-  }
-  .toolrail-compact {
-    display: flex;
-    width: 64px;
-    padding-top: 7px;
+    grid-template-columns: 72px minmax(0, 1fr) 44px;
   }
   .sidebar:not(.collapsed) {
     position: absolute;
@@ -938,7 +1069,9 @@ body.mac .topbar {
   color: var(--ink-2);
   font-size: 12px;
   font-weight: 500;
-  transition: background 120ms ease, color 120ms ease;
+  transition:
+    background 120ms ease,
+    color 120ms ease;
 }
 .sidebar-tabs button:hover {
   color: var(--ink-0);
@@ -947,6 +1080,7 @@ body.mac .topbar {
 .sidebar-tabs button.active {
   background: var(--bg-3);
   color: var(--ink-0);
+  box-shadow: inset 0 -2px var(--accent);
 }
 .tab-count {
   padding: 0 5px;

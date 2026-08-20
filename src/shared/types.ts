@@ -320,6 +320,77 @@ export interface ClipDocument {
 }
 
 /* ------------------------------------------------------------------ *
+ * Guides
+ * ------------------------------------------------------------------ */
+
+export interface GuideSourceMetadata {
+  kind: 'capture' | 'import'
+  captureMode?: CaptureMode
+  /** Non-sensitive display label or application/window title only. */
+  label?: string
+}
+
+export interface GuidePointer {
+  /** Coordinates normalized to the source image, from 0 through 1. */
+  x: number
+  y: number
+}
+
+export interface GuideStep {
+  version: 1
+  id: string
+  order: number
+  title: string
+  description: string
+  createdAt: number
+  updatedAt: number
+  /** Original captured/imported image. */
+  image: string
+  imageWidth: number
+  imageHeight: number
+  /** Editable ClipThat annotation project for this exact step. */
+  project: ClipDocument
+  /** Small PNG data URL used by the step list and Library Guides view. */
+  thumbnail: string
+  /** Latest flattened annotation render; falls back to the original image. */
+  renderedImage?: string
+  source?: GuideSourceMetadata
+  pointer?: GuidePointer
+}
+
+export interface GuideDocument {
+  version: 1
+  id: string
+  title: string
+  description: string
+  createdAt: number
+  updatedAt: number
+  steps: GuideStep[]
+}
+
+export interface GuideSummary {
+  id: string
+  title: string
+  description: string
+  createdAt: number
+  updatedAt: number
+  stepCount: number
+  thumbnail?: string
+}
+
+export type GuideExportFormat = 'markdown' | 'html' | 'pdf'
+
+export interface GuideExportResult extends SaveResult {
+  format: GuideExportFormat
+  assetsDirectory?: string
+}
+
+export interface GuideEditorContext {
+  guideId: string
+  stepId: string
+}
+
+/* ------------------------------------------------------------------ *
  * Library
  * ------------------------------------------------------------------ */
 
@@ -450,6 +521,61 @@ export interface RecordingOptions {
   countdown: number
 }
 
+export type CapabilityState =
+  'supported' | 'unavailable' | 'unverified' | 'permission-error' | 'device-error'
+
+export type PlatformCapabilityId =
+  | 'capture.region'
+  | 'capture.display'
+  | 'capture.window'
+  | 'capture.clipboard'
+  | 'capture.repeat'
+  | 'capture.delayed'
+  | 'capture.scrolling'
+  | 'record.display'
+  | 'record.window'
+  | 'record.region'
+  | 'record.microphone'
+  | 'record.system-audio'
+  | 'record.webcam'
+  | 'record.pause-resume'
+  | 'export.mp4'
+  | 'export.webm'
+  | 'export.gif'
+  | 'update.in-app'
+
+export interface PlatformCapability {
+  id: PlatformCapabilityId
+  label: string
+  state: CapabilityState
+  detail: string
+  /** True only when this process proved the capability in the current runtime. */
+  runtimeVerified: boolean
+}
+
+export interface RecordingPreflightItem {
+  id:
+    | 'source'
+    | 'microphone'
+    | 'system-audio'
+    | 'webcam'
+    | 'ffmpeg'
+    | 'ffprobe'
+    | 'encoder.mp4'
+    | 'encoder.webm'
+    | 'encoder.gif'
+    | 'destination'
+  label: string
+  state: CapabilityState
+  detail: string
+}
+
+export interface RecordingPreflight {
+  checkedAt: number
+  items: RecordingPreflightItem[]
+  canStart: boolean
+}
+
 export type RecordingState = 'idle' | 'countdown' | 'recording' | 'paused' | 'encoding'
 
 export interface RecordingStatus {
@@ -523,6 +649,7 @@ export interface Hotkeys {
   stopRecording: string
   openLibrary: string
   grabText: string
+  guideCaptureNext: string
 }
 
 export interface Settings {

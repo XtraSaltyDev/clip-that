@@ -65,10 +65,12 @@ dmg:
       path: /Applications
 
 win:
-  artifactName: ${productName}-${version}-${arch}.${ext}
+  artifactName: ${productName}-${version}-unsigned-experimental-preview-${arch}.${ext}
   extraResources:
     - from: build/vendor/ffmpeg/windows-x64/package
       to: third-party/ffmpeg
+    - from: native/window-info.ps1
+      to: build/clipthat-window-info.ps1
   target:
     - target: nsis
       # Windows packages remain unsupported candidates until code signing and real-hardware
@@ -81,7 +83,7 @@ win:
       arch: [x64]
 
 nsis:
-  artifactName: ${productName}-${version}-${arch}-setup.${ext}
+  artifactName: ${productName}-${version}-unsigned-experimental-preview-${arch}-setup.${ext}
   oneClick: false
   perMachine: false
   allowToChangeInstallationDirectory: true
@@ -90,7 +92,7 @@ nsis:
   shortcutName: ClipThat
 
 portable:
-  artifactName: ${productName}-${version}-${arch}-portable.${ext}
+  artifactName: ${productName}-${version}-unsigned-experimental-preview-${arch}-portable.${ext}
 
 linux:
   target:

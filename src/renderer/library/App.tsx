@@ -3,6 +3,7 @@ import type {
   AppUpdateStatus,
   LibraryHealth,
   LibraryItem,
+  GuideSummary,
   ReleaseNotesStatus,
   SnagitImportPreview,
   SnagitImportProgress,
@@ -23,6 +24,7 @@ import {
 } from '../shared/ui'
 import CommandPalette, { type Command } from '../shared/CommandPalette'
 import { groupLibraryItems, libraryGridColumns } from './layout'
+import GuideWorkspace from './GuideWorkspace'
 import './library.css'
 
 type Filter = 'all' | 'image' | 'video' | 'favorite'
@@ -30,6 +32,9 @@ type Filter = 'all' | 'image' | 'video' | 'favorite'
 export default function App(): React.ReactElement {
   useTheme()
   const [items, setItems] = useState<LibraryItem[]>([])
+  const [guides, setGuides] = useState<GuideSummary[]>([])
+  const [showGuides, setShowGuides] = useState(false)
+  const [openGuideId, setOpenGuideId] = useState<string | null>(null)
   const [tags, setTags] = useState<string[]>([])
   const [search, setSearch] = useState('')
   const [filter, setFilter] = useState<Filter>('all')
@@ -73,6 +78,19 @@ export default function App(): React.ReactElement {
   }, [refresh])
 
   useEffect(() => api.library.onChanged(() => void refresh()), [refresh])
+
+  const refreshGuides = useCallback(async () => {
+    try {
+      setGuides(await api.guides.list(showGuides ? search : ''))
+    } catch (error) {
+      toast('error', 'Could not load Guides', (error as Error).message)
+    }
+  }, [search, showGuides])
+
+  useEffect(() => {
+    void refreshGuides()
+    return api.guides.onChanged(() => void refreshGuides())
+  }, [refreshGuides])
 
   useEffect(() => api.library.onSnagitProgress(setSnagitProgress), [])
 
@@ -450,6 +468,32 @@ export default function App(): React.ReactElement {
     }
   }
 
+  const createGuide = async (): Promise<void> => {
+    const guide = await api.guides.create('Untitled guide')
+    setOpenGuideId(guide.id)
+  }
+
+  if (openGuideId) {
+    return (
+      <>
+        <GuideWorkspace
+          guideId={openGuideId}
+          onBack={() => {
+            setOpenGuideId(null)
+            setShowGuides(true)
+            void refreshGuides()
+          }}
+          onDeleted={() => {
+            setOpenGuideId(null)
+            setShowGuides(true)
+            void refreshGuides()
+          }}
+        />
+        <ToastHost />
+      </>
+    )
+  }
+
   return (
     <div className="lib-shell">
       <header className="lib-top drag-region">
@@ -458,7 +502,11 @@ export default function App(): React.ReactElement {
           <input
             ref={searchRef}
             className="lib-search-input"
-            placeholder="Search titles, tags and text inside captures…"
+            placeholder={
+              showGuides
+                ? 'Search guides and steps…'
+                : 'Search titles, tags and text inside captures…'
+            }
             value={search}
             onChange={(e) => setSearch(e.target.value)}
           />
@@ -474,42 +522,55 @@ export default function App(): React.ReactElement {
         </div>
         <div className="spacer" />
         <div className="lib-toolbar no-drag row">
-          <Segmented
-            value={view}
-            options={[
-              { value: 'grid', label: <Icon name="grid" size={13} />, tip: 'Grid' },
-              { value: 'list', label: <Icon name="list" size={13} />, tip: 'List' }
-            ]}
-            onChange={setView}
-          />
-          <button
-            className="btn lib-toolbar-action"
-            title="Capture region"
-            aria-label="Capture region"
-            onClick={() => void api.capture.start({ mode: 'region' })}
-          >
-            <Icon name="region" size={14} /> <span className="lib-action-label">Capture</span>
-          </button>
-          <button
-            className="btn lib-toolbar-action"
-            title="Record screen"
-            aria-label="Record screen"
-            onClick={() => api.system.window('record')}
-          >
-            <Icon name="record" size={11} /> <span className="lib-action-label">Record</span>
-          </button>
-          <button
-            className="btn lib-toolbar-action"
-            title={snagitScanning ? 'Scanning Snagit library' : 'Import Snagit library'}
-            aria-label={snagitScanning ? 'Scanning Snagit library' : 'Import Snagit library'}
-            onClick={() => void beginSnagitImport()}
-            disabled={snagitScanning}
-          >
-            <Icon name="download" size={14} />
-            <span className="lib-action-label">
-              {snagitScanning ? 'Scanning…' : 'Import Snagit'}
-            </span>
-          </button>
+          {!showGuides && (
+            <Segmented
+              value={view}
+              options={[
+                { value: 'grid', label: <Icon name="grid" size={13} />, ariaLabel: 'Grid' },
+                { value: 'list', label: <Icon name="list" size={13} />, ariaLabel: 'List' }
+              ]}
+              onChange={setView}
+            />
+          )}
+          {showGuides ? (
+            <button className="btn primary lib-toolbar-action" onClick={() => void createGuide()}>
+              <Icon name="plus" size={14} /> <span className="lib-action-label">New guide</span>
+            </button>
+          ) : (
+            <>
+              <button
+                className="btn primary tip lib-toolbar-action lib-primary-action"
+                data-tip="Capture region"
+                title="Capture region"
+                aria-label="Capture region"
+                onClick={() => void api.capture.start({ mode: 'region' })}
+              >
+                <Icon name="region" size={14} /> <span className="lib-action-label">Capture</span>
+              </button>
+              <button
+                className="btn tip lib-toolbar-action lib-primary-action"
+                data-tip="Record screen"
+                title="Record screen"
+                aria-label="Record screen"
+                onClick={() => api.system.window('record')}
+              >
+                <Icon name="record" size={11} /> <span className="lib-action-label">Record</span>
+              </button>
+              <button
+                className="btn ghost tip lib-toolbar-action lib-import-action"
+                data-tip={snagitScanning ? 'Scanning Snagit library' : 'Import Snagit library'}
+                title={snagitScanning ? 'Scanning Snagit library' : 'Import Snagit library'}
+                aria-label={snagitScanning ? 'Scanning Snagit library' : 'Import Snagit library'}
+                onClick={() => void beginSnagitImport()}
+                disabled={snagitScanning}
+              >
+                <Icon name="download" size={14} />
+                <span className="lib-action-label">
+                  {snagitScanning ? 'Scanning…' : 'Import Snagit'}
+                </span>
+              </button>
+            </>
+          )}
           {actionableUpdate && (
             <button
               className="btn ghost icon tip focus-ring lib-update"
@@ -556,7 +617,7 @@ export default function App(): React.ReactElement {
             </button>
           )}
           <button
-            className="btn ghost icon tip focus-ring"
+            className="btn ghost icon tip align-end focus-ring"
             data-tip="Settings"
             title="Settings"
             aria-label="Settings"
@@ -577,9 +638,19 @@ export default function App(): React.ReactElement {
         </div>
       )}
 
-      <div className="lib-body">
+      <div className={`lib-body ${active ? 'has-details' : ''}`}>
         <nav className="lib-side">
           <div className="lib-side-group">
+            <button
+              className={`lib-nav ${showGuides ? 'active' : ''}`}
+              onClick={() => {
+                setShowGuides(true)
+                setSelected([])
+                setTag(null)
+              }}
+            >
+              <Icon name="step" size={15} /> Guides
+            </button>
             {(
               [
                 ['all', 'All captures', 'layers'],
@@ -590,8 +661,9 @@ export default function App(): React.ReactElement {
             ).map(([key, label, icon]) => (
               <button
                 key={key}
-                className={`lib-nav ${filter === key && !tag ? 'active' : ''}`}
+                className={`lib-nav ${!showGuides && filter === key && !tag ? 'active' : ''}`}
                 onClick={() => {
+                  setShowGuides(false)
                   setFilter(key)
                   setTag(null)
                 }}
@@ -602,7 +674,7 @@ export default function App(): React.ReactElement {
             ))}
           </div>
 
-          {tags.length > 0 && (
+          {!showGuides && tags.length > 0 && (
             <>
               <div className="label" style={{ padding: '14px 12px 6px' }}>
                 Tags
@@ -627,9 +699,15 @@ export default function App(): React.ReactElement {
 
           <div className="spacer" />
           <div className="lib-stats tiny muted">
-            {items.length} item{items.length === 1 ? '' : 's'}
-            <br />
-            {formatBytes(items.reduce((sum, i) => sum + i.byteSize, 0))}
+            {showGuides ? (
+              `${guides.length} guide${guides.length === 1 ? '' : 's'}`
+            ) : (
+              <>
+                {items.length} item{items.length === 1 ? '' : 's'}
+                <br />
+                {formatBytes(items.reduce((sum, i) => sum + i.byteSize, 0))}
+              </>
+            )}
           </div>
         </nav>
 
@@ -640,7 +718,49 @@ export default function App(): React.ReactElement {
             if (e.target === e.currentTarget) setSelected([])
           }}
         >
-          {loading ? null : items.length === 0 ? (
+          {showGuides ? (
+            guides.length === 0 ? (
+              <div className="empty">
+                <Icon name="step" size={32} />
+                <div>
+                  <div style={{ fontWeight: 600, color: 'var(--ink-1)' }}>
+                    {search ? 'No guides matched that search' : 'Build your first guide'}
+                  </div>
+                  <div className="tiny">
+                    Turn screenshots into a polished, local step-by-step guide.
+                  </div>
+                </div>
+                {!search && (
+                  <button className="btn primary" onClick={() => void createGuide()}>
+                    <Icon name="plus" size={14} /> New guide
+                  </button>
+                )}
+              </div>
+            ) : (
+              <div className="guide-library-grid">
+                {guides.map((guide) => (
+                  <button
+                    key={guide.id}
+                    className="guide-library-card"
+                    onClick={() => setOpenGuideId(guide.id)}
+                  >
+                    <div className="guide-library-thumb">
+                      {guide.thumbnail ? (
+                        <img src={guide.thumbnail} alt="" />
+                      ) : (
+                        <Icon name="step" size={28} />
+                      )}
+                    </div>
+                    <strong className="truncate">{guide.title}</strong>
+                    <span>
+                      {guide.stepCount} step{guide.stepCount === 1 ? '' : 's'} ·{' '}
+                      {formatRelative(guide.updatedAt)}
+                    </span>
+                  </button>
+                ))}
+              </div>
+            )
+          ) : loading ? null : items.length === 0 ? (
             <div className="empty">
               <Icon name="image" size={32} />
               <div>
@@ -688,7 +808,7 @@ export default function App(): React.ReactElement {
           )}
         </main>
 
-        {active && (
+        {!showGuides && active && (
           <Details
             item={active}
             onCopy={() => void copy(active)}

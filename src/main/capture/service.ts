@@ -22,7 +22,12 @@ import {
   showSettingsWindow,
   withNonEditorAppWindowsHidden
 } from '../windows/manager'
-import { closeOverlay, openOverlay, takeFrozenSnapshot, type OverlaySelection } from '../windows/overlay'
+import {
+  closeOverlay,
+  openOverlay,
+  takeFrozenSnapshot,
+  type OverlaySelection
+} from '../windows/overlay'
 import { showQuickAccess } from '../windows/quick'
 import { runPipeline } from '../pipeline'
 import { checkPermissions } from '../permissions'
@@ -30,11 +35,15 @@ import { captureDisplay, captureRegionCli, captureWindow, snapshotAllDisplays } 
 import { displayPixelSize, displayUnderCursor, findDisplay } from './displays'
 import { stitchPngFrames } from './stitch'
 import { recording } from '../recording/session'
+import { captureFailureMessage } from './failures'
 
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms))
 
 /** Crop a data URL by pixel rect. */
-function cropDataUrl(dataUrl: string, rect: Rect): { dataUrl: string; width: number; height: number } | null {
+function cropDataUrl(
+  dataUrl: string,
+  rect: Rect
+): { dataUrl: string; width: number; height: number } | null {
   const image = nativeImage.createFromDataURL(dataUrl)
   if (image.isEmpty()) return null
   const size = image.getSize()
@@ -130,7 +139,8 @@ async function captureLastRegion(): Promise<CaptureResult | null> {
   if (!last) return null
   const display = last.displayId ? findDisplay(last.displayId) : undefined
   const target =
-    display ?? screen.getDisplayMatching({ x: last.x, y: last.y, width: last.width, height: last.height })
+    display ??
+    screen.getDisplayMatching({ x: last.x, y: last.y, width: last.width, height: last.height })
 
   const snap = await captureDisplay(String(target.id))
   if (!snap) return null
@@ -318,7 +328,12 @@ export function scrollCaptureConfig(): ScrollCaptureConfig | null {
   const display = session ? findDisplay(session.displayId) : undefined
   if (!session || !display) return null
   const pixels = displayPixelSize(display)
-  return { rect: { ...session.rect }, displayWidth: pixels.width, displayHeight: pixels.height, intervalMs: 400 }
+  return {
+    rect: { ...session.rect },
+    displayWidth: pixels.width,
+    displayHeight: pixels.height,
+    intervalMs: 400
+  }
 }
 
 /** Accept a cropped PNG from the isolated HUD renderer. */
@@ -389,7 +404,8 @@ async function warnIfNoScreenAccess(): Promise<void> {
   showSettingsWindow('welcome')
 }
 
-export async function performCapture(req: CaptureRequest): Promise<CaptureResult | null> {
+/** Capture pixels without Library insertion, clipboard writes, or after-capture routing. */
+export async function captureWithoutRouting(req: CaptureRequest): Promise<CaptureResult | null> {
   if (req.delay && req.delay > 0) await sleep(req.delay * 1000)
 
   let result: CaptureResult | null = null
@@ -403,16 +419,7 @@ export async function performCapture(req: CaptureRequest): Promise<CaptureResult
       break
     }
     case 'scrolling': {
-      const sel = await openOverlay('scrolling')
-      if (!sel) return null
-      startScrollCapture(sel.displayId, sel.rect, sel.screenRect, sel.restoreEditorWindows)
-      // Start source discovery only after the user chooses scrolling capture. Doing this
-      // at app launch contends with still screenshots on multi-display Macs.
-      void recording.prewarmDisplaySources()
-      // The floating controller drives the rest: the user scrolls, then hits Done,
-      // which lands on `finishScrollCapture` via IPC.
-      showHudWindow('scroll')
-      return null
+      throw new Error('Scrolling capture is not available inside a guide session')
     }
     case 'lastRegion':
       result = await withNonEditorAppWindowsHidden(captureLastRegion)
@@ -435,8 +442,32 @@ export async function performCapture(req: CaptureRequest): Promise<CaptureResult
 
   if (!result) {
     await warnIfNoScreenAccess()
+    broadcast(IPC.toast, {
+      kind: 'error',
+      message: 'Capture did not complete',
+      detail: captureFailureMessage(
+        req.mode === 'window' ? 'vanished' : 'unavailable',
+        req.mode === 'window' ? 'The selected window' : 'The selected source'
+      )
+    })
     return null
   }
+  return result
+}
+
+export async function performCapture(req: CaptureRequest): Promise<CaptureResult | null> {
+  if (req.mode === 'scrolling') {
+    if (req.delay && req.delay > 0) await sleep(req.delay * 1000)
+    const sel = await openOverlay('scrolling')
+    if (!sel) return null
+    startScrollCapture(sel.displayId, sel.rect, sel.screenRect, sel.restoreEditorWindows)
+    void recording.prewarmDisplaySources()
+    showHudWindow('scroll')
+    return null
+  }
+
+  const result = await captureWithoutRouting(req)
+  if (!result) return null
   if (req.silent) {
     await routeResult(result, 'clipboard')
     return result
@@ -524,9 +555,11 @@ export async function routeResult(
 
 const pendingDocs = new Map<number, ClipDocument>()
 const pendingVideos = new Map<number, LibraryItem>()
+const pendingGuideSteps = new Map<number, { guideId: string; stepId: string }>()
 
 function deliverDocument(win: Electron.BrowserWindow, doc: ClipDocument): void {
   pendingVideos.delete(win.webContents.id)
+  pendingGuideSteps.delete(win.webContents.id)
   pendingDocs.set(win.webContents.id, doc)
   const send = () => {
     if (win.isDestroyed()) return
@@ -543,6 +576,7 @@ function deliverDocument(win: Electron.BrowserWindow, doc: ClipDocument): void {
 
 function deliverVideo(win: Electron.BrowserWindow, item: LibraryItem): void {
   pendingDocs.delete(win.webContents.id)
+  pendingGuideSteps.delete(win.webContents.id)
   pendingVideos.set(win.webContents.id, item)
   const send = () => {
     if (!win.isDestroyed()) win.webContents.send(IPC.editorVideo, item)
@@ -557,6 +591,19 @@ function deliverVideo(win: Electron.BrowserWindow, item: LibraryItem): void {
 export function openInEditor(doc: ClipDocument, hash = ''): void {
   const win = createEditorWindow(hash)
   deliverDocument(win, doc)
+}
+
+/** Open one guide step in the existing editor with a main-owned save-back context. */
+export function openGuideStepInEditor(guideId: string, stepId: string, doc: ClipDocument): void {
+  const win = createEditorWindow('guide-step')
+  deliverDocument(win, doc)
+  pendingGuideSteps.set(win.webContents.id, { guideId, stepId })
+}
+
+export function guideStepContext(
+  webContentsId: number
+): { guideId: string; stepId: string } | null {
+  return pendingGuideSteps.get(webContentsId) ?? null
 }
 
 /** Open a Library recording in ClipThat's own playback and trim workspace. */
@@ -578,9 +625,7 @@ export async function loadLibraryDocument(id: string): Promise<ClipDocument | nu
   const item = library.get(id)
   if (!item || item.kind !== 'image') return null
   const loaded = (await library.loadProject(id)) ?? (await loadProjectFile(item.filePath))
-  return loaded
-    ? { ...loaded, id: item.id, title: item.title, exportPath: item.exportPath }
-    : null
+  return loaded ? { ...loaded, id: item.id, title: item.title, exportPath: item.exportPath } : null
 }
 
 /** Switch only the editor that sent the request; other open editors are left untouched. */
@@ -614,6 +659,7 @@ export function takePendingVideo(webContentsId: number): LibraryItem | null {
 export function releasePendingDocument(webContentsId: number): void {
   pendingDocs.delete(webContentsId)
   pendingVideos.delete(webContentsId)
+  pendingGuideSteps.delete(webContentsId)
 }
 
 export { closeOverlay, editorWindows, shell }

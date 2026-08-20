@@ -62,6 +62,24 @@ export const IPC = {
   librarySnagitCancel: 'library:snagit-cancel',
   librarySnagitProgress: 'library:snagit-progress',
 
+  // guides
+  guideList: 'guide:list',
+  guideCreate: 'guide:create',
+  guideGet: 'guide:get',
+  guideSave: 'guide:save',
+  guideDelete: 'guide:delete',
+  guideChanged: 'guide:changed',
+  guideCapture: 'guide:capture',
+  guideRecapture: 'guide:recapture',
+  guideImportStep: 'guide:import-step',
+  guideAddExisting: 'guide:add-existing',
+  guideEditStep: 'guide:edit-step',
+  guideSaveEditedStep: 'guide:save-edited-step',
+  guideEditorContext: 'guide:editor-context',
+  guideExport: 'guide:export',
+  guideSetActive: 'guide:set-active',
+  guideHotkeyCapture: 'guide:hotkey-capture',
+
   // recording
   recordConfigure: 'record:configure',
   recordCaptureSource: 'record:capture-source',
@@ -79,8 +97,11 @@ export const IPC = {
   recordRecover: 'record:recover',
   recordDiscardRecovery: 'record:discard-recovery',
   recordExport: 'record:export',
+  recordCancelExport: 'record:cancel-export',
   recordProgress: 'record:progress',
   recordSources: 'record:sources',
+  recordSelectRegion: 'record:select-region',
+  recordPreflight: 'record:preflight',
   recordHudCommand: 'record:hud-command',
   recordCursor: 'record:cursor',
 

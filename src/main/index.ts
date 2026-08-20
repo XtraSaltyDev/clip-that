@@ -23,11 +23,16 @@ import { recording } from './recording/session'
 import { indexBacklog, indexCapture, requestOcr } from './ocr'
 import { trustedOcrText } from './store/library-ocr'
 import { library } from './store/library'
+import { guides } from './store/guides'
+import { captureActiveGuideStep, setActiveGuideSession } from './guides/session'
 import { isRealPathInside } from './store/path-guard'
 import { libraryFileResponse } from './protocol/library-file'
 import { initializeAppUpdates } from './update/service'
 
 const IS_MAC = process.platform === 'darwin'
+
+// Keep the product name stable for unpackaged verification too.
+app.setName('ClipThat')
 
 /* A single instance owns the global hotkeys; a second launch just wakes the first. */
 if (!app.requestSingleInstanceLock()) {
@@ -116,12 +121,12 @@ function stopRecordingFlow(): void {
  * ------------------------------------------------------------------ */
 
 app.whenReady().then(async () => {
-  app.setName('ClipThat')
   installFileLogger()
   if (process.platform === 'win32') app.setAppUserModelId('dev.clipthat.app')
 
   await recording.initializeRecovery()
   await library.initialize()
+  await guides.initialize()
   registerLibraryProtocol()
   registerIpcHandlers()
   initializeAppUpdates()
@@ -157,6 +162,7 @@ app.whenReady().then(async () => {
   emitter.on('start-recording', startRecordingFlow)
   emitter.on('stop-recording', stopRecordingFlow)
   emitter.on('grab-text', () => void grabTextFlow())
+  emitter.on('guide-capture-next', () => void captureActiveGuideStep())
 
   // Every capture gets read so the library is searchable by its contents.
   library.on('added', (item: { id: string }) => indexCapture(item.id))
@@ -214,6 +220,7 @@ app.on('will-quit', () => {
 })
 
 app.on('before-quit', () => {
+  setActiveGuideSession(null)
   markEditorAppQuitRequested()
   if (recording.status().state === 'recording') stopRecordingFlow()
 })

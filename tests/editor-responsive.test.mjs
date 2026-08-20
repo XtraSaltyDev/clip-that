@@ -9,18 +9,31 @@ import {
   nextMenuIndex
 } from '../.cache/test/src/renderer/editor/responsive.js'
 import {
-  COMPACT_TOOL_GROUP_LABELS,
-  TOOLS,
+  ALL_TOOLS,
+  SELECT_TOOL,
+  TOOL_GROUPS,
   TOOL_KEYS
 } from '../.cache/test/src/renderer/editor/tools.js'
 
-test('compact tool groups cover every editor tool and shortcut exactly once', () => {
-  const tools = TOOLS.flat()
-  assert.equal(TOOLS.length, COMPACT_TOOL_GROUP_LABELS.length)
-  assert.equal(tools.length, 18)
-  assert.equal(new Set(tools.map((tool) => tool.id)).size, tools.length)
-  assert.equal(new Set(tools.map((tool) => tool.key)).size, tools.length)
-  for (const tool of tools) assert.equal(TOOL_KEYS[tool.key.toLowerCase()], tool.id)
+test('five tool drawers cover every non-select tool and shortcut exactly once', () => {
+  assert.equal(SELECT_TOOL.id, 'select')
+  assert.equal(TOOL_GROUPS.length, 5)
+  assert.deepEqual(
+    TOOL_GROUPS.map((group) => group.label),
+    ['Frame', 'Draw', 'Shapes & Focus', 'Explain', 'Protect']
+  )
+  assert.equal(ALL_TOOLS.length, 18)
+  assert.equal(new Set(ALL_TOOLS.map((tool) => tool.id)).size, ALL_TOOLS.length)
+  assert.equal(new Set(ALL_TOOLS.map((tool) => tool.key)).size, ALL_TOOLS.length)
+  assert.equal(
+    TOOL_GROUPS.some((group) => group.tools.some((tool) => tool.id === SELECT_TOOL.id)),
+    false
+  )
+  for (const group of TOOL_GROUPS) {
+    assert.ok(group.description.length > 0)
+    for (const tool of group.tools) assert.ok(tool.description.length > 0)
+  }
+  for (const tool of ALL_TOOLS) assert.equal(TOOL_KEYS[tool.key.toLowerCase()], tool.id)
 })
 
 test('editor compact breakpoint starts the inspector collapsed only at compact widths', () => {

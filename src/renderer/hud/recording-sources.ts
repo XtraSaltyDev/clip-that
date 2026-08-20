@@ -13,5 +13,7 @@ export function reconcileRecordingSources(
     ? options.windowId
     : undefined
 
-  return { ...options, displayId, windowId }
+  const region =
+    options.target === 'region' && displayId === options.displayId ? options.region : undefined
+  return { ...options, displayId, windowId, region }
 }

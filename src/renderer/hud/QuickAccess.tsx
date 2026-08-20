@@ -1,6 +1,7 @@
 import React, { useEffect, useState } from 'react'
 import { api } from '../shared/api'
 import { Icon } from '../shared/icons'
+import { MOD_KEY } from '../shared/platform'
 import './hud.css'
 
 interface Payload {
@@ -82,7 +83,11 @@ export default function QuickAccess(): React.ReactElement | null {
           {payload.width}×{payload.height}
         </div>
         <div className="qa-actions">
-          <button className="qa-btn" onClick={() => void act('copy')} title="Copy  ·  ⌘C">
+          <button
+            className="qa-btn"
+            onClick={() => void act('copy')}
+            title={`Copy  ·  ${MOD_KEY}C`}
+          >
             <Icon name="copy" size={14} />
             Copy
           </button>
@@ -94,7 +99,11 @@ export default function QuickAccess(): React.ReactElement | null {
             <Icon name="lock" size={14} />
             Pin
           </button>
-          <button className="qa-btn primary" onClick={() => void act('edit')} title="Annotate  ·  ⏎">
+          <button
+            className="qa-btn primary"
+            onClick={() => void act('edit')}
+            title="Annotate  ·  ⏎"
+          >
             <Icon name="pen" size={14} />
             Edit
           </button>

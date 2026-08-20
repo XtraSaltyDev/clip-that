@@ -33,6 +33,7 @@ import {
 import { cutOutEdgeAmplitude, cutOutEdgePath, CUT_OUT_MIN_SIZE } from '@shared/cut-out'
 import { ShapeNode, type ShapeContext } from './Shapes'
 import { LineControls, type DirectLineGesture } from './LineControls'
+import { MOD_KEY } from '../../shared/platform'
 import {
   cancelDirectGesture,
   captureDirectGestureSnapshot,
@@ -1608,7 +1609,7 @@ function FloatingToolbar({
       <span className="float-sep" />
       <button
         className="float-btn"
-        title="Duplicate  ·  ⌘D"
+        title={`Duplicate  ·  ${MOD_KEY}D`}
         aria-label="Duplicate selected annotation"
         onClick={() => useEditor.getState().duplicateSelected()}
       >

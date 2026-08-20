@@ -92,14 +92,19 @@ Routine CI deliberately does not package desktop applications. It runs one cappe
 pull requests and pushes to `main`, skips documentation-only changes, cancels superseded runs, and
 runs lint, formatting, typechecking, unit tests, provenance checks, and the production bundle.
 
-## Unsupported Windows / Linux candidates
+## Unsigned Windows preview / unsupported Linux candidates
 
-`npm run release:win` intentionally refuses to create a production release. The unsigned
-Windows x64 candidate includes a pinned LGPL-compatible FFmpeg, libvpx, and Opus build plus
+`npm run release:win -- -Version <exact-version>` prepares and verifies local artifacts but
+never signs, tags, publishes, or enables auto-update. The filenames contain
+`unsigned-experimental-preview`. The Windows x64 candidate includes a pinned LGPL-compatible FFmpeg, libvpx, and Opus build plus
 its exact corresponding sources, build record, and license notices. The candidate workflow
 verifies the packaged codecs and performs real MP4, GIF, and WebM encode smoke tests before
-uploading artifacts. Re-enable production packaging only after adding Windows code signing
-and completing the real-hardware acceptance checklist. Windows ARM64 is not advertised.
+uploading CI artifacts. The manual workflow requires the exact `package.json` version and does
+not create a GitHub release. Its opt-in attach job accepts only the exact existing `v<version>`
+release, requires its notes to contain “unsigned experimental Windows preview,” and refuses to
+replace an existing asset. Selecting that input is the separate publication authorization.
+Windows signing and production auto-update remain deferred;
+Windows ARM64 is not advertised.
 
 ```bash
 npm run build:linux      # AppImage, deb, rpm (unsigned development artifacts)
@@ -111,6 +116,10 @@ builds them, but before calling a Windows or Linux build releasable someone must
 end-to-end checklist below on real hardware.
 
 ## Manual checklist before tagging
+
+The versioned [Windows 11 x64 acceptance checklist](docs/windows-11-x64-acceptance-v1.md)
+separates automated CI evidence from real-hardware evidence. Windows must remain described as
+an unsigned experimental preview until every required hardware row passes.
 
 - [ ] Region capture on every attached display; result matches the frozen frame
 - [ ] Window capture, fullscreen capture, repeat-last-region
