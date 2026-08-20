@@ -2,7 +2,7 @@ import type { Command } from '../shared/CommandPalette'
 import { api } from '../shared/api'
 import { BEAUTIFY_CANVAS, DEFAULT_CANVAS } from '@shared/defaults'
 import { useEditor } from './store'
-import { TOOLS } from './tools'
+import { ALL_TOOLS } from './tools'
 import type { EditorActions } from './actions'
 
 const mod = navigator.userAgent.includes('Mac') ? '⌘' : 'Ctrl'
@@ -20,7 +20,7 @@ export function editorCommands(
   const state = () => useEditor.getState()
   const hasSelection = () => state().selectedIds.length > 0
 
-  const tools: Command[] = TOOLS.flat().map((t) => ({
+  const tools: Command[] = ALL_TOOLS.map((t) => ({
     id: `tool.${t.id}`,
     title: t.label,
     group: 'Tools',

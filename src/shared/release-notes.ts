@@ -248,6 +248,34 @@ export const RELEASE_NOTES = [
         body: 'Existing image captures are reindexed in bounded background batches so only confidence-qualified OCR becomes searchable; source captures and user metadata remain unchanged.'
       }
     ]
+  },
+  {
+    version: '0.1.17',
+    title: 'Guides, clearer editing, and a stronger Windows preview',
+    summary:
+      'Turn captures into reusable guides, find annotation tools faster, and try a more capable experimental Windows build.',
+    items: [
+      {
+        title: 'Build guides from captures',
+        body: 'Create step-by-step guides from new or existing captures, reorder and describe each step, and export portable JSON, HTML, or Markdown without sending content to a service.'
+      },
+      {
+        title: 'Find editor tools faster',
+        body: 'Select stays one click away while the remaining annotation tools are organized into five focused drawers with clear names, short explanations, and keyboard shortcuts.'
+      },
+      {
+        title: 'A more consistent workspace',
+        body: 'Library, editor, recorder, and Settings surfaces now share clearer spacing, control hierarchy, responsive behavior, and accessible status language.'
+      },
+      {
+        title: 'Safer recording preparation and recovery',
+        body: 'Recording readiness now reports capture-source and encoder problems more clearly, preserves recoverable data, and avoids claiming success when required capabilities are unavailable.'
+      },
+      {
+        title: 'Unsigned experimental Windows preview',
+        body: 'The Windows x64 setup, portable app, and ZIP now bundle audited FFmpeg and ffprobe tools for WebM recording plus MP4 and GIF export. This preview remains unsigned and requires real-hardware testing.'
+      }
+    ]
   }
 ] as const satisfies readonly ReleaseNotes[]
 

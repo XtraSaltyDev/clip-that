@@ -1,7 +1,7 @@
 import React, { useEffect, useRef, useState } from 'react'
 import { Icon } from '../../shared/icons'
 import { useEditor } from '../store'
-import { COMPACT_TOOL_GROUP_LABELS, TOOLS, TOOL_KEYS } from '../tools'
+import { SELECT_TOOL, TOOL_GROUPS, TOOL_KEYS } from '../tools'
 import { nextMenuIndex } from '../responsive'
 
 export { TOOL_KEYS }
@@ -11,17 +11,17 @@ export default function Toolbar(): React.ReactElement {
   const hasCutOut = useEditor((s) => Boolean(s.doc?.cutOuts?.length))
   const setTool = useEditor((s) => s.setTool)
   const [openGroup, setOpenGroup] = useState<number | null>(null)
-  const compactRef = useRef<HTMLElement>(null)
+  const railRef = useRef<HTMLElement>(null)
   const triggerRefs = useRef<Array<HTMLButtonElement | null>>([])
 
   useEffect(() => {
     if (openGroup === null) return
     const close = (event: MouseEvent) => {
-      if (!compactRef.current?.contains(event.target as Node)) setOpenGroup(null)
+      if (!railRef.current?.contains(event.target as Node)) setOpenGroup(null)
     }
     window.addEventListener('mousedown', close)
     requestAnimationFrame(() =>
-      compactRef.current
+      railRef.current
         ?.querySelector<HTMLDivElement>(`[data-tool-menu="${openGroup}"]`)
         ?.querySelector<HTMLButtonElement>('button')
         ?.focus()
@@ -52,95 +52,88 @@ export default function Toolbar(): React.ReactElement {
   }
 
   return (
-    <>
-      <nav className="toolrail toolrail-expanded" aria-label="Annotation tools">
-        {TOOLS.map((group, i) => (
-          <React.Fragment key={i}>
-            {i > 0 && <div className="toolrail-sep" />}
-            {group.map((t) => {
-              const cropUnavailable = t.id === 'crop' && hasCutOut
-              return (
-                <button
-                  key={t.id}
-                  className={`tool tip right ${tool === t.id ? 'active' : ''}`}
-                  data-tip={`${t.label}  ·  ${t.key}${cropUnavailable ? '  ·  unavailable after Cut Out' : ''}`}
-                  aria-label={`${t.label}, shortcut ${t.key}`}
-                  aria-pressed={tool === t.id}
-                  disabled={cropUnavailable}
-                  onClick={() => setTool(t.id)}
-                >
-                  <Icon name={t.icon} size={18} />
-                </button>
-              )
-            })}
-          </React.Fragment>
-        ))}
-      </nav>
-
-      <nav
-        className="toolrail toolrail-compact"
-        aria-label="Grouped annotation tools"
-        ref={compactRef}
+    <nav className="toolrail toolrail-drawers" aria-label="Annotation tools" ref={railRef}>
+      <button
+        className={`tool tool-select tip right ${tool === SELECT_TOOL.id ? 'active' : ''}`}
+        data-tip={`${SELECT_TOOL.label} · ${SELECT_TOOL.description} · ${SELECT_TOOL.key}`}
+        aria-label={`${SELECT_TOOL.label}, ${SELECT_TOOL.description} Shortcut ${SELECT_TOOL.key}`}
+        aria-pressed={tool === SELECT_TOOL.id}
+        onClick={() => {
+          setOpenGroup(null)
+          setTool(SELECT_TOOL.id)
+        }}
       >
-        {TOOLS.map((group, groupIndex) => {
-          const selected = group.find((item) => item.id === tool)
-          const shown = selected ?? group[0]
-          const label = selected?.label ?? COMPACT_TOOL_GROUP_LABELS[groupIndex]
-          return (
-            <div className="toolgroup-anchor" key={COMPACT_TOOL_GROUP_LABELS[groupIndex]}>
-              <button
-                ref={(element) => {
-                  triggerRefs.current[groupIndex] = element
-                }}
-                className={`toolgroup-trigger ${selected ? 'active' : ''}`}
-                aria-label={`${COMPACT_TOOL_GROUP_LABELS[groupIndex]} tools${selected ? `, selected ${selected.label}` : ''}`}
-                aria-haspopup="menu"
-                aria-expanded={openGroup === groupIndex}
-                onClick={() => setOpenGroup(openGroup === groupIndex ? null : groupIndex)}
+        <Icon name={SELECT_TOOL.icon} size={18} />
+        <span className="toolgroup-label">{SELECT_TOOL.label}</span>
+      </button>
+
+      <div className="toolrail-sep" />
+
+      {TOOL_GROUPS.map((group, groupIndex) => {
+        const selected = group.tools.find((item) => item.id === tool)
+        const tooltip = `${group.label} · ${group.description}${selected ? ` Current tool: ${selected.label}.` : ''}`
+        return (
+          <div className="toolgroup-anchor" key={group.id}>
+            <button
+              ref={(element) => {
+                triggerRefs.current[groupIndex] = element
+              }}
+              className={`toolgroup-trigger tip right ${selected ? 'active' : ''}`}
+              data-tip={tooltip}
+              aria-label={`${group.label} tools. ${group.description}${selected ? ` Selected ${selected.label}.` : ''}`}
+              aria-haspopup="menu"
+              aria-expanded={openGroup === groupIndex}
+              onClick={() => setOpenGroup(openGroup === groupIndex ? null : groupIndex)}
+            >
+              <span className="toolgroup-icon">
+                <Icon name={group.icon} size={17} />
+              </span>
+              <span className="toolgroup-label">{group.label}</span>
+            </button>
+            {openGroup === groupIndex && (
+              <div
+                className={`toolgroup-menu ${groupIndex >= 3 ? 'align-bottom' : ''}`}
+                data-tool-menu={groupIndex}
+                role="menu"
+                aria-label={`${group.label} tools`}
+                onKeyDown={(event) => menuKeys(event, groupIndex)}
               >
-                <span className="toolgroup-icon">
-                  <Icon name={shown.icon} size={17} />
-                </span>
-                <span className="toolgroup-label">{label}</span>
-                <Icon name="chevronRight" size={10} className="toolgroup-chevron" />
-              </button>
-              {openGroup === groupIndex && (
-                <div
-                  className="toolgroup-menu"
-                  data-tool-menu={groupIndex}
-                  role="menu"
-                  aria-label={`${COMPACT_TOOL_GROUP_LABELS[groupIndex]} tools`}
-                  onKeyDown={(event) => menuKeys(event, groupIndex)}
-                >
-                  <div className="toolgroup-heading">
-                    {COMPACT_TOOL_GROUP_LABELS[groupIndex]} tools
-                  </div>
-                  {group.map((item) => {
-                    const cropUnavailable = item.id === 'crop' && hasCutOut
-                    return (
-                      <button
-                        key={item.id}
-                        role="menuitemradio"
-                        aria-checked={tool === item.id}
-                        disabled={cropUnavailable}
-                        onClick={() => {
-                          setTool(item.id)
-                          setOpenGroup(null)
-                        }}
-                      >
-                        <Icon name={item.icon} size={16} />
-                        <span>{item.label}</span>
-                        {tool === item.id && <Icon name="check" size={13} />}
-                        <span className="kbd">{item.key}</span>
-                      </button>
-                    )
-                  })}
+                <div className="toolgroup-heading">
+                  <strong>{group.label}</strong>
+                  <span>{group.description}</span>
                 </div>
-              )}
-            </div>
-          )
-        })}
-      </nav>
-    </>
+                {group.tools.map((item) => {
+                  const cropUnavailable = item.id === 'crop' && hasCutOut
+                  const helper = cropUnavailable
+                    ? 'Unavailable after applying Cut Out.'
+                    : item.description
+                  return (
+                    <button
+                      key={item.id}
+                      role="menuitemradio"
+                      aria-checked={tool === item.id}
+                      aria-label={`${item.label}. ${helper} Shortcut ${item.key}`}
+                      disabled={cropUnavailable}
+                      onClick={() => {
+                        setTool(item.id)
+                        setOpenGroup(null)
+                      }}
+                    >
+                      <Icon name={item.icon} size={17} />
+                      <span className="toolgroup-copy">
+                        <strong>{item.label}</strong>
+                        <small>{helper}</small>
+                      </span>
+                      {tool === item.id && <Icon name="check" size={13} />}
+                      <span className="kbd">{item.key}</span>
+                    </button>
+                  )
+                })}
+              </div>
+            )}
+          </div>
+        )
+      })}
+    </nav>
   )
 }
