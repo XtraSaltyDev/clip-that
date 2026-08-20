@@ -4,6 +4,7 @@ import type {
   ClipDocument,
   CutOutOperation,
   Hotkeys,
+  GuideDocument,
   LibraryItemPatch,
   LibraryQuery,
   OcrResult,
@@ -15,6 +16,7 @@ import type {
   Toast,
   VideoExportOptions
 } from '@shared/types'
+import { validateGuideDocument } from '../../shared/guides'
 
 const MAX_IMAGE_DATA_URL = 256 * 1024 * 1024
 const MAX_RECORDING_CHUNK_BYTES = 64 * 1024 * 1024
@@ -244,6 +246,26 @@ export function clipDocument(value: unknown): ClipDocument {
   const serialized = JSON.stringify(input)
   if (serialized.length > MAX_PROJECT_JSON) throw new TypeError('project is too large')
   return value as ClipDocument
+}
+
+export function guideDocument(value: unknown): GuideDocument {
+  return validateGuideDocument(value, clipDocument)
+}
+
+export function guideSearch(value: unknown): string {
+  return stringValue(value, 'guide search', 500)
+}
+
+export function guidePatch(value: unknown): {
+  title?: string
+  description?: string
+} {
+  const input = record(value, 'guide patch')
+  rejectUnknown(input, ['title', 'description'], 'guide patch')
+  return {
+    title: optionalString(input.title, 'guide title', 240),
+    description: optionalString(input.description, 'guide description', 20_000)
+  }
 }
 
 export function annotationShapes(value: unknown): Shape[] {
@@ -683,7 +705,8 @@ const HOTKEY_KEYS: Array<keyof Hotkeys> = [
   'startRecording',
   'stopRecording',
   'openLibrary',
-  'grabText'
+  'grabText',
+  'guideCaptureNext'
 ]
 
 export function settingsPatch(value: unknown, current: Settings): Partial<Settings> {

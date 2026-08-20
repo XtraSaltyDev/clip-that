@@ -16,6 +16,8 @@ export const capturesDir = () => ensure(join(libraryDir(), 'captures'))
 export const projectsDir = () => ensure(join(libraryDir(), 'projects'))
 export const thumbsDir = () => ensure(join(libraryDir(), 'thumbnails'))
 export const recordingsDir = () => ensure(join(libraryDir(), 'recordings'))
+/** Dedicated guide documents and assets; kept separate from media-only Library records. */
+export const guidesDir = () => ensure(join(libraryDir(), 'guides'))
 export const tempDir = () => ensure(join(userData(), 'tmp'))
 /** Durable raw recordings and manifests that survive an interrupted app session. */
 export const recordingSessionsDir = () => ensure(join(userData(), 'recording-sessions'))

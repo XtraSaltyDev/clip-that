@@ -12,6 +12,7 @@ import type {
   EditorContextMenuRequest,
   LibraryItem,
   LibraryQuery,
+  GuideExportFormat,
   RecordingOptions,
   RecordingPreflight,
   SaveImageRequest,
@@ -39,6 +40,8 @@ import {
   openInEditor,
   openVideoInEditor,
   performCapture,
+  openGuideStepInEditor,
+  guideStepContext,
   releasePendingDocument,
   routeResult,
   scrollCaptureActive,
@@ -48,6 +51,9 @@ import {
   takePendingDocument,
   takePendingVideo
 } from '../capture/service'
+import { guides } from '../store/guides'
+import { captureGuideSource, captureGuideStep, setActiveGuideSession } from '../guides/session'
+import { exportGuide } from '../guides/export'
 import {
   closeOverlay,
   isPendingOverlayWindow,
@@ -420,6 +426,142 @@ export function registerIpcHandlers(): void {
     const cancelled = cancelSnagitImport(safePlanId)
     if (!cancelled) clearSnagitPlan(safePlanId)
     return cancelled
+  })
+
+  /* ---------------- guides ---------------- */
+
+  secureHandle(IPC.guideList, ['library'], (_e, search: unknown = '') =>
+    guides.list(validate.guideSearch(search))
+  )
+  secureHandle(IPC.guideCreate, ['library'], async (_e, title: unknown = 'Untitled guide') => {
+    const guide = await guides.create(validate.guidePatch({ title }).title || 'Untitled guide')
+    broadcast(IPC.guideChanged, { guideId: guide.id })
+    return guide
+  })
+  secureHandle(
+    IPC.guideGet,
+    ['library'],
+    (_e, id: unknown) => guides.get(validate.idValue(id, 'guide id')) ?? null
+  )
+  secureHandle(IPC.guideSave, ['library'], async (_e, value: unknown) => {
+    const guide = await guides.save(validate.guideDocument(value))
+    broadcast(IPC.guideChanged, { guideId: guide.id })
+    return guide
+  })
+  secureHandle(IPC.guideDelete, ['library'], async (_e, id: unknown) => {
+    const guideId = validate.idValue(id, 'guide id')
+    const removed = await guides.remove(guideId)
+    if (removed) broadcast(IPC.guideChanged, { guideId })
+    return removed
+  })
+  secureHandle(IPC.guideCapture, ['library'], async (_e, id: unknown, mode: unknown = 'region') => {
+    const request = validate.captureRequest({ mode })
+    if (request.mode === 'scrolling')
+      throw new TypeError('Scrolling capture is unavailable for guides')
+    return captureGuideStep(
+      validate.idValue(id, 'guide id'),
+      request.mode as Exclude<CaptureRequest['mode'], 'scrolling'>
+    )
+  })
+  secureHandle(
+    IPC.guideRecapture,
+    ['library'],
+    async (_e, guideValue: unknown, stepValue: unknown, mode: unknown = 'region') => {
+      const request = validate.captureRequest({ mode })
+      if (request.mode === 'scrolling')
+        throw new TypeError('Scrolling capture is unavailable for guides')
+      const result = await captureGuideSource(
+        request.mode as Exclude<CaptureRequest['mode'], 'scrolling'>
+      )
+      if (!result) return null
+      const guide = await guides.replaceCapture(
+        validate.idValue(guideValue, 'guide id'),
+        validate.idValue(stepValue, 'guide step id'),
+        result,
+        documentFromCapture(result)
+      )
+      broadcast(IPC.guideChanged, { guideId: guide.id })
+      return guide
+    }
+  )
+  secureHandle(IPC.guideImportStep, ['library'], async (_e, id: unknown) => {
+    const guideId = validate.idValue(id, 'guide id')
+    const project = await openProjectDialog()
+    if (!project) return null
+    const result = {
+      id: project.id,
+      dataUrl: project.image,
+      width: project.imageWidth,
+      height: project.imageHeight,
+      scaleFactor: project.scaleFactor,
+      source: 'region' as const,
+      createdAt: Date.now(),
+      title: project.title
+    }
+    const guide = await guides.addCapture(guideId, result, project, { kind: 'import' })
+    broadcast(IPC.guideChanged, { guideId })
+    return guide
+  })
+  secureHandle(IPC.guideAddExisting, ['library'], async (_e, id: unknown, value: unknown) => {
+    const guideId = validate.idValue(id, 'guide id')
+    const project = validate.clipDocument(value)
+    const result = {
+      id: project.id,
+      dataUrl: project.image,
+      width: project.imageWidth,
+      height: project.imageHeight,
+      scaleFactor: project.scaleFactor,
+      source: 'region' as const,
+      createdAt: Date.now(),
+      title: project.title
+    }
+    const guide = await guides.addCapture(guideId, result, project, { kind: 'import' })
+    broadcast(IPC.guideChanged, { guideId })
+    return guide
+  })
+  secureHandle(IPC.guideEditStep, ['library'], (_e, guideValue: unknown, stepValue: unknown) => {
+    const guideId = validate.idValue(guideValue, 'guide id')
+    const stepId = validate.idValue(stepValue, 'guide step id')
+    const guide = guides.get(guideId)
+    const step = guide?.steps.find((candidate) => candidate.id === stepId)
+    if (!step) return false
+    openGuideStepInEditor(guideId, stepId, step.project)
+    return true
+  })
+  secureHandle(
+    IPC.guideSaveEditedStep,
+    ['editor'],
+    async (e, projectValue: unknown, renderedValue: unknown) => {
+      const context = guideStepContext(e.sender.id)
+      if (!context) return false
+      const guide = await guides.saveEditedStep(
+        context.guideId,
+        context.stepId,
+        validate.clipDocument(projectValue),
+        validate.imageDataUrl(renderedValue, 'rendered guide step')
+      )
+      broadcast(IPC.guideChanged, { guideId: guide.id })
+      return true
+    }
+  )
+  secureHandle(IPC.guideEditorContext, ['editor'], (e) => guideStepContext(e.sender.id))
+  secureHandle(IPC.guideExport, ['library'], async (_e, id: unknown, format: unknown) => {
+    const guide = guides.get(validate.idValue(id, 'guide id'))
+    if (!guide) throw new Error('Guide no longer exists')
+    if (format !== 'markdown' && format !== 'html' && format !== 'pdf') {
+      throw new TypeError('Guide export format is unsupported')
+    }
+    return exportGuide(guide, format as GuideExportFormat)
+  })
+  secureHandle(IPC.guideSetActive, ['library'], (_e, id: unknown) => {
+    if (id === null) {
+      setActiveGuideSession(null)
+      return true
+    }
+    const guideId = validate.idValue(id, 'guide id')
+    if (!guides.get(guideId)) throw new Error('Guide no longer exists')
+    setActiveGuideSession(guideId)
+    return true
   })
   secureHandle(IPC.libraryOpen, ['editor', 'library'], async (e, id: string) => {
     const item = library.get(validate.idValue(id))

@@ -19,7 +19,10 @@ test('the embedded product version comes from package metadata', async () => {
 })
 
 test('recording accessibility announces state changes without making the timer live', async () => {
-  const source = await readFile(new URL('../src/renderer/hud/Recorder.tsx', import.meta.url), 'utf8')
+  const source = await readFile(
+    new URL('../src/renderer/hud/Recorder.tsx', import.meta.url),
+    'utf8'
+  )
   assert.match(source, /hud-recording-state" role="status" aria-live="polite"/)
   assert.match(source, /hud-time mono" aria-live="off"/)
   assert.doesNotMatch(source, /hud-bar drag-region" role="status"/)

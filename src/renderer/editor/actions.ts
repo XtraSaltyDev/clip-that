@@ -40,6 +40,7 @@ export function useEditorActions(stageRef: StageRef, settings: Settings | null) 
     const state = useEditor.getState()
     const doc = state.doc
     if (!doc) return
+    if (await api.guides.saveEditedStep(doc, dataUrl)) return
     const img = new Image()
     await new Promise((r) => {
       img.onload = r
@@ -77,13 +78,20 @@ export function useEditorActions(stageRef: StageRef, settings: Settings | null) 
       const doc = state.doc
       if (!doc) return
 
+      if (await api.editor.guideContext()) {
+        await api.guides.saveEditedStep(doc, png)
+        useEditor.getState().markSaved()
+        toast('success', 'Guide step saved')
+        return
+      }
+
       const encoded = await encodeAs(png, format, quality)
       const res = await api.exports.saveImage({
         dataUrl: encoded,
         format,
         suggestedName: doc.title,
         saveAs,
-        targetPath: saveAs ? undefined : state.exportPath ?? undefined
+        targetPath: saveAs ? undefined : (state.exportPath ?? undefined)
       })
       if (res.canceled) return
       if (!res.ok) {
@@ -235,7 +243,11 @@ export function useEditorActions(stageRef: StageRef, settings: Settings | null) 
       state.end()
 
       const kinds = [...new Set(matches.map((m) => SENSITIVE_LABELS[m.kind]))].join(', ')
-      toast('success', `Blurred ${matches.length} sensitive item${matches.length === 1 ? '' : 's'}`, kinds)
+      toast(
+        'success',
+        `Blurred ${matches.length} sensitive item${matches.length === 1 ? '' : 's'}`,
+        kinds
+      )
     } catch (err) {
       toast('error', 'Auto-redact failed', (err as Error).message)
     } finally {

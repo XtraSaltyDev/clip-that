@@ -23,6 +23,8 @@ import { recording } from './recording/session'
 import { indexBacklog, indexCapture, requestOcr } from './ocr'
 import { trustedOcrText } from './store/library-ocr'
 import { library } from './store/library'
+import { guides } from './store/guides'
+import { captureActiveGuideStep, setActiveGuideSession } from './guides/session'
 import { isRealPathInside } from './store/path-guard'
 import { libraryFileResponse } from './protocol/library-file'
 import { initializeAppUpdates } from './update/service'
@@ -124,6 +126,7 @@ app.whenReady().then(async () => {
 
   await recording.initializeRecovery()
   await library.initialize()
+  await guides.initialize()
   registerLibraryProtocol()
   registerIpcHandlers()
   initializeAppUpdates()
@@ -159,6 +162,7 @@ app.whenReady().then(async () => {
   emitter.on('start-recording', startRecordingFlow)
   emitter.on('stop-recording', stopRecordingFlow)
   emitter.on('grab-text', () => void grabTextFlow())
+  emitter.on('guide-capture-next', () => void captureActiveGuideStep())
 
   // Every capture gets read so the library is searchable by its contents.
   library.on('added', (item: { id: string }) => indexCapture(item.id))
@@ -216,6 +220,7 @@ app.on('will-quit', () => {
 })
 
 app.on('before-quit', () => {
+  setActiveGuideSession(null)
   markEditorAppQuitRequested()
   if (recording.status().state === 'recording') stopRecordingFlow()
 })

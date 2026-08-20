@@ -16,6 +16,10 @@ import type {
   LibraryHealth,
   LibraryItemPatch,
   LibraryQuery,
+  GuideDocument,
+  GuideExportFormat,
+  GuideExportResult,
+  GuideSummary,
   OcrResult,
   RecoverableRecording,
   RecordingOptions,
@@ -91,6 +95,8 @@ const api = {
     copyAnnotations: (shapes: Shape[]): Promise<number> =>
       ipcRenderer.invoke(IPC.editorAnnotationClipboardWrite, shapes),
     readAnnotations: (): Promise<Shape[]> => ipcRenderer.invoke(IPC.editorAnnotationClipboardRead),
+    guideContext: (): Promise<{ guideId: string; stepId: string } | null> =>
+      ipcRenderer.invoke(IPC.guideEditorContext),
     onCloseRequested: (handler: () => void) => on(IPC.editorCloseRequested, handler)
   },
 
@@ -148,6 +154,41 @@ const api = {
     onIssue: (handler: (health: LibraryHealth) => void) => on(IPC.libraryIssue, handler),
     /** Turn an absolute library path into a URL the renderer may load. */
     fileUrl: (filePath: string) => `clipthat://file/${encodeURIComponent(filePath)}`
+  },
+
+  guides: {
+    list: (search = ''): Promise<GuideSummary[]> => ipcRenderer.invoke(IPC.guideList, search),
+    create: (title = 'Untitled guide'): Promise<GuideDocument> =>
+      ipcRenderer.invoke(IPC.guideCreate, title),
+    get: (id: string): Promise<GuideDocument | null> => ipcRenderer.invoke(IPC.guideGet, id),
+    save: (guide: GuideDocument): Promise<GuideDocument> =>
+      ipcRenderer.invoke(IPC.guideSave, guide),
+    remove: (id: string): Promise<boolean> => ipcRenderer.invoke(IPC.guideDelete, id),
+    capture: (
+      id: string,
+      mode: Exclude<CaptureRequest['mode'], 'scrolling'> = 'region'
+    ): Promise<GuideDocument | null> => ipcRenderer.invoke(IPC.guideCapture, id, mode),
+    recapture: (
+      guideId: string,
+      stepId: string,
+      mode: Exclude<CaptureRequest['mode'], 'scrolling'> = 'region'
+    ): Promise<GuideDocument | null> =>
+      ipcRenderer.invoke(IPC.guideRecapture, guideId, stepId, mode),
+    importStep: (id: string): Promise<GuideDocument | null> =>
+      ipcRenderer.invoke(IPC.guideImportStep, id),
+    addExisting: (id: string, project: ClipDocument): Promise<GuideDocument> =>
+      ipcRenderer.invoke(IPC.guideAddExisting, id, project),
+    editStep: (guideId: string, stepId: string): Promise<boolean> =>
+      ipcRenderer.invoke(IPC.guideEditStep, guideId, stepId),
+    saveEditedStep: (project: ClipDocument, renderedImage: string): Promise<boolean> =>
+      ipcRenderer.invoke(IPC.guideSaveEditedStep, project, renderedImage),
+    export: (id: string, format: GuideExportFormat): Promise<GuideExportResult> =>
+      ipcRenderer.invoke(IPC.guideExport, id, format),
+    setActive: (id: string | null): Promise<boolean> => ipcRenderer.invoke(IPC.guideSetActive, id),
+    onChanged: (handler: (payload: { guideId: string }) => void) => on(IPC.guideChanged, handler),
+    onHotkeyCapture: (
+      handler: (payload: { guideId: string; ok: boolean; error?: string }) => void
+    ) => on(IPC.guideHotkeyCapture, handler)
   },
 
   recording: {

@@ -404,7 +404,8 @@ async function warnIfNoScreenAccess(): Promise<void> {
   showSettingsWindow('welcome')
 }
 
-export async function performCapture(req: CaptureRequest): Promise<CaptureResult | null> {
+/** Capture pixels without Library insertion, clipboard writes, or after-capture routing. */
+export async function captureWithoutRouting(req: CaptureRequest): Promise<CaptureResult | null> {
   if (req.delay && req.delay > 0) await sleep(req.delay * 1000)
 
   let result: CaptureResult | null = null
@@ -418,16 +419,7 @@ export async function performCapture(req: CaptureRequest): Promise<CaptureResult
       break
     }
     case 'scrolling': {
-      const sel = await openOverlay('scrolling')
-      if (!sel) return null
-      startScrollCapture(sel.displayId, sel.rect, sel.screenRect, sel.restoreEditorWindows)
-      // Start source discovery only after the user chooses scrolling capture. Doing this
-      // at app launch contends with still screenshots on multi-display Macs.
-      void recording.prewarmDisplaySources()
-      // The floating controller drives the rest: the user scrolls, then hits Done,
-      // which lands on `finishScrollCapture` via IPC.
-      showHudWindow('scroll')
-      return null
+      throw new Error('Scrolling capture is not available inside a guide session')
     }
     case 'lastRegion':
       result = await withNonEditorAppWindowsHidden(captureLastRegion)
@@ -460,6 +452,22 @@ export async function performCapture(req: CaptureRequest): Promise<CaptureResult
     })
     return null
   }
+  return result
+}
+
+export async function performCapture(req: CaptureRequest): Promise<CaptureResult | null> {
+  if (req.mode === 'scrolling') {
+    if (req.delay && req.delay > 0) await sleep(req.delay * 1000)
+    const sel = await openOverlay('scrolling')
+    if (!sel) return null
+    startScrollCapture(sel.displayId, sel.rect, sel.screenRect, sel.restoreEditorWindows)
+    void recording.prewarmDisplaySources()
+    showHudWindow('scroll')
+    return null
+  }
+
+  const result = await captureWithoutRouting(req)
+  if (!result) return null
   if (req.silent) {
     await routeResult(result, 'clipboard')
     return result
@@ -547,9 +555,11 @@ export async function routeResult(
 
 const pendingDocs = new Map<number, ClipDocument>()
 const pendingVideos = new Map<number, LibraryItem>()
+const pendingGuideSteps = new Map<number, { guideId: string; stepId: string }>()
 
 function deliverDocument(win: Electron.BrowserWindow, doc: ClipDocument): void {
   pendingVideos.delete(win.webContents.id)
+  pendingGuideSteps.delete(win.webContents.id)
   pendingDocs.set(win.webContents.id, doc)
   const send = () => {
     if (win.isDestroyed()) return
@@ -566,6 +576,7 @@ function deliverDocument(win: Electron.BrowserWindow, doc: ClipDocument): void {
 
 function deliverVideo(win: Electron.BrowserWindow, item: LibraryItem): void {
   pendingDocs.delete(win.webContents.id)
+  pendingGuideSteps.delete(win.webContents.id)
   pendingVideos.set(win.webContents.id, item)
   const send = () => {
     if (!win.isDestroyed()) win.webContents.send(IPC.editorVideo, item)
@@ -580,6 +591,19 @@ function deliverVideo(win: Electron.BrowserWindow, item: LibraryItem): void {
 export function openInEditor(doc: ClipDocument, hash = ''): void {
   const win = createEditorWindow(hash)
   deliverDocument(win, doc)
+}
+
+/** Open one guide step in the existing editor with a main-owned save-back context. */
+export function openGuideStepInEditor(guideId: string, stepId: string, doc: ClipDocument): void {
+  const win = createEditorWindow('guide-step')
+  deliverDocument(win, doc)
+  pendingGuideSteps.set(win.webContents.id, { guideId, stepId })
+}
+
+export function guideStepContext(
+  webContentsId: number
+): { guideId: string; stepId: string } | null {
+  return pendingGuideSteps.get(webContentsId) ?? null
 }
 
 /** Open a Library recording in ClipThat's own playback and trim workspace. */
@@ -635,6 +659,7 @@ export function takePendingVideo(webContentsId: number): LibraryItem | null {
 export function releasePendingDocument(webContentsId: number): void {
   pendingDocs.delete(webContentsId)
   pendingVideos.delete(webContentsId)
+  pendingGuideSteps.delete(webContentsId)
 }
 
 export { closeOverlay, editorWindows, shell }

@@ -16,7 +16,8 @@ const handlers: Record<Action, () => void> = {
   startRecording: () => emitter.emit('start-recording'),
   stopRecording: () => emitter.emit('stop-recording'),
   openLibrary: () => showLibraryWindow(),
-  grabText: () => emitter.emit('grab-text')
+  grabText: () => emitter.emit('grab-text'),
+  guideCaptureNext: () => emitter.emit('guide-capture-next')
 }
 
 import { EventEmitter } from 'node:events'

@@ -544,7 +544,8 @@ const HOTKEY_LABELS: Record<keyof Hotkeys, string> = {
   startRecording: 'Start recording',
   stopRecording: 'Stop recording',
   openLibrary: 'Open library',
-  grabText: 'Grab text'
+  grabText: 'Grab text',
+  guideCaptureNext: 'Capture next guide step'
 }
 
 function HotkeySettings({
