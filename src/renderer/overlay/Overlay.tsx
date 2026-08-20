@@ -7,6 +7,7 @@ import type {
 } from '@shared/types'
 import { api } from '../shared/api'
 import { Icon } from '../shared/icons'
+import { MOD_KEY } from '../shared/platform'
 import './overlay.css'
 
 type Mode = 'region' | 'window' | 'display' | 'scrolling'
@@ -660,7 +661,7 @@ export default function Overlay(): React.ReactElement | null {
             <b>Drag</b> to select
           </span>
           <span>
-            <span className="kbd">⌘A</span> whole screen
+            <span className="kbd">{MOD_KEY}A</span> whole screen
           </span>
           <span>
             <span className="kbd">C</span> copy colour

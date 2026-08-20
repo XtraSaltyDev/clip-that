@@ -450,6 +450,61 @@ export interface RecordingOptions {
   countdown: number
 }
 
+export type CapabilityState =
+  'supported' | 'unavailable' | 'unverified' | 'permission-error' | 'device-error'
+
+export type PlatformCapabilityId =
+  | 'capture.region'
+  | 'capture.display'
+  | 'capture.window'
+  | 'capture.clipboard'
+  | 'capture.repeat'
+  | 'capture.delayed'
+  | 'capture.scrolling'
+  | 'record.display'
+  | 'record.window'
+  | 'record.region'
+  | 'record.microphone'
+  | 'record.system-audio'
+  | 'record.webcam'
+  | 'record.pause-resume'
+  | 'export.mp4'
+  | 'export.webm'
+  | 'export.gif'
+  | 'update.in-app'
+
+export interface PlatformCapability {
+  id: PlatformCapabilityId
+  label: string
+  state: CapabilityState
+  detail: string
+  /** True only when this process proved the capability in the current runtime. */
+  runtimeVerified: boolean
+}
+
+export interface RecordingPreflightItem {
+  id:
+    | 'source'
+    | 'microphone'
+    | 'system-audio'
+    | 'webcam'
+    | 'ffmpeg'
+    | 'ffprobe'
+    | 'encoder.mp4'
+    | 'encoder.webm'
+    | 'encoder.gif'
+    | 'destination'
+  label: string
+  state: CapabilityState
+  detail: string
+}
+
+export interface RecordingPreflight {
+  checkedAt: number
+  items: RecordingPreflightItem[]
+  canStart: boolean
+}
+
 export type RecordingState = 'idle' | 'countdown' | 'recording' | 'paused' | 'encoding'
 
 export interface RecordingStatus {

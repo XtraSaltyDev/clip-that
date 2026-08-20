@@ -6,6 +6,7 @@ import type { EditorActions } from '../actions'
 import type { CutOutAxis, CutOutEdge } from '@shared/types'
 import { isValidCutOutSelection } from '@shared/cut-out'
 import { nextMenuIndex } from '../responsive'
+import { MOD_KEY } from '../../shared/platform'
 
 export default function TopBar({
   actions,
@@ -95,7 +96,7 @@ export default function TopBar({
       <div className="topbar-left no-drag">
         <button
           className="btn ghost icon tip"
-          data-tip="Undo  ·  ⌘Z"
+          data-tip={`Undo  ·  ${MOD_KEY}Z`}
           aria-label="Undo"
           disabled={past === 0}
           onClick={undo}
@@ -104,7 +105,7 @@ export default function TopBar({
         </button>
         <button
           className="btn ghost icon tip"
-          data-tip="Redo  ·  ⇧⌘Z"
+          data-tip={`Redo  ·  Shift+${MOD_KEY}Z`}
           aria-label="Redo"
           disabled={future === 0}
           onClick={redo}
@@ -134,7 +135,7 @@ export default function TopBar({
           </button>
           <button
             className="btn ghost icon sm tip"
-            data-tip="Fit to window  ·  ⌘0"
+            data-tip={`Fit to window  ·  ${MOD_KEY}0`}
             aria-label="Fit to window"
             onClick={() => setZoom(zoom, true)}
           >
@@ -288,7 +289,7 @@ export default function TopBar({
         </button>
         <button
           className="btn ghost icon tip topbar-expanded-action"
-          data-tip="Command palette  ·  ⌘K"
+          data-tip={`Command palette  ·  ${MOD_KEY}K`}
           aria-label="Command palette"
           onClick={onOpenPalette}
         >
@@ -309,7 +310,11 @@ export default function TopBar({
           <Icon name="image" size={14} /> Drag out
         </button>
 
-        <button className="btn tip" data-tip="Copy  ·  ⌘C" onClick={() => void actions.copy()}>
+        <button
+          className="btn tip"
+          data-tip={`Copy  ·  ${MOD_KEY}C`}
+          onClick={() => void actions.copy()}
+        >
           <Icon name="copy" size={14} /> Copy
         </button>
 
@@ -541,7 +546,8 @@ export default function TopBar({
                   onOpenPalette()
                 }}
               >
-                <Icon name="search" size={14} /> Command palette <span className="kbd">⌘K</span>
+                <Icon name="search" size={14} /> Command palette{' '}
+                <span className="kbd">{MOD_KEY}K</span>
               </button>
               <div className="menu-sep" />
               <div className="menu-label">New capture</div>

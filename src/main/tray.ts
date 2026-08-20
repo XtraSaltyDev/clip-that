@@ -11,7 +11,9 @@ const IS_MAC = process.platform === 'darwin'
 let tray: Tray | null = null
 
 function iconPath(): string {
-  const base = app.isPackaged ? join(process.resourcesPath, 'build') : join(__dirname, '../../build')
+  const base = app.isPackaged
+    ? join(process.resourcesPath, 'build')
+    : join(__dirname, '../../build')
   return join(base, IS_MAC ? 'trayTemplate.png' : 'tray.png')
 }
 
@@ -128,7 +130,11 @@ export function installAppMenu(): void {
             submenu: [
               { role: 'about' },
               { type: 'separator' },
-              { label: 'Settings…', accelerator: 'Command+,', click: () => showSettingsWindow() },
+              {
+                label: 'Settings…',
+                accelerator: 'CommandOrControl+,',
+                click: () => showSettingsWindow()
+              },
               { type: 'separator' },
               { role: 'services' },
               { type: 'separator' },

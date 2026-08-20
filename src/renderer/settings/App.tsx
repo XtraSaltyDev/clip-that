@@ -2,6 +2,7 @@ import React, { useCallback, useEffect, useRef, useState } from 'react'
 import type { AppUpdateStatus, Hotkeys, ReleaseNotesStatus, Settings } from '@shared/types'
 import { api } from '../shared/api'
 import { Icon, type IconName } from '../shared/icons'
+import { MOD_KEY } from '../shared/platform'
 import {
   ColorPicker,
   Segmented,
@@ -626,7 +627,7 @@ function HotkeyInput(props: {
       if (!key) return
       parts.push(key)
       if (parts.length < 2) {
-        toast('error', 'Use at least one modifier', 'e.g. ⌘⇧2')
+        toast('error', 'Use at least one modifier', `e.g. ${MOD_KEY}+Shift+2`)
         return
       }
       props.onChange(parts.join('+'))
@@ -979,10 +980,10 @@ function About({
             ['R O T Q S', 'Rect, Ellipse, Text, Callout, Step'],
             ['U X K', 'Blur, Pixelate, Redact'],
             ['G M D', 'Spotlight, Magnify, Measure'],
-            ['⌘Z / ⇧⌘Z', 'Undo / Redo'],
-            ['⌘C / ⌘S', 'Copy / Save'],
-            ['⌘D', 'Duplicate selection'],
-            ['⌘0', 'Fit to window'],
+            [`${MOD_KEY}Z / Shift+${MOD_KEY}Z`, 'Undo / Redo'],
+            [`${MOD_KEY}C / ${MOD_KEY}S`, 'Copy / Save'],
+            [`${MOD_KEY}D`, 'Duplicate selection'],
+            [`${MOD_KEY}0`, 'Fit to window'],
             ['Arrows', 'Nudge (⇧ for 10px)']
           ].map(([keys, what]) => (
             <div key={keys} className="set-key-row">

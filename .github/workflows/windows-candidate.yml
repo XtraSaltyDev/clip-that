@@ -2,9 +2,20 @@ name: Windows Candidate Build
 
 on:
   workflow_dispatch:
-  push:
-    branches:
-      - agent/windows-initial-build
+    inputs:
+      version:
+        description: Exact package.json version to prepare
+        required: true
+        type: string
+      attach_to_existing_release:
+        description: Attach to an existing exact-version release after validating preview language
+        required: true
+        default: false
+        type: boolean
+      release_tag:
+        description: Existing tag, exactly v<version>; required only when attaching
+        required: false
+        type: string
 
 permissions:
   contents: read
@@ -49,6 +60,16 @@ jobs:
       - name: Install dependencies
         run: npm ci
 
+      - name: Validate requested preview version
+        shell: pwsh
+        env:
+          EXPECTED_VERSION: ${{ inputs.version }}
+        run: |
+          $actual = (node -p "require('./package.json').version").Trim()
+          if ($actual -ne $env:EXPECTED_VERSION) {
+            throw "package.json is version $actual, not $env:EXPECTED_VERSION"
+          }
+
       - name: Run source gates
         run: npm run build
 
@@ -57,6 +78,8 @@ jobs:
         run: bash scripts/build-ffmpeg-win.sh
 
       - name: Package unsigned Windows x64 candidate
+        env:
+          CSC_IDENTITY_AUTO_DISCOVERY: 'false'
         run: npx electron-builder --win --x64 --publish never
 
       - name: Verify package contents and write checksums
@@ -66,16 +89,28 @@ jobs:
           $version = (node -p "require('./package.json').version").Trim()
           $sourceBundle = "dist/ClipThat-$version-windows-third-party-sources.tar.gz"
           Copy-Item -LiteralPath 'build/vendor/ffmpeg/windows-x64/ClipThat-windows-third-party-sources.tar.gz' -Destination $sourceBundle
+          $notice = "dist/ClipThat-$version-WINDOWS-UNSIGNED-PREVIEW.txt"
+          [IO.File]::WriteAllText(
+            $notice,
+            "ClipThat $version for Windows x64 is an unsigned experimental preview.`nWindows may warn before launch. It is not a supported or signed release.`nUse manual downloads for updates; production Windows auto-update is disabled.`n",
+            [Text.Encoding]::UTF8
+          )
           $artifacts = @(
-            "dist/ClipThat-$version-x64-setup.exe",
-            "dist/ClipThat-$version-x64-portable.exe",
-            "dist/ClipThat-$version-x64.zip",
-            $sourceBundle
+            "dist/ClipThat-$version-unsigned-experimental-preview-x64-setup.exe",
+            "dist/ClipThat-$version-unsigned-experimental-preview-x64-portable.exe",
+            "dist/ClipThat-$version-unsigned-experimental-preview-x64.zip",
+            $sourceBundle,
+            $notice
           )
 
           foreach ($artifact in $artifacts) {
             if (-not (Test-Path -LiteralPath $artifact -PathType Leaf)) {
               throw "Missing Windows candidate artifact: $artifact"
+            }
+          }
+          foreach ($executable in $artifacts[0..1]) {
+            if ((Get-AuthenticodeSignature -LiteralPath $executable).Status -ne 'NotSigned') {
+              throw "Unsigned preview lane unexpectedly produced a signed executable: $executable"
             }
           }
 
@@ -88,6 +123,9 @@ jobs:
               Select-Object -First 1
             if ($null -eq $packedExecutable) {
               throw "$($artifacts[2]) does not contain ClipThat.exe"
+            }
+            if ((Get-AuthenticodeSignature -LiteralPath $packedExecutable.FullName).Status -ne 'NotSigned') {
+              throw 'Unsigned preview ZIP unexpectedly contains a signed ClipThat.exe'
             }
 
             $resourcesPath = Join-Path $packedExecutable.DirectoryName 'resources'
@@ -191,12 +229,55 @@ jobs:
       - name: Upload Windows candidate artifacts
         uses: actions/upload-artifact@v4
         with:
-          name: ClipThat-windows-x64-${{ github.sha }}
+          name: ClipThat-${{ inputs.version }}-windows-x64-unsigned-experimental-preview-${{ github.sha }}
           if-no-files-found: error
           retention-days: 14
           path: |
-            dist/ClipThat-*-x64-setup.exe
-            dist/ClipThat-*-x64-portable.exe
-            dist/ClipThat-*-x64.zip
+            dist/ClipThat-*-unsigned-experimental-preview-x64-setup.exe
+            dist/ClipThat-*-unsigned-experimental-preview-x64-portable.exe
+            dist/ClipThat-*-unsigned-experimental-preview-x64.zip
             dist/ClipThat-*-windows-SHA256SUMS.txt
             dist/ClipThat-*-windows-third-party-sources.tar.gz
+            dist/ClipThat-*-WINDOWS-UNSIGNED-PREVIEW.txt
+
+  attach:
+    if: ${{ inputs.attach_to_existing_release }}
+    needs: package
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - name: Validate exact existing release and required warning language
+        env:
+          GH_TOKEN: ${{ github.token }}
+          VERSION: ${{ inputs.version }}
+          RELEASE_TAG: ${{ inputs.release_tag }}
+        run: |
+          set -euo pipefail
+          test "$RELEASE_TAG" = "v$VERSION" || {
+            echo "release_tag must be exactly v$VERSION" >&2
+            exit 1
+          }
+          body=$(gh release view "$RELEASE_TAG" --repo "$GITHUB_REPOSITORY" --json body --jq .body)
+          grep -qi 'unsigned experimental Windows preview' <<<"$body" || {
+            echo "Existing release notes must say: unsigned experimental Windows preview" >&2
+            exit 1
+          }
+      - uses: actions/download-artifact@v4
+        with:
+          name: ClipThat-${{ inputs.version }}-windows-x64-unsigned-experimental-preview-${{ github.sha }}
+          path: windows-preview
+      - name: Refuse replacement and attach preview artifacts
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_TAG: ${{ inputs.release_tag }}
+        run: |
+          set -euo pipefail
+          for file in windows-preview/*; do
+            name=$(basename "$file")
+            if gh release view "$RELEASE_TAG" --repo "$GITHUB_REPOSITORY" --json assets --jq '.assets[].name' | grep -Fxq "$name"; then
+              echo "Release asset already exists; refusing to replace it: $name" >&2
+              exit 1
+            fi
+          done
+          gh release upload "$RELEASE_TAG" windows-preview/* --repo "$GITHUB_REPOSITORY"

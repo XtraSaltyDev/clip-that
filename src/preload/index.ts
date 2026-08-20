@@ -19,7 +19,9 @@ import type {
   OcrResult,
   RecoverableRecording,
   RecordingOptions,
+  RecordingPreflight,
   RecordingStatus,
+  PlatformCapability,
   ReleaseNotesStatus,
   SaveImageRequest,
   SaveResult,
@@ -88,8 +90,7 @@ const api = {
       ipcRenderer.invoke(IPC.editorContextMenu, request),
     copyAnnotations: (shapes: Shape[]): Promise<number> =>
       ipcRenderer.invoke(IPC.editorAnnotationClipboardWrite, shapes),
-    readAnnotations: (): Promise<Shape[]> =>
-      ipcRenderer.invoke(IPC.editorAnnotationClipboardRead),
+    readAnnotations: (): Promise<Shape[]> => ipcRenderer.invoke(IPC.editorAnnotationClipboardRead),
     onCloseRequested: (handler: () => void) => on(IPC.editorCloseRequested, handler)
   },
 
@@ -133,8 +134,7 @@ const api = {
       posterDataUrl?: string
     ): Promise<LibraryItem> =>
       ipcRenderer.invoke(IPC.libraryExportVideo, id, options, posterDataUrl),
-    cancelVideoExport: (): Promise<boolean> =>
-      ipcRenderer.invoke(IPC.libraryCancelVideoExport),
+    cancelVideoExport: (): Promise<boolean> => ipcRenderer.invoke(IPC.libraryCancelVideoExport),
     scanSnagit: (): Promise<SnagitImportPreview | null> =>
       ipcRenderer.invoke(IPC.librarySnagitScan),
     importSnagit: (planId: string): Promise<SnagitImportSummary> =>
@@ -155,8 +155,23 @@ const api = {
       displays: DisplayInfo[]
       windows: WindowInfo[]
       systemAudioSupported: boolean
-      ffmpeg: boolean
+      media: {
+        ffmpeg: boolean
+        ffprobe: boolean
+        encoders: string[]
+        mp4: boolean
+        webm: boolean
+        gif: boolean
+      }
+      capabilities: PlatformCapability[]
     }> => ipcRenderer.invoke(IPC.recordSources),
+    selectRegion: (): Promise<{
+      displayId: string
+      region: import('@shared/types').Rect
+      screenRect: import('@shared/types').Rect
+    } | null> => ipcRenderer.invoke(IPC.recordSelectRegion),
+    preflight: (options: RecordingOptions): Promise<RecordingPreflight> =>
+      ipcRenderer.invoke(IPC.recordPreflight, options),
     configure: (options: RecordingOptions): Promise<RecordingOptions> =>
       ipcRenderer.invoke(IPC.recordConfigure, options),
     captureSource: (): Promise<string> => ipcRenderer.invoke(IPC.recordCaptureSource),
@@ -191,11 +206,11 @@ const api = {
       opts: VideoExportOptions,
       meta: { width: number; height: number; durationMs: number; posterDataUrl?: string }
     ): Promise<LibraryItem | null> => ipcRenderer.invoke(IPC.recordExport, opts, meta),
+    cancelExport: (): Promise<boolean> => ipcRenderer.invoke(IPC.recordCancelExport),
     onCommand: (handler: (payload: { command: string; options?: RecordingOptions }) => void) =>
       on(IPC.recordHudCommand, handler),
     /** Global cursor position stream while auto-zoom recording is live. */
-    onCursor: (handler: (point: { x: number; y: number }) => void) =>
-      on(IPC.recordCursor, handler),
+    onCursor: (handler: (point: { x: number; y: number }) => void) => on(IPC.recordCursor, handler),
     onStatus: (handler: (status: RecordingStatus) => void) => on(IPC.recordStatus, handler),
     onProgress: (handler: (payload: { percent: number }) => void) => on(IPC.recordProgress, handler)
   },
@@ -207,7 +222,8 @@ const api = {
       platform: string
       version: string
     }> => ipcRenderer.invoke(IPC.settingsGet),
-    set: (patch: Partial<Settings>): Promise<Settings> => ipcRenderer.invoke(IPC.settingsSet, patch),
+    set: (patch: Partial<Settings>): Promise<Settings> =>
+      ipcRenderer.invoke(IPC.settingsSet, patch),
     reset: (): Promise<Settings> => ipcRenderer.invoke(IPC.settingsReset),
     pickDirectory: (): Promise<string | null> => ipcRenderer.invoke(IPC.settingsPickDirectory),
     onChanged: (handler: (settings: Settings) => void) => on(IPC.settingsChanged, handler),
@@ -236,25 +252,15 @@ const api = {
     exportDiagnostics: (): Promise<SaveResult> => ipcRenderer.invoke(IPC.exportDiagnostics),
     checkForUpdate: (force = false): Promise<AppUpdateStatus> =>
       ipcRenderer.invoke(IPC.updateCheck, force),
-    downloadUpdate: (): Promise<AppUpdateDownloadResult> =>
-      ipcRenderer.invoke(IPC.updateDownload),
+    downloadUpdate: (): Promise<AppUpdateDownloadResult> => ipcRenderer.invoke(IPC.updateDownload),
     openManualUpdate: (): Promise<AppUpdateDownloadResult> =>
       ipcRenderer.invoke(IPC.updateManualDownload),
-    installUpdate: (): Promise<AppUpdateInstallResult> =>
-      ipcRenderer.invoke(IPC.updateInstall),
-    onUpdateStatus: (handler: (status: AppUpdateStatus) => void) =>
-      on(IPC.updateStatus, handler),
+    installUpdate: (): Promise<AppUpdateInstallResult> => ipcRenderer.invoke(IPC.updateInstall),
+    onUpdateStatus: (handler: (status: AppUpdateStatus) => void) => on(IPC.updateStatus, handler),
     window: (
       action:
-        | 'minimize'
-        | 'maximize'
-        | 'close'
-        | 'library'
-        | 'settings'
-        | 'settings-whats-new'
-        | 'record'
-    ) =>
-      ipcRenderer.send(IPC.windowControl, action),
+        'minimize' | 'maximize' | 'close' | 'library' | 'settings' | 'settings-whats-new' | 'record'
+    ) => ipcRenderer.send(IPC.windowControl, action),
     toast: (toast: Toast) => ipcRenderer.send(IPC.toast, toast),
     onToast: (handler: (toast: Toast) => void) => on(IPC.toast, handler),
     quit: (): Promise<void> => ipcRenderer.invoke(IPC.quit)

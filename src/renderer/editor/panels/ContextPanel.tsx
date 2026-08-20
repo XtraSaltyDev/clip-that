@@ -2,6 +2,7 @@ import React, { useCallback, useEffect, useMemo, useState } from 'react'
 import type { BoxShape, Shape } from '@shared/types'
 import { api } from '../../shared/api'
 import { Icon, type IconName } from '../../shared/icons'
+import { MOD_KEY } from '../../shared/platform'
 import { toast } from '../../shared/ui'
 import { runOcr, toImageSpace } from '../../shared/ocr'
 import {
@@ -33,7 +34,11 @@ const ENTITY_ICON: Record<Entity['kind'], IconName> = {
  * Everything ClipThat could work out about the capture, in one place: the text, the
  * things you'd want to copy or open, the table, the palette, and what should be hidden.
  */
-export default function ContextPanel({ image }: { image: HTMLImageElement | null }): React.ReactElement {
+export default function ContextPanel({
+  image
+}: {
+  image: HTMLImageElement | null
+}): React.ReactElement {
   const doc = useEditor((s) => s.doc)
   const ocr = useEditor((s) => s.ocr)
   const rawOcr = useEditor((s) => s.rawOcr)
@@ -215,7 +220,7 @@ export default function ContextPanel({ image }: { image: HTMLImageElement | null
             </>
           ) : (
             <div className="tiny muted">
-              Drag across the words in the capture to select them, then press ⌘C.
+              Drag across the words in the capture to select them, then press {MOD_KEY}C.
             </div>
           )}
         </div>
@@ -239,9 +244,7 @@ export default function ContextPanel({ image }: { image: HTMLImageElement | null
               <span className="ctx-value mono truncate">{m.text}</span>
             </div>
           ))}
-          {sensitive.length > 8 && (
-            <div className="tiny muted">+{sensitive.length - 8} more</div>
-          )}
+          {sensitive.length > 8 && <div className="tiny muted">+{sensitive.length - 8} more</div>}
         </Section>
       )}
 
@@ -339,7 +342,9 @@ export default function ContextPanel({ image }: { image: HTMLImageElement | null
               <button
                 className="btn sm ghost icon tip"
                 data-tip="Open in browser"
-                onClick={() => void api.system.openExternal(qr.startsWith('http') ? qr : 'https://' + qr)}
+                onClick={() =>
+                  void api.system.openExternal(qr.startsWith('http') ? qr : 'https://' + qr)
+                }
               >
                 <Icon name="externalLink" size={13} />
               </button>

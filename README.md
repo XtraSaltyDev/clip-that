@@ -95,7 +95,7 @@ image or text clipboard.
 
 ### Recording
 
-Screen or window, 15–60 fps, microphone, a circular
+Screen, window, or selected region, 15–60 fps, microphone, a circular
 **webcam bubble** composited into the video, and **auto-zoom** — a smoothed camera that
 follows your cursor with a dead-zone, so recordings read like produced video instead of a
 raw screen dump. Floating controller with pause/resume, then a
@@ -103,8 +103,9 @@ review step with trimming and export to **MP4 (H.264)**, **GIF** (two-pass palet
 Library recordings open in ClipThat's video editor, where trim drafts persist, a selection can
 be played or looped, timecodes can be entered precisely, and exports remain non-destructive.
 On macOS 13 and later, recording can include native system audio without a virtual audio
-device. Windows/Linux system-audio paths exist in source but are not supported or
-runtime-accepted features.
+device. The unsigned Windows x64 preview has an explicit source/device/media/destination
+preflight and loopback system-audio path, but those behaviors remain unverified until the
+[Windows 11 x64 acceptance matrix](docs/windows-11-x64-acceptance-v1.md) passes on real hardware.
 
 ### Library
 
@@ -115,6 +116,9 @@ keyboard navigation, and its own `⌘K` palette.
 ---
 
 ## Keyboard
+
+The tables use macOS glyphs. The Windows preview shows and registers `Ctrl`, `Shift`, and
+`Alt` equivalents in the app (for example, `Ctrl+Shift+2` and `Ctrl+K`).
 
 **Global** (configurable in Settings → Shortcuts)
 
@@ -183,12 +187,12 @@ outside the library directory.
 
 ### Per-platform notes
 
-|                | macOS                                                                                                          | Windows                                           | Linux                                            |
-| -------------- | -------------------------------------------------------------------------------------------------------------- | ------------------------------------------------- | ------------------------------------------------ |
-| Release status | **Supported: Apple silicon**                                                                                   | Experimental x64 candidate; no runtime acceptance | Build configuration only; no runtime acceptance  |
-| Capture        | `screencapture -R` per display (the full-display forms fail in-process); `desktopCapturer` as fallback only    | `desktopCapturer`                                 | `desktopCapturer` (X11), portal picker (Wayland) |
-| System audio   | Native capture on macOS 13+                                                                                    | loopback path, unverified                         | loopback path, unverified                        |
-| Permissions    | Screen Recording must be granted; the app verifies by actually reading pixels, not by trusting the status flag | —                                                 | —                                                |
+|                | macOS                                                                                                          | Windows                                                                                                         | Linux                                            |
+| -------------- | -------------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------- | ------------------------------------------------ |
+| Release status | **Supported: Apple silicon**                                                                                   | Experimental x64 candidate; no runtime acceptance                                                               | Build configuration only; no runtime acceptance  |
+| Capture        | `screencapture -R` per display (the full-display forms fail in-process); `desktopCapturer` as fallback only    | `desktopCapturer`; native HWND geometry converted through Electron DIP coordinates; hardware acceptance pending | `desktopCapturer` (X11), portal picker (Wayland) |
+| System audio   | Native capture on macOS 13+                                                                                    | loopback path, unverified                                                                                       | loopback path, unverified                        |
+| Permissions    | Screen Recording must be granted; the app verifies by actually reading pixels, not by trusting the status flag | —                                                                                                               | —                                                |
 
 ---
 
@@ -201,6 +205,7 @@ npm run build:ffmpeg:mac # pinned LGPL-compatible Apple-silicon media tools
 npm run build:ffmpeg:win # pinned LGPL-compatible Windows x64 media tools (MSYS2 MINGW64)
 npm run build:mac      # Apple-silicon dmg + zip
 npm run build:win      # experimental x64 packages; not runtime acceptance
+npm run release:win -- -Version <exact-version> # prepare/verify only; never signs, tags, or publishes
 npm run build:linux    # unsigned development packages; not runtime acceptance
 node build/gen-icons.mjs   # regenerate the icon set from source, no image deps
 ```
@@ -212,6 +217,10 @@ the user's mouse and keyboard under their control. The production build runs tho
 ESLint, Prettier, TypeScript, provenance checks, and the renderer bundle.
 
 Useful non-driving diagnostics remain available:
+
+The exported support summary contains capability states, tool/encoder health, permission
+states, display geometry, and aggregate Library health. It deliberately excludes captures,
+OCR/index content, settings, logs, device names, and window titles.
 
 ```bash
 # Run the real extraction engine over a PNG and print what it found.

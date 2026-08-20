@@ -71,6 +71,63 @@ body {
   font-size: 12px;
 }
 
+.hud-preflight {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 10px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  background: var(--bg-2);
+}
+.hud-check {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  min-height: 20px;
+  font-size: 11px;
+}
+.hud-check .muted {
+  max-width: 245px;
+  overflow: hidden;
+  text-align: right;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.hud-check-dot {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: var(--ink-2);
+  flex: none;
+}
+.hud-check[data-state='supported'] .hud-check-dot {
+  background: var(--ok);
+}
+.hud-check[data-state='unavailable'] .hud-check-dot,
+.hud-check[data-state='permission-error'] .hud-check-dot,
+.hud-check[data-state='device-error'] .hud-check-dot {
+  background: var(--danger);
+}
+.hud-check[data-state='unverified'] .hud-check-dot {
+  background: var(--warn);
+}
+.hud-mic-level {
+  height: 5px;
+  overflow: hidden;
+  border-radius: 99px;
+  background: var(--bg-3);
+}
+.hud-mic-level span {
+  display: block;
+  height: 100%;
+  background: var(--ok);
+  transition: width 80ms linear;
+}
+.hud-device-error {
+  color: var(--danger);
+}
+
 /* ---------- countdown ---------- */
 
 .hud-count {
@@ -156,7 +213,9 @@ body {
   border-radius: 50%;
   background: var(--bg-3);
   color: var(--ink-0);
-  transition: background 120ms ease, transform 80ms ease;
+  transition:
+    background 120ms ease,
+    transform 80ms ease;
 }
 .hud-btn:hover {
   background: var(--bg-elevated);
@@ -375,7 +434,9 @@ body {
   color: var(--ink-0);
   font-size: 12px;
   font-weight: 500;
-  transition: background 110ms ease, border-color 110ms ease;
+  transition:
+    background 110ms ease,
+    border-color 110ms ease;
 }
 .qa-btn:hover {
   background: var(--bg-elevated);

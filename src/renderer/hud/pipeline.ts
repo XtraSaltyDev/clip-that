@@ -1,4 +1,4 @@
-import type { RecordingOptions, Rect } from '@shared/types'
+import type { RecordingOptions, RecordingPreflightItem, Rect } from '@shared/types'
 import { api } from '../shared/api'
 import {
   DEFAULT_CAMERA_CONFIG,
@@ -23,11 +23,7 @@ export interface CaptureHandles {
   dispose: () => void
 }
 
-type PersistChunk = (
-  sequence: number,
-  bytes: Uint8Array,
-  mimeType: string
-) => Promise<void>
+type PersistChunk = (sequence: number, bytes: Uint8Array, mimeType: string) => Promise<void>
 
 function pickMimeType(): string {
   const candidates = [
@@ -46,7 +42,20 @@ function videoBitrate(width: number, height: number, fps: number): number {
   return Math.round(Math.min(24_000_000, Math.max(2_000_000, pixels * fps * perPixel)))
 }
 
-async function getMicStream(deviceId?: string): Promise<MediaStream | null> {
+function deviceError(kind: 'microphone' | 'camera', error: unknown): Error {
+  const name = (error as DOMException)?.name ?? ''
+  if (name === 'NotAllowedError' || name === 'SecurityError') {
+    return new Error(
+      `${kind === 'camera' ? 'Camera' : 'Microphone'} permission was denied. Allow access in system privacy settings and try again.`
+    )
+  }
+  if (name === 'NotFoundError' || name === 'OverconstrainedError') {
+    return new Error(`The selected ${kind} is no longer available. Choose another device.`)
+  }
+  return new Error(`The ${kind} could not be opened. Close other apps using it and try again.`)
+}
+
+async function getMicStream(deviceId?: string): Promise<MediaStream> {
   try {
     return await navigator.mediaDevices.getUserMedia({
       audio: {
@@ -56,12 +65,12 @@ async function getMicStream(deviceId?: string): Promise<MediaStream | null> {
         autoGainControl: true
       }
     })
-  } catch {
-    return null
+  } catch (error) {
+    throw deviceError('microphone', error)
   }
 }
 
-async function getWebcamStream(deviceId?: string): Promise<MediaStream | null> {
+async function getWebcamStream(deviceId?: string): Promise<MediaStream> {
   try {
     return await navigator.mediaDevices.getUserMedia({
       video: {
@@ -70,8 +79,111 @@ async function getWebcamStream(deviceId?: string): Promise<MediaStream | null> {
         height: { ideal: 720 }
       }
     })
-  } catch {
-    return null
+  } catch (error) {
+    throw deviceError('camera', error)
+  }
+}
+
+export async function checkRecordingDevices(
+  options: RecordingOptions
+): Promise<RecordingPreflightItem[]> {
+  const items: RecordingPreflightItem[] = []
+  let mic: MediaStream | null = null
+  let webcam: MediaStream | null = null
+  try {
+    if (options.microphone) {
+      try {
+        mic = await getMicStream(options.microphoneDeviceId)
+        const context = new AudioContext()
+        const analyser = context.createAnalyser()
+        context.createMediaStreamSource(mic).connect(analyser)
+        await new Promise((resolve) => setTimeout(resolve, 120))
+        const values = new Uint8Array(analyser.fftSize)
+        analyser.getByteTimeDomainData(values)
+        const peak = values.reduce((max, value) => Math.max(max, Math.abs(value - 128)), 0) / 128
+        await context.close()
+        items.push({
+          id: 'microphone',
+          label: 'Microphone',
+          state: 'supported',
+          detail: `Device opened; live level ${Math.round(peak * 100)}%`
+        })
+      } catch (error) {
+        items.push({
+          id: 'microphone',
+          label: 'Microphone',
+          state: /permission/i.test((error as Error).message) ? 'permission-error' : 'device-error',
+          detail: (error as Error).message
+        })
+      }
+    } else {
+      items.push({
+        id: 'microphone',
+        label: 'Microphone',
+        state: 'supported',
+        detail: 'Not requested'
+      })
+    }
+
+    if (options.webcam) {
+      try {
+        webcam = await getWebcamStream(options.webcamDeviceId)
+        const settings = webcam.getVideoTracks()[0]?.getSettings()
+        items.push({
+          id: 'webcam',
+          label: 'Webcam',
+          state: 'supported',
+          detail:
+            settings?.width && settings?.height
+              ? `Device opened at ${settings.width}×${settings.height}`
+              : 'Device opened'
+        })
+      } catch (error) {
+        items.push({
+          id: 'webcam',
+          label: 'Webcam',
+          state: /permission/i.test((error as Error).message) ? 'permission-error' : 'device-error',
+          detail: (error as Error).message
+        })
+      }
+    } else {
+      items.push({ id: 'webcam', label: 'Webcam', state: 'supported', detail: 'Not requested' })
+    }
+    return items
+  } finally {
+    mic?.getTracks().forEach((track) => track.stop())
+    webcam?.getTracks().forEach((track) => track.stop())
+  }
+}
+
+export async function startMicrophoneMonitor(
+  deviceId: string | undefined,
+  onLevel: (level: number) => void,
+  onError: (message: string) => void
+): Promise<() => void> {
+  try {
+    const stream = await getMicStream(deviceId)
+    const context = new AudioContext()
+    const analyser = context.createAnalyser()
+    analyser.fftSize = 512
+    context.createMediaStreamSource(stream).connect(analyser)
+    const values = new Uint8Array(analyser.fftSize)
+    const timer = window.setInterval(() => {
+      analyser.getByteTimeDomainData(values)
+      const rms = Math.sqrt(
+        values.reduce((sum, value) => sum + ((value - 128) / 128) ** 2, 0) / values.length
+      )
+      onLevel(Math.max(0, Math.min(1, rms * 3)))
+    }, 100)
+    return () => {
+      clearInterval(timer)
+      stream.getTracks().forEach((track) => track.stop())
+      void context.close()
+      onLevel(0)
+    }
+  } catch (error) {
+    onError((error as Error).message)
+    return () => undefined
   }
 }
 
@@ -86,7 +198,11 @@ function playInline(stream: MediaStream): HTMLVideoElement {
 
 /** Give the first decoded frame a chance to establish its intrinsic dimensions. */
 async function waitForVideoFrame(video: HTMLVideoElement, timeoutMs = 3000): Promise<void> {
-  if (video.readyState >= HTMLMediaElement.HAVE_CURRENT_DATA && video.videoWidth > 0 && video.videoHeight > 0) {
+  if (
+    video.readyState >= HTMLMediaElement.HAVE_CURRENT_DATA &&
+    video.videoWidth > 0 &&
+    video.videoHeight > 0
+  ) {
     return
   }
 
@@ -183,12 +299,34 @@ export async function startCapture(
   const display = await getDisplayStream(options)
 
   const displayTrack = display.getVideoTracks()[0]
+  if (!displayTrack) {
+    display.getTracks().forEach((track) => track.stop())
+    throw new Error('The selected source did not provide a video track. Choose the source again.')
+  }
   const settings = displayTrack.getSettings()
   let sourceWidth = settings.width ?? 1920
   let sourceHeight = settings.height ?? 1080
 
-  const mic = options.microphone ? await getMicStream(options.microphoneDeviceId) : null
-  const webcam = options.webcam ? await getWebcamStream(options.webcamDeviceId) : null
+  let mic: MediaStream | null = null
+  let webcam: MediaStream | null = null
+  try {
+    mic = options.microphone ? await getMicStream(options.microphoneDeviceId) : null
+    webcam = options.webcam ? await getWebcamStream(options.webcamDeviceId) : null
+  } catch (error) {
+    display.getTracks().forEach((track) => track.stop())
+    mic?.getTracks().forEach((track) => track.stop())
+    webcam?.getTracks().forEach((track) => track.stop())
+    throw error
+  }
+
+  if (options.systemAudio && display.getAudioTracks().length === 0) {
+    display.getTracks().forEach((track) => track.stop())
+    mic?.getTracks().forEach((track) => track.stop())
+    webcam?.getTracks().forEach((track) => track.stop())
+    throw new Error(
+      'System audio was requested, but the selected source did not provide an audio track.'
+    )
+  }
 
   const cropped = region && region.width > 0 && region.height > 0
   // Auto-zoom needs per-frame reframing, which only the canvas path can do. It applies
@@ -396,11 +534,25 @@ export async function startCapture(
 
   const stream = new MediaStream([videoTrack, ...audioTracks])
 
-  const recorder = new MediaRecorder(stream, {
-    mimeType: pickMimeType(),
-    videoBitsPerSecond: videoBitrate(outWidth, outHeight, options.fps),
-    audioBitsPerSecond: 128_000
-  })
+  let recorder: MediaRecorder
+  try {
+    recorder = new MediaRecorder(stream, {
+      mimeType: pickMimeType(),
+      videoBitsPerSecond: videoBitrate(outWidth, outHeight, options.fps),
+      audioBitsPerSecond: 128_000
+    })
+  } catch (error) {
+    offCursor?.()
+    if (raf) cancelAnimationFrame(raf)
+    display.getTracks().forEach((track) => track.stop())
+    mic?.getTracks().forEach((track) => track.stop())
+    webcam?.getTracks().forEach((track) => track.stop())
+    videoTrack.stop()
+    void audioContext?.close()
+    throw new Error(
+      `The recorder could not start with the selected source and devices: ${(error as Error).message}`
+    )
+  }
 
   let sequence = 0
   let acceptingChunks = true
@@ -419,12 +571,21 @@ export async function startCapture(
         chunkFailure = err instanceof Error ? err : new Error(String(err))
       })
   }
+  recorder.addEventListener('error', (event) => {
+    const failure = (event as Event & { error?: DOMException }).error
+    chunkFailure = new Error(failure?.message || 'The browser media recorder stopped unexpectedly.')
+    if (recorder.state !== 'inactive') recorder.stop()
+  })
 
   const setPaused = (paused: boolean) => {
     compositingPaused = paused
     displayTrack.enabled = !paused
-    mic?.getTracks().forEach((track) => { track.enabled = !paused })
-    webcam?.getTracks().forEach((track) => { track.enabled = !paused })
+    mic?.getTracks().forEach((track) => {
+      track.enabled = !paused
+    })
+    webcam?.getTracks().forEach((track) => {
+      track.enabled = !paused
+    })
     if (paused) {
       displayVideo?.pause()
       webcamVideo?.pause()
@@ -460,6 +621,11 @@ export async function startCapture(
   displayTrack.addEventListener('ended', () => {
     if (recorder.state !== 'inactive') recorder.stop()
   })
+  for (const track of [...(mic?.getTracks() ?? []), ...(webcam?.getTracks() ?? [])]) {
+    track.addEventListener('ended', () => {
+      if (recorder.state !== 'inactive') recorder.stop()
+    })
+  }
 
   let stopped = recorder.state === 'inactive'
   recorder.addEventListener('stop', () => {
@@ -485,7 +651,12 @@ export async function startCapture(
     return stopPromise
   }
 
-  recorder.start(1000)
+  try {
+    recorder.start(1000)
+  } catch (error) {
+    dispose()
+    throw new Error(`The recorder could not begin writing video: ${(error as Error).message}`)
+  }
 
   return {
     stream,

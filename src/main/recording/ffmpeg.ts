@@ -5,27 +5,18 @@ import { join } from 'node:path'
 import { app } from 'electron'
 import type { VideoExportOptions } from '@shared/types'
 import { tempDir } from '../store/paths'
-import { bundledFfmpegPath } from './ffmpeg-path'
+import { bundledFfmpegPath, bundledFfprobePath } from './ffmpeg-path'
+import { classifyFfmpegError } from './ffmpeg-errors'
 
-/** Resolve an explicit override, ClipThat's audited bundle, then a system installation. */
+/** Recording export is intentionally restricted to ClipThat's audited bundle. */
 function resolveFfmpeg(): string | null {
-  const explicit = process.env['CLIPTHAT_FFMPEG']
-  if (explicit && existsSync(explicit)) return explicit
-
   const bundled = bundledFfmpegPath({
     platform: process.platform,
     packaged: app.isPackaged,
     resourcesPath: process.resourcesPath,
     appPath: app.getAppPath()
   })
-  if (existsSync(bundled)) return bundled
-
-  if (process.platform === 'darwin') {
-    for (const candidate of ['/opt/homebrew/bin/ffmpeg', '/usr/local/bin/ffmpeg']) {
-      if (existsSync(candidate)) return candidate
-    }
-  }
-  return 'ffmpeg'
+  return existsSync(bundled) ? bundled : null
 }
 
 let cachedPath: string | null | undefined
@@ -52,7 +43,7 @@ function runFfmpeg(
   signal?: AbortSignal
 ): Promise<void> {
   const bin = ffmpegPath()
-  if (!bin) return Promise.reject(new Error('ffmpeg is unavailable'))
+  if (!bin) return Promise.reject(new Error('The bundled FFmpeg executable is unavailable.'))
 
   return new Promise((resolve, reject) => {
     const child = spawn(bin, args, { windowsHide: true })
@@ -91,7 +82,8 @@ function runFfmpeg(
     child.on('close', (code) => {
       if (cancelled) finish(new FfmpegCancelledError())
       else if (code === 0) finish()
-      else finish(new Error(`ffmpeg exited with ${code}\n${stderr.slice(-1500)}`))
+      else
+        finish(new Error(classifyFfmpegError(`ffmpeg exited with ${code}\n${stderr.slice(-1500)}`)))
     })
   })
 }
@@ -145,7 +137,7 @@ function availableEncoders(): Promise<Set<string>> {
     child.on('error', () => resolve(new Set()))
     child.on('close', () => {
       const names = new Set<string>()
-      for (const match of output.matchAll(/^\s*V\S*\s+(\S+)/gm)) names.add(match[1])
+      for (const match of output.matchAll(/^\s*[VAS]\S*\s+(\S+)/gm)) names.add(match[1])
       resolve(names)
     })
   })
@@ -402,4 +394,42 @@ export async function ffmpegAvailable(): Promise<boolean> {
     child.on('error', () => resolve(false))
     child.on('close', (code) => resolve(code === 0))
   })
+}
+
+function executableAvailable(bin: string): Promise<boolean> {
+  return new Promise((resolve) => {
+    if (!existsSync(bin)) return resolve(false)
+    const child = spawn(bin, ['-version'], { windowsHide: true })
+    child.on('error', () => resolve(false))
+    child.on('close', (code) => resolve(code === 0))
+  })
+}
+
+export interface BundledMediaCapabilities {
+  ffmpeg: boolean
+  ffprobe: boolean
+  encoders: string[]
+  mp4: boolean
+  webm: boolean
+  gif: boolean
+}
+
+export async function bundledMediaCapabilities(): Promise<BundledMediaCapabilities> {
+  const options = {
+    platform: process.platform,
+    packaged: app.isPackaged,
+    resourcesPath: process.resourcesPath,
+    appPath: app.getAppPath()
+  }
+  const ffprobe = await executableAvailable(bundledFfprobePath(options))
+  const encoders = await availableEncoders()
+  const h264 = hardwareH264Candidates('medium').some((item) => encoders.has(item.name))
+  return {
+    ffmpeg: await ffmpegAvailable(),
+    ffprobe,
+    encoders: [...encoders].sort(),
+    mp4: (h264 || encoders.has('libx264')) && encoders.has('aac'),
+    webm: encoders.has('libvpx-vp9') && encoders.has('libopus'),
+    gif: encoders.has('gif')
+  }
 }

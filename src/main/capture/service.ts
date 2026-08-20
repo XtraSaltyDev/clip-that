@@ -22,7 +22,12 @@ import {
   showSettingsWindow,
   withNonEditorAppWindowsHidden
 } from '../windows/manager'
-import { closeOverlay, openOverlay, takeFrozenSnapshot, type OverlaySelection } from '../windows/overlay'
+import {
+  closeOverlay,
+  openOverlay,
+  takeFrozenSnapshot,
+  type OverlaySelection
+} from '../windows/overlay'
 import { showQuickAccess } from '../windows/quick'
 import { runPipeline } from '../pipeline'
 import { checkPermissions } from '../permissions'
@@ -30,11 +35,15 @@ import { captureDisplay, captureRegionCli, captureWindow, snapshotAllDisplays } 
 import { displayPixelSize, displayUnderCursor, findDisplay } from './displays'
 import { stitchPngFrames } from './stitch'
 import { recording } from '../recording/session'
+import { captureFailureMessage } from './failures'
 
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms))
 
 /** Crop a data URL by pixel rect. */
-function cropDataUrl(dataUrl: string, rect: Rect): { dataUrl: string; width: number; height: number } | null {
+function cropDataUrl(
+  dataUrl: string,
+  rect: Rect
+): { dataUrl: string; width: number; height: number } | null {
   const image = nativeImage.createFromDataURL(dataUrl)
   if (image.isEmpty()) return null
   const size = image.getSize()
@@ -130,7 +139,8 @@ async function captureLastRegion(): Promise<CaptureResult | null> {
   if (!last) return null
   const display = last.displayId ? findDisplay(last.displayId) : undefined
   const target =
-    display ?? screen.getDisplayMatching({ x: last.x, y: last.y, width: last.width, height: last.height })
+    display ??
+    screen.getDisplayMatching({ x: last.x, y: last.y, width: last.width, height: last.height })
 
   const snap = await captureDisplay(String(target.id))
   if (!snap) return null
@@ -318,7 +328,12 @@ export function scrollCaptureConfig(): ScrollCaptureConfig | null {
   const display = session ? findDisplay(session.displayId) : undefined
   if (!session || !display) return null
   const pixels = displayPixelSize(display)
-  return { rect: { ...session.rect }, displayWidth: pixels.width, displayHeight: pixels.height, intervalMs: 400 }
+  return {
+    rect: { ...session.rect },
+    displayWidth: pixels.width,
+    displayHeight: pixels.height,
+    intervalMs: 400
+  }
 }
 
 /** Accept a cropped PNG from the isolated HUD renderer. */
@@ -435,6 +450,14 @@ export async function performCapture(req: CaptureRequest): Promise<CaptureResult
 
   if (!result) {
     await warnIfNoScreenAccess()
+    broadcast(IPC.toast, {
+      kind: 'error',
+      message: 'Capture did not complete',
+      detail: captureFailureMessage(
+        req.mode === 'window' ? 'vanished' : 'unavailable',
+        req.mode === 'window' ? 'The selected window' : 'The selected source'
+      )
+    })
     return null
   }
   if (req.silent) {
@@ -578,9 +601,7 @@ export async function loadLibraryDocument(id: string): Promise<ClipDocument | nu
   const item = library.get(id)
   if (!item || item.kind !== 'image') return null
   const loaded = (await library.loadProject(id)) ?? (await loadProjectFile(item.filePath))
-  return loaded
-    ? { ...loaded, id: item.id, title: item.title, exportPath: item.exportPath }
-    : null
+  return loaded ? { ...loaded, id: item.id, title: item.title, exportPath: item.exportPath } : null
 }
 
 /** Switch only the editor that sent the request; other open editors are left untouched. */

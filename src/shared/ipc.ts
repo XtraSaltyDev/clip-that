@@ -79,8 +79,11 @@ export const IPC = {
   recordRecover: 'record:recover',
   recordDiscardRecovery: 'record:discard-recovery',
   recordExport: 'record:export',
+  recordCancelExport: 'record:cancel-export',
   recordProgress: 'record:progress',
   recordSources: 'record:sources',
+  recordSelectRegion: 'record:select-region',
+  recordPreflight: 'record:preflight',
   recordHudCommand: 'record:hud-command',
   recordCursor: 'record:cursor',
 
