@@ -414,10 +414,14 @@ export default function Recorder(): React.ReactElement {
 
   if (phase === 'recording') {
     return (
-      <div className="hud-bar drag-region" role="status" aria-live="polite">
+      <div className="hud-bar drag-region">
         <span className={`hud-rec ${paused ? 'paused' : ''}`} />
-        <span className="hud-recording-state">{paused ? 'Paused' : 'Recording'}</span>
-        <span className="hud-time mono">{formatDuration(elapsed)}</span>
+        <span className="hud-recording-state" role="status" aria-live="polite">
+          {paused ? 'Paused' : 'Recording'}
+        </span>
+        <span className="hud-time mono" aria-live="off">
+          {formatDuration(elapsed)}
+        </span>
         <span className="spacer" />
         <button
           className="hud-btn no-drag"
@@ -824,10 +828,10 @@ export default function Recorder(): React.ReactElement {
               <Segmented
                 value={options.webcamPosition}
                 options={[
-                  { value: 'tl', label: '◤' },
-                  { value: 'tr', label: '◥' },
-                  { value: 'bl', label: '◣' },
-                  { value: 'br', label: '◢' }
+                  { value: 'tl', label: '◤', ariaLabel: 'Top left' },
+                  { value: 'tr', label: '◥', ariaLabel: 'Top right' },
+                  { value: 'bl', label: '◣', ariaLabel: 'Bottom left' },
+                  { value: 'br', label: '◢', ariaLabel: 'Bottom right' }
                 ]}
                 onChange={(webcamPosition) => set({ webcamPosition })}
               />

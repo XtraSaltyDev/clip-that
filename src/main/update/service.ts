@@ -9,6 +9,7 @@ import type {
 } from '@shared/types'
 import { compareSemanticVersions } from './version'
 import { InvalidUpdateMetadataError, validateMacUpdateMetadata } from './metadata'
+import { PRODUCT_VERSION } from '../product-version'
 
 const SUCCESS_CACHE_MS = 15 * 60 * 1_000
 const FAILURE_CACHE_MS = 60 * 1_000
@@ -31,7 +32,7 @@ function supported(): boolean {
 }
 
 function currentVersion(): string {
-  return app.getVersion()
+  return PRODUCT_VERSION
 }
 
 function setStatus(next: AppUpdateStatus): AppUpdateStatus {

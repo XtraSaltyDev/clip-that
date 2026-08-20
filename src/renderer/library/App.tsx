@@ -477,13 +477,14 @@ export default function App(): React.ReactElement {
           <Segmented
             value={view}
             options={[
-              { value: 'grid', label: <Icon name="grid" size={13} />, tip: 'Grid' },
-              { value: 'list', label: <Icon name="list" size={13} />, tip: 'List' }
+              { value: 'grid', label: <Icon name="grid" size={13} />, ariaLabel: 'Grid' },
+              { value: 'list', label: <Icon name="list" size={13} />, ariaLabel: 'List' }
             ]}
             onChange={setView}
           />
           <button
-            className="btn primary lib-toolbar-action lib-primary-action"
+            className="btn primary tip lib-toolbar-action lib-primary-action"
+            data-tip="Capture region"
             title="Capture region"
             aria-label="Capture region"
             onClick={() => void api.capture.start({ mode: 'region' })}
@@ -491,7 +492,8 @@ export default function App(): React.ReactElement {
             <Icon name="region" size={14} /> <span className="lib-action-label">Capture</span>
           </button>
           <button
-            className="btn lib-toolbar-action lib-primary-action"
+            className="btn tip lib-toolbar-action lib-primary-action"
+            data-tip="Record screen"
             title="Record screen"
             aria-label="Record screen"
             onClick={() => api.system.window('record')}
@@ -499,7 +501,8 @@ export default function App(): React.ReactElement {
             <Icon name="record" size={11} /> <span className="lib-action-label">Record</span>
           </button>
           <button
-            className="btn ghost lib-toolbar-action lib-import-action"
+            className="btn ghost tip lib-toolbar-action lib-import-action"
+            data-tip={snagitScanning ? 'Scanning Snagit library' : 'Import Snagit library'}
             title={snagitScanning ? 'Scanning Snagit library' : 'Import Snagit library'}
             aria-label={snagitScanning ? 'Scanning Snagit library' : 'Import Snagit library'}
             onClick={() => void beginSnagitImport()}
@@ -556,7 +559,7 @@ export default function App(): React.ReactElement {
             </button>
           )}
           <button
-            className="btn ghost icon tip focus-ring"
+            className="btn ghost icon tip align-end focus-ring"
             data-tip="Settings"
             title="Settings"
             aria-label="Settings"
@@ -577,7 +580,7 @@ export default function App(): React.ReactElement {
         </div>
       )}
 
-      <div className="lib-body">
+      <div className={`lib-body ${active ? 'has-details' : ''}`}>
         <nav className="lib-side">
           <div className="lib-side-group">
             {(

@@ -28,6 +28,7 @@
     "src/renderer/editor/tools.ts",
     "src/renderer/hud/recording-sources.ts",
     "src/renderer/hud/preflight-summary.ts",
+    "src/shared/recording-exports.ts",
     "src/renderer/library/layout.ts",
     "src/renderer/shared/extract.ts",
     "src/shared/release-notes.ts",

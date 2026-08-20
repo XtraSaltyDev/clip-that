@@ -4,6 +4,7 @@ import { promises as fs } from 'node:fs'
 import { join } from 'node:path'
 import { IPC } from '@shared/ipc'
 import { releaseNotesStatus } from '@shared/release-notes'
+import { hasUsableRecordingExport } from '@shared/recording-exports'
 import type {
   CaptureRequest,
   ClipDocument,
@@ -26,6 +27,7 @@ import { formatFilename } from '@shared/defaults'
 import { settings } from '../store/settings'
 import { recordingsDir } from '../store/paths'
 import { releaseNotesStore } from '../store/release-notes'
+import { PRODUCT_VERSION } from '../product-version'
 import { library } from '../store/library'
 import {
   cancelScrollCapture,
@@ -641,6 +643,7 @@ export function registerIpcHandlers(): void {
           (!options.systemAudio || systemAudio) &&
           media.ffmpeg &&
           media.ffprobe &&
+          hasUsableRecordingExport(media) &&
           (availableBytes === null || availableBytes >= 1024 * 1024 * 1024)
       }
     }
@@ -785,7 +788,7 @@ export function registerIpcHandlers(): void {
     settings: settings.get(),
     hotkeyFailures: hotkeyFailures(),
     platform: process.platform,
-    version: app.getVersion()
+    version: PRODUCT_VERSION
   }))
 
   secureHandle(IPC.settingsSet, ['settings'], (_e, unsafePatch: Partial<Settings>) => {
@@ -833,11 +836,11 @@ export function registerIpcHandlers(): void {
   /* ---------------- bundled release notes ---------------- */
 
   const currentReleaseNotes = () =>
-    releaseNotesStatus(app.getVersion(), releaseNotesStore.lastSeenVersion())
+    releaseNotesStatus(PRODUCT_VERSION, releaseNotesStore.lastSeenVersion())
 
   secureHandle(IPC.releaseNotesGet, ['library', 'settings'], () => currentReleaseNotes())
   secureHandle(IPC.releaseNotesMarkSeen, ['library', 'settings'], () => {
-    releaseNotesStore.markSeen(app.getVersion())
+    releaseNotesStore.markSeen(PRODUCT_VERSION)
     const next = currentReleaseNotes()
     broadcast(IPC.releaseNotesChanged, next)
     return next
@@ -862,7 +865,7 @@ export function registerIpcHandlers(): void {
   })
 
   secureHandle(IPC.appInfo, ['settings'], () => ({
-    version: app.getVersion(),
+    version: PRODUCT_VERSION,
     electron: process.versions.electron,
     chrome: process.versions.chrome,
     node: process.versions.node,

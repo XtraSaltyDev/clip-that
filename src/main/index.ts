@@ -29,6 +29,9 @@ import { initializeAppUpdates } from './update/service'
 
 const IS_MAC = process.platform === 'darwin'
 
+// Keep the product name stable for unpackaged verification too.
+app.setName('ClipThat')
+
 /* A single instance owns the global hotkeys; a second launch just wakes the first. */
 if (!app.requestSingleInstanceLock()) {
   app.quit()
@@ -116,7 +119,6 @@ function stopRecordingFlow(): void {
  * ------------------------------------------------------------------ */
 
 app.whenReady().then(async () => {
-  app.setName('ClipThat')
   installFileLogger()
   if (process.platform === 'win32') app.setAppUserModelId('dev.clipthat.app')
 

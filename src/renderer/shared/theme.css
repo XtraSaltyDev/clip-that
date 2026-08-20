@@ -433,7 +433,9 @@ input[type='color']::-webkit-color-swatch {
     transform 120ms ease 250ms;
   z-index: 90;
 }
-.tip:hover::after {
+.tip:hover::after,
+.tip:focus-visible::after,
+.tip:focus-within::after {
   opacity: 1;
   transform: translateX(-50%) translateY(0);
 }
@@ -442,8 +444,20 @@ input[type='color']::-webkit-color-swatch {
   top: 50%;
   transform: translateY(-50%) translateX(-3px);
 }
-.tip.right:hover::after {
+.tip.right:hover::after,
+.tip.right:focus-visible::after,
+.tip.right:focus-within::after {
   transform: translateY(-50%) translateX(0);
+}
+.tip.align-end::after {
+  right: 0;
+  left: auto;
+  transform: translateY(-3px);
+}
+.tip.align-end:hover::after,
+.tip.align-end:focus-visible::after,
+.tip.align-end:focus-within::after {
+  transform: translateY(0);
 }
 
 /* ---------- toasts ---------- */

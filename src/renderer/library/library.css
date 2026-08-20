@@ -272,6 +272,14 @@ body.mac .lib-top {
   color: var(--ink-2);
   font-size: 11px;
 }
+.lib-body.has-details .lib-main.list .lib-list-facts {
+  grid-template-columns: minmax(62px, 0.8fr) minmax(54px, 0.7fr) minmax(72px, 1fr);
+  gap: 8px;
+  width: min(44%, 270px);
+}
+.lib-body.has-details .lib-main.list .lib-list-facts span:nth-child(4) {
+  display: none;
+}
 
 /* ---------- details ---------- */
 

@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react'
+import React, { useCallback, useEffect, useId, useLayoutEffect, useRef, useState } from 'react'
 import type { Settings, Toast } from '@shared/types'
 import { api } from './api'
 
@@ -92,24 +92,41 @@ export function toast(kind: Toast['kind'], message: string, detail?: string): vo
 
 export function Segmented<T extends string>(props: {
   value: T
-  options: Array<{ value: T; label: React.ReactNode; tip?: string; disabled?: boolean }>
+  options: Array<{
+    value: T
+    label: React.ReactNode
+    ariaLabel?: string
+    tip?: string
+    disabled?: boolean
+  }>
   onChange: (value: T) => void
 }): React.ReactElement {
+  const helpId = useId()
   return (
     <div className="segmented">
-      {props.options.map((o) => (
-        <button
-          key={o.value}
-          aria-pressed={props.value === o.value}
-          aria-label={o.tip}
-          data-tip={o.tip}
-          className={o.tip ? 'tip' : undefined}
-          disabled={o.disabled}
-          onClick={() => props.onChange(o.value)}
-        >
-          {o.label}
-        </button>
-      ))}
+      {props.options.map((o) => {
+        const descriptionId = o.tip ? `${helpId}-${o.value}` : undefined
+        return (
+          <React.Fragment key={o.value}>
+            <button
+              aria-pressed={props.value === o.value}
+              aria-label={o.ariaLabel}
+              aria-describedby={descriptionId}
+              data-tip={o.tip}
+              className={o.tip ? 'tip' : undefined}
+              disabled={o.disabled}
+              onClick={() => props.onChange(o.value)}
+            >
+              {o.label}
+            </button>
+            {o.tip && (
+              <span className="sr-only" id={descriptionId}>
+                {o.tip}
+              </span>
+            )}
+          </React.Fragment>
+        )
+      })}
     </div>
   )
 }

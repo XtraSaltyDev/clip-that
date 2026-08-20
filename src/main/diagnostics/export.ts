@@ -8,6 +8,7 @@ import { library } from '../store/library'
 import { checkPermissions } from '../permissions'
 import { platformCapabilityMatrix } from '@shared/platform-capabilities'
 import { bundledMediaCapabilities } from '../recording/ffmpeg'
+import { PRODUCT_VERSION } from '../product-version'
 
 function suggestedName(): string {
   return `ClipThat-diagnostics-${new Date().toISOString().slice(0, 10)}.json`
@@ -50,7 +51,7 @@ export async function exportDiagnostics(parent: BrowserWindow | null): Promise<S
       bundledMedia: media,
       app: {
         name: app.getName(),
-        version: app.getVersion(),
+        version: PRODUCT_VERSION,
         packaged: app.isPackaged,
         platform: process.platform,
         arch: process.arch,
