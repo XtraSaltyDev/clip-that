@@ -592,7 +592,7 @@ export function libraryPatch(value: unknown): LibraryItemPatch {
       const draft = record(input.videoEdit, 'video edit draft')
       rejectUnknown(
         draft,
-        ['startMs', 'endMs', 'format', 'quality', 'updatedAt'],
+        ['startMs', 'endMs', 'format', 'quality', 'aspect', 'exportPreset', 'updatedAt'],
         'video edit draft'
       )
       const startMs = finite(draft.startMs, 'trim start', 0, 86_400_000)
@@ -603,6 +603,24 @@ export function libraryPatch(value: unknown): LibraryItemPatch {
         endMs,
         format: enumValue(draft.format, 'video format', ['mp4', 'webm'] as const),
         quality: enumValue(draft.quality, 'video quality', ['medium', 'high'] as const),
+        aspect:
+          draft.aspect === undefined
+            ? undefined
+            : enumValue(draft.aspect, 'video aspect', [
+                'original',
+                'landscape',
+                'square',
+                'vertical'
+              ] as const),
+        exportPreset:
+          draft.exportPreset === undefined
+            ? undefined
+            : enumValue(draft.exportPreset, 'video export preset', [
+                'custom',
+                'web',
+                'presentation',
+                'vertical-social'
+              ] as const),
         updatedAt: finite(draft.updatedAt, 'video edit time', 0, 9_000_000_000_000_000)
       }
     }
@@ -923,7 +941,7 @@ export function videoExportOptions(value: unknown): VideoExportOptions {
   const input = record(value, 'video export options')
   rejectUnknown(
     input,
-    ['format', 'quality', 'startMs', 'endMs', 'fps', 'maxWidth'],
+    ['format', 'quality', 'startMs', 'endMs', 'fps', 'maxWidth', 'aspect', 'exportPreset'],
     'video export options'
   )
   const startMs =
@@ -940,7 +958,27 @@ export function videoExportOptions(value: unknown): VideoExportOptions {
     endMs,
     fps: input.fps === undefined ? undefined : finite(input.fps, 'export fps', 1, 120),
     maxWidth:
-      input.maxWidth === undefined ? undefined : finite(input.maxWidth, 'maximum width', 64, 16_384)
+      input.maxWidth === undefined
+        ? undefined
+        : finite(input.maxWidth, 'maximum width', 64, 16_384),
+    aspect:
+      input.aspect === undefined
+        ? undefined
+        : enumValue(input.aspect, 'video aspect', [
+            'original',
+            'landscape',
+            'square',
+            'vertical'
+          ] as const),
+    exportPreset:
+      input.exportPreset === undefined
+        ? undefined
+        : enumValue(input.exportPreset, 'video export preset', [
+            'custom',
+            'web',
+            'presentation',
+            'vertical-social'
+          ] as const)
   }
 }
 
@@ -1040,8 +1078,17 @@ export function windowAction(
   ] as const)
 }
 
-export function quickAction(value: unknown): 'copy' | 'save' | 'pin' | 'edit' {
-  return enumValue(value, 'quick action', ['copy', 'save', 'pin', 'edit'] as const)
+export function quickAction(
+  value: unknown
+): 'copy' | 'save' | 'pin' | 'edit' | 'reveal' | 'pipeline' {
+  return enumValue(value, 'quick action', [
+    'copy',
+    'save',
+    'pin',
+    'edit',
+    'reveal',
+    'pipeline'
+  ] as const)
 }
 
 export function externalUrl(value: unknown): string {

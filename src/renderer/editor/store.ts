@@ -63,6 +63,8 @@ interface EditorState {
   /** Derived image generation is asynchronous; exports wait for it to settle. */
   cutOutRendering: boolean
   ocrBusy: boolean
+  /** Last Context/OCR failure, shown alongside the preserved capture. */
+  ocrError: string | null
   /** Word boxes from the last OCR pass — powers Live Text and the context panel. */
   ocr: OcrResult | null
   /** Unfiltered engine output, kept separate so uncertain text never powers actions. */
@@ -82,6 +84,7 @@ interface EditorState {
   setEditingText: (id: string | null) => void
   setZoom: (zoom: number, autoFit?: boolean) => void
   setOcrBusy: (busy: boolean) => void
+  setOcrError: (error: string | null) => void
   setOcr: (result: OcrResult | null) => void
   setOcrResults: (trusted: OcrResult | null, raw: OcrResult | null) => void
   setLiveText: (on: boolean) => void
@@ -193,6 +196,7 @@ export const useEditor = create<EditorState>((set, get) => ({
   cutOutEdge: 'straight',
   cutOutRendering: false,
   ocrBusy: false,
+  ocrError: null,
   ocr: null,
   rawOcr: null,
   liveTextOn: false,
@@ -235,6 +239,8 @@ export const useEditor = create<EditorState>((set, get) => ({
       cropDraft: null,
       cutOutDraft: null,
       cutOutRendering: false,
+      ocrBusy: false,
+      ocrError: null,
       ocr: null,
       rawOcr: null,
       liveTextOn: false,
@@ -277,6 +283,7 @@ export const useEditor = create<EditorState>((set, get) => ({
   setEditingText: (id) => set({ editingTextId: id }),
   setZoom: (zoom, autoFit = false) => set({ zoom: Math.max(0.05, Math.min(8, zoom)), autoFit }),
   setOcrBusy: (ocrBusy) => set({ ocrBusy }),
+  setOcrError: (ocrError) => set({ ocrError }),
   setOcr: (ocr) => set({ ocr }),
   setOcrResults: (ocr, rawOcr) =>
     set((state) => ({

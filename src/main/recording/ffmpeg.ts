@@ -3,7 +3,8 @@ import { existsSync } from 'node:fs'
 import { promises as fs } from 'node:fs'
 import { join } from 'node:path'
 import { app } from 'electron'
-import type { VideoExportOptions } from '@shared/types'
+import type { RecordingMediaCapabilities, VideoExportOptions } from '@shared/types'
+import { aspectCanvasDimensions } from '@shared/recording-polish'
 import { tempDir } from '../store/paths'
 import { bundledFfmpegPath, bundledFfprobePath } from './ffmpeg-path'
 import { classifyFfmpegError } from './ffmpeg-errors'
@@ -92,6 +93,67 @@ export class FfmpegCancelledError extends Error {
   constructor() {
     super('Video export was cancelled')
   }
+}
+
+export interface VideoProbeMetadata {
+  width: number
+  height: number
+  durationMs: number
+}
+
+/** Read the rendered dimensions from the audited bundled ffprobe binary. */
+export async function probeVideoMetadata(input: string): Promise<VideoProbeMetadata> {
+  const bin = bundledFfprobePath({
+    platform: process.platform,
+    packaged: app.isPackaged,
+    resourcesPath: process.resourcesPath,
+    appPath: app.getAppPath()
+  })
+  if (!existsSync(bin)) throw new Error('The bundled ffprobe executable is unavailable.')
+  return new Promise((resolve, reject) => {
+    const child = spawn(
+      bin,
+      [
+        '-v',
+        'error',
+        '-select_streams',
+        'v:0',
+        '-show_entries',
+        'stream=width,height,duration:format=duration',
+        '-of',
+        'json',
+        input
+      ],
+      { windowsHide: true }
+    )
+    let stdout = ''
+    let stderr = ''
+    child.stdout.on('data', (chunk: Buffer) => (stdout += chunk.toString()))
+    child.stderr.on('data', (chunk: Buffer) => (stderr += chunk.toString()))
+    child.on('error', reject)
+    child.on('close', (code) => {
+      if (code !== 0) {
+        reject(new Error(`ffprobe exited with ${code}: ${stderr.slice(-500)}`))
+        return
+      }
+      try {
+        const parsed = JSON.parse(stdout) as {
+          streams?: Array<{ width?: number; height?: number; duration?: string }>
+          format?: { duration?: string }
+        }
+        const stream = parsed.streams?.[0]
+        const width = Number(stream?.width)
+        const height = Number(stream?.height)
+        const durationMs = Number(parsed.format?.duration ?? stream?.duration) * 1000
+        if (![width, height, durationMs].every(Number.isFinite) || width <= 0 || height <= 0) {
+          throw new Error('ffprobe returned incomplete video metadata')
+        }
+        resolve({ width, height, durationMs: Math.max(1, durationMs) })
+      } catch (error) {
+        reject(error)
+      }
+    })
+  })
 }
 
 const CRF: Record<VideoExportOptions['quality'], string> = {
@@ -233,6 +295,13 @@ function scaleFilter(maxWidth?: number): string | null {
   return `scale='min(${maxWidth},iw)':-2:flags=lanczos`
 }
 
+function framingFilter(opts: VideoExportOptions): string | null {
+  if (!opts.aspect || opts.aspect === 'original') return scaleFilter(opts.maxWidth)
+  const canvas = aspectCanvasDimensions(opts.aspect, opts.maxWidth ?? 1280)
+  if (!canvas) return scaleFilter(opts.maxWidth)
+  return `scale=${canvas.width}:${canvas.height}:force_original_aspect_ratio=decrease:flags=lanczos,pad=${canvas.width}:${canvas.height}:(ow-iw)/2:(oh-ih)/2:color=black`
+}
+
 /** Transcode the recorder's WebM into MP4 (H.264 + AAC) for universal playback. */
 export async function toMp4(
   input: string,
@@ -243,8 +312,8 @@ export async function toMp4(
   signal?: AbortSignal
 ): Promise<string> {
   const filters = ['format=yuv420p']
-  const scale = scaleFilter(opts.maxWidth)
-  if (scale) filters.unshift(scale)
+  const framing = framingFilter(opts)
+  if (framing) filters.unshift(framing)
 
   const beforeCodec = ['-y', ...trimArgs(opts), '-i', input, '-vf', filters.join(',')]
   const afterCodec = [
@@ -310,7 +379,7 @@ export async function toGif(
   signal?: AbortSignal
 ): Promise<string> {
   const fps = opts.fps ?? 15
-  const scale = scaleFilter(opts.maxWidth ?? 900) ?? 'scale=iw:ih'
+  const scale = framingFilter({ ...opts, maxWidth: opts.maxWidth ?? 900 }) ?? 'scale=iw:ih'
   const palette = join(tempDir(), `palette-${Date.now()}.png`)
 
   try {
@@ -362,14 +431,16 @@ export async function toWebm(
   onProgress?: (p: FfmpegProgress) => void,
   signal?: AbortSignal
 ): Promise<string> {
-  const needsReencode = Boolean(opts.maxWidth || opts.fps)
+  const needsReencode = Boolean(
+    opts.maxWidth || opts.fps || (opts.aspect && opts.aspect !== 'original')
+  )
   const args = needsReencode
     ? [
         '-y',
         ...trimArgs(opts),
         '-i',
         input,
-        ...(opts.maxWidth ? ['-vf', scaleFilter(opts.maxWidth)!] : []),
+        ...(framingFilter(opts) ? ['-vf', framingFilter(opts)!] : []),
         ...(opts.fps ? ['-r', String(opts.fps)] : []),
         '-c:v',
         'libvpx-vp9',
@@ -405,14 +476,7 @@ function executableAvailable(bin: string): Promise<boolean> {
   })
 }
 
-export interface BundledMediaCapabilities {
-  ffmpeg: boolean
-  ffprobe: boolean
-  encoders: string[]
-  mp4: boolean
-  webm: boolean
-  gif: boolean
-}
+export type BundledMediaCapabilities = RecordingMediaCapabilities
 
 export async function bundledMediaCapabilities(): Promise<BundledMediaCapabilities> {
   const options = {

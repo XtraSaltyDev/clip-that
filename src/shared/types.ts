@@ -416,11 +416,44 @@ export interface LibraryItem {
   ocrText?: string
   durationMs?: number
   videoEdit?: VideoEditDraft
+  /** Stable Library id of the source recording for a derived video export. */
+  derivedFromId?: string
+  /** Export framing carried onto a derived video for Library lineage/reuse. */
+  derivedAspect?: VideoAspectPreset
+  derivedExportPreset?: VideoExportPreset
   byteSize: number
   /** Stable source marker for imports; never an absolute source path. */
   importedFrom?: 'snagit'
   /** Hash of the source bytes used for exact duplicate detection. */
   contentHash?: string
+  /** Set when startup recovery rebuilt this record from an on-disk capture. */
+  recovered?: boolean
+}
+
+export type LibraryWorkbenchState =
+  'available' | 'linked' | 'missing' | 'unreadable' | 'incomplete' | 'none'
+
+export interface LibraryWorkbenchLink {
+  state: LibraryWorkbenchState
+  /** Short, honest status used at the capture-to-output handoff. */
+  label: string
+  /** Optional Library target for safe navigation. */
+  itemId?: string
+  title?: string
+}
+
+/** Runtime-only relationship and file-health projection for Library surfaces. */
+export interface LibraryWorkbench {
+  source: LibraryWorkbenchLink
+  project: LibraryWorkbenchLink
+  export: LibraryWorkbenchLink
+  /** Derived versions of this item, resolved from the existing Library index. */
+  derived: LibraryWorkbenchLink[]
+}
+
+/** LibraryItem plus verified runtime relationships; never persisted as a second record. */
+export interface LibraryItemView extends LibraryItem {
+  workbench: LibraryWorkbench
 }
 
 export interface VideoEditDraft {
@@ -428,6 +461,10 @@ export interface VideoEditDraft {
   endMs: number
   format: 'mp4' | 'webm'
   quality: 'medium' | 'high'
+  /** Non-destructive canvas framing used by the preview and export. */
+  aspect?: VideoAspectPreset
+  /** Reusable export recipe; absent means the legacy/custom controls. */
+  exportPreset?: VideoExportPreset
   updatedAt: number
 }
 
@@ -616,6 +653,20 @@ export interface VideoExportOptions {
   /** Max output width; height follows aspect. */
   maxWidth?: number
   quality: 'low' | 'medium' | 'high'
+  aspect?: VideoAspectPreset
+  exportPreset?: VideoExportPreset
+}
+
+export type VideoAspectPreset = 'original' | 'landscape' | 'square' | 'vertical'
+export type VideoExportPreset = 'custom' | 'web' | 'presentation' | 'vertical-social'
+
+export interface RecordingMediaCapabilities {
+  ffmpeg: boolean
+  ffprobe: boolean
+  encoders: string[]
+  mp4: boolean
+  webm: boolean
+  gif: boolean
 }
 
 /* ------------------------------------------------------------------ *

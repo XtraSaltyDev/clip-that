@@ -165,7 +165,11 @@ export function useEditorActions(stageRef: StageRef, settings: Settings | null) 
   const grabText = useCallback(async () => {
     const doc = useEditor.getState().doc
     if (!doc) return
-    useEditor.getState().setOcrBusy(true)
+    const state = useEditor.getState()
+    state.setOcrError(null)
+    state.setOcrResults(null, null)
+    state.setLiveText(false)
+    state.setOcrBusy(true)
     try {
       const region = doc.crop.enabled ? doc.crop : undefined
       const result = toImageSpace(await runOcr(doc.image, region), region)
@@ -180,6 +184,7 @@ export function useEditorActions(stageRef: StageRef, settings: Settings | null) 
         toast('info', 'No meaningful text detected')
       }
     } catch (err) {
+      useEditor.getState().setOcrError((err as Error).message || 'The OCR engine did not complete.')
       toast('error', 'Text recognition failed', (err as Error).message)
     } finally {
       useEditor.getState().setOcrBusy(false)
@@ -195,6 +200,9 @@ export function useEditorActions(stageRef: StageRef, settings: Settings | null) 
     const doc = state.doc
     if (!doc) return
 
+    state.setOcrError(null)
+    state.setOcrResults(null, null)
+    state.setLiveText(false)
     state.setOcrBusy(true)
     try {
       const region = doc.crop.enabled ? doc.crop : undefined
@@ -203,6 +211,15 @@ export function useEditorActions(stageRef: StageRef, settings: Settings | null) 
       const assessment = assessOcr(result)
       state.setOcrText(assessment.trusted.text)
       state.setOcrResults(assessment.trusted, result)
+
+      if (assessment.disposition !== 'accepted') {
+        toast(
+          'info',
+          'Auto-blur unavailable',
+          'Context text is not fully trusted. Review the capture or raw OCR and blur manually.'
+        )
+        return
+      }
 
       const matches = findSensitive(assessment.trusted)
       if (matches.length === 0) {
@@ -249,6 +266,7 @@ export function useEditorActions(stageRef: StageRef, settings: Settings | null) 
         kinds
       )
     } catch (err) {
+      useEditor.getState().setOcrError((err as Error).message || 'The OCR engine did not complete.')
       toast('error', 'Auto-redact failed', (err as Error).message)
     } finally {
       useEditor.getState().setOcrBusy(false)

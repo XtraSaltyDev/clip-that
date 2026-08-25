@@ -21,22 +21,32 @@ export interface PipelineOutcome {
 export async function runPipeline(
   result: CaptureResult,
   pipeline: Pipeline,
-  openEditor: (result: CaptureResult, libraryId?: string) => void
+  openEditor: (result: CaptureResult, libraryId?: string) => void,
+  existingLibraryId?: string
 ): Promise<PipelineOutcome> {
   const outcome: PipelineOutcome = { steps: [], errors: [] }
   const s = settings.get()
   const title = result.title || formatFilename(s.filenameTemplate)
 
   // Every pipeline capture lands in the library regardless of steps — nothing is ever lost.
-  const item = await library.addImage({
-    dataUrl: result.dataUrl,
-    title,
-    width: result.width,
-    height: result.height
-  })
+  // A handoff action may be rerunning the pipeline for an item already indexed by Quick Access.
+  const existing = existingLibraryId ? library.get(existingLibraryId) : undefined
+  const item =
+    existing?.kind === 'image'
+      ? existing
+      : await library.addImage({
+          dataUrl: result.dataUrl,
+          title,
+          width: result.width,
+          height: result.height
+        })
 
   if (pipeline.save) {
-    const saved = await saveImage({ dataUrl: result.dataUrl, format: s.imageFormat, suggestedName: title })
+    const saved = await saveImage({
+      dataUrl: result.dataUrl,
+      format: s.imageFormat,
+      suggestedName: title
+    })
     if (saved.ok && saved.filePath) {
       outcome.savedPath = saved.filePath
       outcome.steps.push('save')
@@ -77,7 +87,9 @@ export async function runPipeline(
   }
 
   const summary =
-    outcome.steps.length > 0 ? `Pipeline: ${outcome.steps.join(' → ')}` : 'Pipeline ran (no steps enabled)'
+    outcome.steps.length > 0
+      ? `Pipeline: ${outcome.steps.join(' → ')}`
+      : 'Pipeline ran (no steps enabled)'
   broadcast('system:toast', {
     kind: outcome.errors.length ? 'error' : 'success',
     message: outcome.errors.length ? 'Pipeline finished with errors' : summary,

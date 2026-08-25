@@ -6,6 +6,7 @@ import {
   extractEntities,
   findSensitive
 } from '../.cache/test/src/renderer/shared/extract.js'
+import { summarizeContextTrust } from '../.cache/test/src/shared/context-trust.js'
 
 const word = (text, confidence, x, y, width = Math.max(18, text.length * 8), height = 18) => ({
   text,
@@ -14,6 +15,64 @@ const word = (text, confidence, x, y, width = Math.max(18, text.length * 8), hei
 })
 
 const result = (words) => ({ text: words.map((entry) => entry.text).join(' '), words })
+
+const context = ({ busy = false, source = null, error = null } = {}) => {
+  const assessment = source ? assessOcr(source) : null
+  return summarizeContextTrust({ busy, assessment, raw: source, error })
+}
+
+test('Context exposes processing and keeps structured actions gated', () => {
+  const state = context({ busy: true })
+
+  assert.equal(state.state, 'processing')
+  assert.equal(state.structuredActionsAllowed, false)
+  assert.match(state.detail, /edit, save, copy/)
+  assert.match(state.structuredActionReason, /trust checks/)
+})
+
+test('Context exposes trusted text and enables structured actions only after acceptance', () => {
+  const source = result([word('Quarterly', 96, 20, 20), word('report', 94, 100, 20)])
+  const state = context({ source })
+
+  assert.equal(state.state, 'trusted')
+  assert.equal(state.trustedText, 'Quarterly report')
+  assert.equal(state.structuredActionsAllowed, true)
+  assert.equal(state.structuredActionReason, '')
+})
+
+test('Context labels mixed OCR partial and gates structured actions', () => {
+  const source = result([word('Documentation', 96, 20, 20), word('XQZ', 45, 20, 60)])
+  const state = context({ source })
+
+  assert.equal(state.state, 'partial')
+  assert.equal(state.recoveredWords, 1)
+  assert.equal(state.uncertainWords, 1)
+  assert.equal(state.structuredActionsAllowed, false)
+  assert.match(state.structuredActionReason, /trust checks/)
+})
+
+test('Context exposes uncertain raw OCR without presenting it as verified', () => {
+  const source = result([word('NLR', 58, 30, 30), word('rr', 44, 270, 30)])
+  const state = context({ source })
+
+  assert.equal(state.state, 'uncertain')
+  assert.equal(state.trustedText, '')
+  assert.equal(state.rawText, 'NLR rr')
+  assert.equal(state.structuredActionsAllowed, false)
+  assert.match(state.detail, /inspection only/)
+})
+
+test('Context distinguishes empty and failed analysis while preserving fallback guidance', () => {
+  const empty = context({ source: result([]) })
+  const failed = context({ error: 'OCR engine unavailable' })
+
+  assert.equal(empty.state, 'empty')
+  assert.equal(empty.structuredActionsAllowed, false)
+  assert.match(empty.detail, /original capture is preserved/)
+  assert.equal(failed.state, 'failure')
+  assert.match(failed.detail, /OCR engine unavailable/)
+  assert.match(failed.structuredActionReason, /Retry Context/)
+})
 
 test('accepts clean text and preserves actionable word boxes', () => {
   const source = result([

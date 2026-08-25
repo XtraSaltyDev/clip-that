@@ -226,13 +226,24 @@ body.mac .topbar {
   padding: 18px;
   background: #080a0e;
 }
-.video-workspace video {
+.video-preview-frame {
   flex: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
   width: 100%;
   min-height: 0;
+  overflow: hidden;
   border-radius: 10px;
   background: #000;
   box-shadow: 0 10px 34px #0008;
+}
+.video-workspace video {
+  width: 100%;
+  height: 100%;
+  min-height: 0;
+  object-fit: contain;
+  background: #000;
 }
 .video-trimmer {
   display: flex;
@@ -501,6 +512,40 @@ body.mac .topbar {
 .video-save-note {
   margin-top: auto;
   line-height: 1.45;
+}
+.video-control-note {
+  margin: -4px 0 2px;
+  line-height: 1.35;
+}
+.video-capability-section {
+  display: flex;
+  flex-direction: column;
+  gap: 7px;
+}
+.video-capability-section h3 {
+  margin: 0;
+  color: var(--ink-0);
+  font-size: 12px;
+}
+.video-capability {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: 7px 8px;
+  border: 1px solid var(--line);
+  border-radius: 7px;
+  background: var(--bg-0);
+  font-size: 11px;
+  line-height: 1.35;
+}
+.video-capability strong {
+  color: var(--ink-1);
+}
+.video-capability span {
+  color: var(--ink-2);
+}
+.video-capability.unavailable {
+  border-color: color-mix(in srgb, var(--warning) 32%, var(--line));
 }
 .video-editor-body .editor-library-strip {
   grid-column: 1;
@@ -1241,6 +1286,54 @@ body.mac .topbar {
   display: flex;
   align-items: center;
   gap: 6px;
+}
+.ctx-trust {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 10px;
+  border-radius: var(--radius);
+  border: 1px solid var(--line);
+  background: var(--bg-2);
+  color: var(--ink-1);
+}
+.ctx-trust.processing {
+  border-color: color-mix(in srgb, var(--accent) 42%, var(--line));
+  background: color-mix(in srgb, var(--accent) 10%, var(--bg-2));
+}
+.ctx-trust.trusted {
+  border-color: color-mix(in srgb, var(--ok) 42%, var(--line));
+  background: color-mix(in srgb, var(--ok) 10%, var(--bg-2));
+}
+.ctx-trust.partial,
+.ctx-trust.uncertain,
+.ctx-trust.failure {
+  border-color: color-mix(in srgb, var(--warn) 42%, var(--line));
+  background: color-mix(in srgb, var(--warn) 10%, var(--bg-2));
+}
+.ctx-trust-title {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  color: var(--ink-0);
+  font-size: 12px;
+}
+.ctx-trust-title .icon {
+  flex: none;
+}
+.ctx-trust-badge {
+  margin-left: auto;
+  font-size: 10px;
+  font-weight: 500;
+  color: var(--ok);
+}
+.ctx-trust p {
+  margin: 0;
+  font-size: 11px;
+  line-height: 1.45;
+}
+.ctx-trust-action-note {
+  color: var(--ink-2);
 }
 .ctx-empty {
   display: flex;

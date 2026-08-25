@@ -100,6 +100,7 @@ export const IPC = {
   recordCancelExport: 'record:cancel-export',
   recordProgress: 'record:progress',
   recordSources: 'record:sources',
+  recordMediaCapabilities: 'record:media-capabilities',
   recordSelectRegion: 'record:select-region',
   recordPreflight: 'record:preflight',
   recordHudCommand: 'record:hud-command',

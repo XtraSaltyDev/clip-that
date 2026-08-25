@@ -22,7 +22,7 @@ import type {
 } from '@shared/types'
 import type { SnagitImportProgress } from '@shared/types'
 import { createPin } from '../windows/pins'
-import { quickCache } from '../windows/quick'
+import { quickCache, showQuickAccessItem } from '../windows/quick'
 import { openResultInEditor } from '../capture/service'
 import { formatFilename } from '@shared/defaults'
 import { settings } from '../store/settings'
@@ -84,8 +84,10 @@ import {
   revealFile,
   saveImage,
   saveProject,
-  startDrag
+  startDrag,
+  startFileDrag
 } from '../export'
+import { runPipeline } from '../pipeline'
 import { recording } from '../recording/session'
 import { exportLibraryVideo } from '../recording/library-video'
 import {
@@ -662,6 +664,8 @@ export function registerIpcHandlers(): void {
     }
   })
 
+  secureHandle(IPC.recordMediaCapabilities, ['editor'], async () => bundledMediaCapabilities())
+
   secureHandle(IPC.recordSelectRegion, ['hud'], async () => {
     const selection = await openOverlay('region')
     if (!selection) return null
@@ -893,6 +897,7 @@ export function registerIpcHandlers(): void {
         refreshTray()
         if (item) {
           broadcast(IPC.libraryChanged)
+          showQuickAccessItem(item)
           broadcast(IPC.toast, {
             kind: 'success',
             message: 'Recording saved',
@@ -1103,8 +1108,30 @@ export function registerIpcHandlers(): void {
     const action = validate.quickAction(unsafeAction)
     const entry = quickCache().get(id)
     if (!entry) return { ok: false, error: 'capture expired' }
-    const { result, libraryId } = entry
     const s = settings.get()
+
+    if (entry.kind === 'video') {
+      switch (action) {
+        case 'edit':
+          openVideoInEditor(entry.item)
+          return { ok: true }
+        case 'reveal':
+          if (!library.ownsPath(entry.item.filePath))
+            return { ok: false, error: 'file unavailable' }
+          revealFile(entry.item.filePath)
+          return { ok: true }
+        case 'copy':
+          return { ok: false, error: 'Recordings cannot be copied as images' }
+        case 'save':
+          return { ok: false, error: 'Recording is already saved in the Library' }
+        case 'pin':
+          return { ok: false, error: 'Recordings cannot be pinned as images' }
+        case 'pipeline':
+          return { ok: false, error: 'Pipeline actions currently support images only' }
+      }
+    }
+
+    const { result, libraryId } = entry
 
     switch (action) {
       case 'copy':
@@ -1122,6 +1149,18 @@ export function registerIpcHandlers(): void {
       case 'edit':
         openResultInEditor(result, libraryId)
         return { ok: true }
+      case 'reveal': {
+        if (!libraryId) return { ok: false, error: 'capture is not in the Library' }
+        const item = library.get(libraryId)
+        if (!item || !library.ownsPath(item.filePath)) {
+          return { ok: false, error: 'capture file unavailable' }
+        }
+        revealFile(item.filePath)
+        return { ok: true }
+      }
+      case 'pipeline':
+        await runPipeline(result, s.pipeline, openResultInEditor, libraryId)
+        return { ok: true }
     }
   })
 
@@ -1129,6 +1168,12 @@ export function registerIpcHandlers(): void {
     const id = validate.idValue(unsafeId, 'quick capture id')
     const entry = quickCache().get(id)
     if (!entry) return
+    if (entry.kind === 'video') {
+      if (library.ownsPath(entry.item.filePath)) {
+        await startFileDrag(e, entry.item.filePath, entry.item.thumbnail || undefined)
+      }
+      return
+    }
     const name = entry.result.title || formatFilename(settings.get().filenameTemplate)
     await startDrag(e, entry.result.dataUrl, name)
   })

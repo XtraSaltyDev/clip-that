@@ -1,6 +1,7 @@
 import type { Command } from '../shared/CommandPalette'
 import { api } from '../shared/api'
 import { BEAUTIFY_CANVAS, DEFAULT_CANVAS } from '@shared/defaults'
+import { assessOcr } from '@shared/ocr-quality'
 import { useEditor } from './store'
 import { ALL_TOOLS } from './tools'
 import type { EditorActions } from './actions'
@@ -19,6 +20,12 @@ export function editorCommands(
 ): Command[] {
   const state = () => useEditor.getState()
   const hasSelection = () => state().selectedIds.length > 0
+  const trustedContextReady = () => {
+    const current = state()
+    return Boolean(
+      current.rawOcr && !current.ocrBusy && assessOcr(current.rawOcr).disposition === 'accepted'
+    )
+  }
 
   const tools: Command[] = ALL_TOOLS.map((t) => ({
     id: `tool.${t.id}`,
@@ -98,6 +105,7 @@ export function editorCommands(
       keywords: 'ocr select copy',
       run: () => {
         state().setPanel('context')
+        if (!trustedContextReady()) return
         state().setLiveText(!state().liveTextOn)
       }
     },

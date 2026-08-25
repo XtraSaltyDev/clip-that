@@ -1,10 +1,4 @@
-import {
-  existsSync,
-  readFileSync,
-  renameSync,
-  rmSync,
-  writeFileSync
-} from 'node:fs'
+import { existsSync, readFileSync, renameSync, rmSync, writeFileSync } from 'node:fs'
 import { promises as fs } from 'node:fs'
 import { extname, join, resolve } from 'node:path'
 import type { LibraryItem } from '@shared/types'
@@ -82,10 +76,25 @@ function isLibraryItem(value: unknown): value is LibraryItem {
         item.ocrVersion <= 1_000)) &&
     (item.ocrText === undefined || typeof item.ocrText === 'string') &&
     (item.importedFrom === undefined || item.importedFrom === 'snagit') &&
-    (item.contentHash === undefined || (typeof item.contentHash === 'string' && /^[0-9a-f]{64}$/i.test(item.contentHash))) &&
+    (item.recovered === undefined || typeof item.recovered === 'boolean') &&
+    (item.contentHash === undefined ||
+      (typeof item.contentHash === 'string' && /^[0-9a-f]{64}$/i.test(item.contentHash))) &&
     (item.durationMs === undefined ||
       (typeof item.durationMs === 'number' && Number.isFinite(item.durationMs))) &&
-    (item.videoEdit === undefined || isVideoEditDraft(item.videoEdit))
+    (item.videoEdit === undefined || isVideoEditDraft(item.videoEdit)) &&
+    (item.derivedFromId === undefined ||
+      (typeof item.derivedFromId === 'string' &&
+        /^[a-zA-Z0-9][a-zA-Z0-9_-]{0,127}$/.test(item.derivedFromId))) &&
+    (item.derivedAspect === undefined ||
+      item.derivedAspect === 'original' ||
+      item.derivedAspect === 'landscape' ||
+      item.derivedAspect === 'square' ||
+      item.derivedAspect === 'vertical') &&
+    (item.derivedExportPreset === undefined ||
+      item.derivedExportPreset === 'custom' ||
+      item.derivedExportPreset === 'web' ||
+      item.derivedExportPreset === 'presentation' ||
+      item.derivedExportPreset === 'vertical-social')
   )
 }
 
@@ -93,18 +102,40 @@ function isVideoEditDraft(value: unknown): boolean {
   if (!value || typeof value !== 'object' || Array.isArray(value)) return false
   const draft = value as Record<string, unknown>
   return (
-    typeof draft.startMs === 'number' && Number.isFinite(draft.startMs) && draft.startMs >= 0 &&
-    typeof draft.endMs === 'number' && Number.isFinite(draft.endMs) && draft.endMs > draft.startMs &&
+    typeof draft.startMs === 'number' &&
+    Number.isFinite(draft.startMs) &&
+    draft.startMs >= 0 &&
+    typeof draft.endMs === 'number' &&
+    Number.isFinite(draft.endMs) &&
+    draft.endMs > draft.startMs &&
     (draft.format === 'mp4' || draft.format === 'webm') &&
     (draft.quality === 'medium' || draft.quality === 'high') &&
-    typeof draft.updatedAt === 'number' && Number.isFinite(draft.updatedAt)
+    (draft.aspect === undefined ||
+      draft.aspect === 'original' ||
+      draft.aspect === 'landscape' ||
+      draft.aspect === 'square' ||
+      draft.aspect === 'vertical') &&
+    (draft.exportPreset === undefined ||
+      draft.exportPreset === 'custom' ||
+      draft.exportPreset === 'web' ||
+      draft.exportPreset === 'presentation' ||
+      draft.exportPreset === 'vertical-social') &&
+    typeof draft.updatedAt === 'number' &&
+    Number.isFinite(draft.updatedAt)
   )
 }
 
 function parseIndex(path: string): { items: LibraryItem[]; rejected: number } {
   const parsed = JSON.parse(readFileSync(path, 'utf8')) as unknown
   if (!Array.isArray(parsed)) throw new Error('index root is not an array')
-  const items = parsed.filter(isLibraryItem)
+  const valid = parsed.filter(isLibraryItem)
+  const byId = new Map(valid.map((item) => [item.id, item]))
+  const items = valid.filter((item) => {
+    if (!item.derivedFromId) return true
+    if (item.derivedFromId === item.id) return false
+    const source = byId.get(item.derivedFromId)
+    return !source || source.kind === 'video'
+  })
   return { items, rejected: parsed.length - items.length }
 }
 
@@ -174,11 +205,7 @@ function validIndexText(path: string): string | null {
 }
 
 /** Replace the index atomically and retain the previous valid generation as a backup. */
-export function persistLibraryIndex(
-  primary: string,
-  backup: string,
-  items: LibraryItem[]
-): void {
+export function persistLibraryIndex(primary: string, backup: string, items: LibraryItem[]): void {
   const serialized = `${JSON.stringify(items, null, 2)}\n`
   const primaryTmp = `${primary}.tmp`
   const backupTmp = `${backup}.tmp`

@@ -80,7 +80,11 @@ export function copyImageToClipboard(dataUrl: string): boolean {
   return true
 }
 
-export function readImageFromClipboard(): { dataUrl: string; width: number; height: number } | null {
+export function readImageFromClipboard(): {
+  dataUrl: string
+  width: number
+  height: number
+} | null {
   const image = clipboard.readImage()
   if (image.isEmpty()) return null
   const size = image.getSize()
@@ -216,6 +220,22 @@ export async function startDrag(
       width: Math.max(1, Math.round(size.width * scale)),
       height: Math.max(1, Math.round(size.height * scale))
     })
+  })
+}
+
+/** Hand an existing Library file to the OS drag-and-drop pipeline. */
+export async function startFileDrag(
+  event: Electron.IpcMainInvokeEvent,
+  filePath: string,
+  iconPath?: string
+): Promise<void> {
+  await fs.access(filePath)
+  const icon = nativeImage.createFromPath(iconPath ?? filePath)
+  event.sender.startDrag({
+    file: filePath,
+    icon: icon.isEmpty()
+      ? nativeImage.createFromPath(join(__dirname, '../../build/icon.png'))
+      : icon
   })
 }
 
