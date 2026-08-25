@@ -17,6 +17,7 @@ import {
   type Swatch
 } from '../../shared/extract'
 import { decodeQrFromImage, looksLikeUrl } from '../../shared/qr'
+import { summarizeContextTrust } from '@shared/context-trust'
 import { orderWords, selectedText } from '../canvas/LiveText'
 import { useEditor } from '../store'
 
@@ -43,6 +44,7 @@ export default function ContextPanel({
   const ocr = useEditor((s) => s.ocr)
   const rawOcr = useEditor((s) => s.rawOcr)
   const busy = useEditor((s) => s.ocrBusy)
+  const ocrError = useEditor((s) => s.ocrError)
   const liveText = useEditor((s) => s.liveTextOn)
   const liveSelection = useEditor((s) => s.liveSelection)
   const [palette, setPalette] = useState<Swatch[]>([])
@@ -52,6 +54,8 @@ export default function ContextPanel({
     const state = useEditor.getState()
     const current = state.doc
     if (!current || state.ocrBusy) return
+    state.setOcrError(null)
+    state.setOcrResults(null, null)
     state.setOcrBusy(true)
     try {
       const region = current.crop.enabled ? current.crop : undefined
@@ -59,7 +63,9 @@ export default function ContextPanel({
       const assessment = assessOcr(result)
       state.setOcrResults(assessment.trusted, result)
       state.setOcrText(assessment.trusted.text)
+      if (assessment.disposition !== 'accepted') state.setLiveText(false)
     } catch (err) {
+      useEditor.getState().setOcrError((err as Error).message || 'The OCR engine did not complete.')
       toast('error', 'Could not read the capture', (err as Error).message)
     } finally {
       useEditor.getState().setOcrBusy(false)
@@ -71,6 +77,13 @@ export default function ContextPanel({
     if (!ocr && !busy && doc) void analyse()
   }, [doc?.id])
 
+  const assessment = useMemo(() => (rawOcr ? assessOcr(rawOcr) : null), [rawOcr])
+  const trust = useMemo(
+    () => summarizeContextTrust({ busy, assessment, raw: rawOcr, error: ocrError }),
+    [assessment, busy, ocrError, rawOcr]
+  )
+  const structuredActionsAllowed = trust.structuredActionsAllowed
+
   useEffect(() => {
     if (!image) return
     setPalette(extractPalette(image))
@@ -79,13 +92,22 @@ export default function ContextPanel({
     return () => clearTimeout(t)
   }, [image])
 
-  const entities = useMemo(() => (ocr ? extractEntities(ocr) : []), [ocr])
-  const table = useMemo(() => (ocr ? detectTable(ocr) : null), [ocr])
-  const sensitive = useMemo(() => (ocr ? findSensitive(ocr) : []), [ocr])
+  const entities = useMemo(
+    () => (structuredActionsAllowed && ocr ? extractEntities(ocr) : []),
+    [ocr, structuredActionsAllowed]
+  )
+  const table = useMemo(
+    () => (structuredActionsAllowed && ocr ? detectTable(ocr) : null),
+    [ocr, structuredActionsAllowed]
+  )
+  const sensitive = useMemo(
+    () => (structuredActionsAllowed && ocr ? findSensitive(ocr) : []),
+    [ocr, structuredActionsAllowed]
+  )
   const words = useMemo(() => (ocr ? orderWords(ocr.words) : []), [ocr])
   const title = useMemo(
-    () => (ocr && doc ? suggestTitle(ocr, doc.imageHeight) : null),
-    [ocr, doc?.imageHeight]
+    () => (structuredActionsAllowed && ocr && doc ? suggestTitle(ocr, doc.imageHeight) : null),
+    [doc?.imageHeight, ocr, structuredActionsAllowed]
   )
 
   const grouped = useMemo(() => {
@@ -180,28 +202,60 @@ export default function ContextPanel({
         <button
           className={`btn sm ${liveText ? 'primary' : 'ghost'}`}
           onClick={() => useEditor.getState().setLiveText(!liveText)}
-          disabled={!ocr || words.length === 0}
+          disabled={!structuredActionsAllowed || !ocr || words.length === 0}
+          title={
+            structuredActionsAllowed
+              ? 'Select trusted text in the capture'
+              : trust.structuredActionReason || 'Live Text is unavailable until Context is trusted'
+          }
         >
           <Icon name="type" size={13} /> Live Text
         </button>
       </div>
 
-      {busy && !ocr && (
-        <div className="ctx-empty">
-          <Icon name="refresh" size={20} className="spin" />
-          Reading the capture…
+      <section
+        className={`ctx-trust ${trust.state}`}
+        role={trust.state === 'failure' ? 'alert' : 'status'}
+        aria-live="polite"
+        aria-label={`Context status: ${trust.label}`}
+      >
+        <div className="ctx-trust-title">
+          <Icon
+            name={
+              trust.state === 'processing'
+                ? 'refresh'
+                : trust.state === 'trusted'
+                  ? 'check'
+                  : 'info'
+            }
+            size={14}
+            className={trust.state === 'processing' ? 'spin' : undefined}
+          />
+          <strong>{trust.label}</strong>
+          {trust.state === 'trusted' && (
+            <span className="ctx-trust-badge">Quality checks passed</span>
+          )}
         </div>
-      )}
+        <p>{trust.detail}</p>
+        {trust.state === 'failure' && (
+          <button className="btn sm primary" onClick={() => void analyse()} disabled={busy}>
+            <Icon name="refresh" size={13} /> Retry Context
+          </button>
+        )}
+        {!structuredActionsAllowed && trust.state !== 'processing' && trust.state !== 'empty' && (
+          <p className="ctx-trust-action-note">{trust.structuredActionReason}</p>
+        )}
+      </section>
 
-      {ocr && words.length === 0 && !busy && (
+      {!busy && trust.state === 'empty' && (
         <div className="ctx-empty">
           <Icon name="info" size={20} />
           <strong>No meaningful text detected</strong>
-          <span>ClipThat found no text reliable enough to use for actions.</span>
+          <span>ClipThat found no text to verify. The original capture is still available.</span>
         </div>
       )}
 
-      {liveText && (
+      {liveText && structuredActionsAllowed && (
         <div className="ctx-live">
           {selected ? (
             <>
@@ -379,9 +433,9 @@ export default function ContextPanel({
         </Section>
       )}
 
-      {rawOcr?.text.trim() && rawOcr.text.trim() !== ocr?.text.trim() && (
+      {rawOcr?.text.trim() && (!ocr?.text.trim() || rawOcr.text.trim() !== ocr.text.trim()) && (
         <details className="ctx-raw">
-          <summary>Show raw OCR</summary>
+          <summary>Show uncertain/raw OCR</summary>
           <div className="ctx-raw-body">
             <p className="tiny muted">
               This text is uncertain. It is not used for links, tables, amounts, Live Text, or

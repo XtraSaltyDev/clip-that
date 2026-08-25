@@ -470,7 +470,7 @@ body {
   gap: 12px;
   width: 100vw;
   height: 100vh;
-  padding: 10px;
+  padding: 12px;
   border-radius: 16px;
   background: var(--bg-1);
   border: 1px solid var(--line-strong);
@@ -486,7 +486,7 @@ body {
 .qa-thumb {
   position: relative;
   flex: none;
-  width: 168px;
+  width: 144px;
   border-radius: 10px;
   overflow: hidden;
   background: var(--bg-0);
@@ -504,6 +504,13 @@ body {
   object-fit: contain;
   -webkit-user-drag: none;
   pointer-events: none;
+}
+.qa-video-placeholder {
+  display: grid;
+  place-items: center;
+  gap: 6px;
+  color: var(--ink-1);
+  font-size: 11px;
 }
 .qa-done {
   position: absolute;
@@ -525,23 +532,38 @@ body {
   display: flex;
   flex-direction: column;
   justify-content: center;
+  gap: 6px;
+}
+.qa-heading {
+  display: flex;
+  align-items: baseline;
   gap: 8px;
+  min-width: 0;
+  padding-left: 2px;
+}
+.qa-title {
+  min-width: 0;
+  color: var(--ink-0);
+  font-size: 12px;
+  font-weight: 600;
 }
 .qa-meta {
-  padding-left: 2px;
+  flex: none;
 }
 .qa-actions {
   display: grid;
-  grid-template-columns: 1fr 1fr;
-  gap: 6px;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 5px;
 }
 .qa-btn {
   display: flex;
   align-items: center;
   justify-content: center;
   gap: 6px;
-  height: 32px;
-  border-radius: 9px;
+  min-width: 0;
+  height: 30px;
+  padding: 0 6px;
+  border-radius: 8px;
   background: var(--bg-3);
   border: 1px solid var(--line);
   color: var(--ink-0);
@@ -550,6 +572,9 @@ body {
   transition:
     background 110ms ease,
     border-color 110ms ease;
+}
+.qa-btn:disabled {
+  opacity: 0.42;
 }
 .qa-btn:hover {
   background: var(--bg-elevated);
@@ -568,17 +593,18 @@ body {
 }
 .qa-close {
   position: absolute;
-  top: -7px;
-  left: -7px;
+  top: 8px;
+  right: 8px;
   display: grid;
   place-items: center;
-  width: 22px;
-  height: 22px;
+  width: 24px;
+  height: 24px;
   border-radius: 50%;
   background: var(--bg-elevated);
   border: 1px solid var(--line-strong);
   color: var(--ink-1);
-  opacity: 0;
+  opacity: 0.76;
+  z-index: 2;
   transition: opacity 130ms ease;
 }
 .qa:hover .qa-close {

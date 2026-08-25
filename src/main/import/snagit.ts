@@ -37,12 +37,7 @@ const plans = new Map<string, SnagitPlan>()
 const imports = new Map<string, AbortController>()
 
 function existingHashes(): Set<string> {
-  return new Set(
-    library
-      .list({ limit: 100_000 })
-      .filter((item) => item.contentHash)
-      .map((item) => `${item.kind}:${item.contentHash}`)
-  )
+  return library.contentHashes()
 }
 
 function inspectImage(filePath: string): Promise<SnagitInspection> {

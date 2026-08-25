@@ -7,9 +7,11 @@ import type {
   ClipDocument,
   LibraryHealth,
   LibraryItem,
+  LibraryItemView,
   LibraryItemPatch,
   LibraryQuery
 } from '@shared/types'
+import type { VideoAspectPreset, VideoExportPreset } from '@shared/types'
 import {
   capturesDir,
   libraryIndexBackupFile,
@@ -20,6 +22,8 @@ import {
 } from './paths'
 import { isPathInside, isRealPathInside } from './path-guard'
 import { clipDocument } from '../ipc/validation'
+import { buildLibraryWorkbench } from '@shared/library-workbench'
+import { aspectLabel } from '@shared/recording-polish'
 import {
   discoverLibraryFiles,
   loadLibraryIndex,
@@ -54,6 +58,9 @@ interface AddVideoInput {
   height: number
   durationMs: number
   posterDataUrl?: string
+  sourceId?: string
+  derivedAspect?: VideoAspectPreset
+  derivedExportPreset?: VideoExportPreset
 }
 
 export interface LibraryBatchImportEntry {
@@ -167,7 +174,7 @@ class LibraryStore extends EventEmitter {
     if (recoveredFromRuntimeIssue) this.emit('issue', this.health())
   }
 
-  list(query: LibraryQuery = {}): LibraryItem[] {
+  async list(query: LibraryQuery = {}): Promise<LibraryItemView[]> {
     let items = [...this.load()].sort((a, b) => b.createdAt - a.createdAt)
 
     if (query.kind) items = items.filter((i) => i.kind === query.kind)
@@ -185,11 +192,19 @@ class LibraryStore extends EventEmitter {
 
     const offset = query.offset ?? 0
     const limit = query.limit ?? 500
-    return items.slice(offset, offset + limit).map(publicLibraryItem)
+    return Promise.all(items.slice(offset, offset + limit).map((item) => this.view(item)))
   }
 
   get(id: string): LibraryItem | undefined {
     return this.load().find((i) => i.id === id)
+  }
+
+  contentHashes(): Set<string> {
+    return new Set(
+      this.load()
+        .filter((item) => item.contentHash)
+        .map((item) => `${item.kind}:${item.contentHash}`)
+    )
   }
 
   ocrUpgradeBatch(limit: number, excludedIds: ReadonlySet<string> = new Set()): LibraryItem[] {
@@ -253,6 +268,13 @@ class LibraryStore extends EventEmitter {
   }
 
   async addVideo(input: AddVideoInput): Promise<LibraryItem> {
+    const source = input.sourceId ? this.get(input.sourceId) : undefined
+    if (input.sourceId && (!source || source.kind !== 'video')) {
+      throw new Error('Derived recording source was not found')
+    }
+    if (source && !(await isRealPathInside(recordingsDir(), source.filePath))) {
+      throw new Error('Derived recording source is outside the Library recordings directory')
+    }
     const id = randomUUID()
     const target = join(recordingsDir(), `${id}${extOf(input.filePath)}`)
     if (input.filePath !== target) {
@@ -281,6 +303,9 @@ class LibraryStore extends EventEmitter {
       tags: [],
       favorite: false,
       durationMs: input.durationMs,
+      derivedFromId: input.sourceId,
+      derivedAspect: input.derivedAspect,
+      derivedExportPreset: input.derivedExportPreset,
       byteSize: stat?.size ?? 0
     }
 
@@ -291,19 +316,30 @@ class LibraryStore extends EventEmitter {
   /** Import already-validated, ClipThat-staged files with one durable index write. */
   async importBatch(entries: LibraryBatchImportEntry[], stageRoot: string): Promise<LibraryItem[]> {
     if (entries.length === 0) return []
-    const targets: Array<{ entry: LibraryBatchImportEntry; id: string; filePath: string; thumbnail: string }> = []
+    const targets: Array<{
+      entry: LibraryBatchImportEntry
+      id: string
+      filePath: string
+      thumbnail: string
+    }> = []
     const moved: string[] = []
     try {
       for (const entry of entries) {
         const id = randomUUID()
         const extension = entry.kind === 'image' ? '.png' : '.mp4'
-        const filePath = join(entry.kind === 'image' ? capturesDir() : recordingsDir(), `${id}${extension}`)
+        const filePath = join(
+          entry.kind === 'image' ? capturesDir() : recordingsDir(),
+          `${id}${extension}`
+        )
         const thumbnail = join(thumbsDir(), `${id}.png`)
         targets.push({ entry, id, filePath, thumbnail })
       }
 
       for (const target of targets) {
-        if (!isPathInside(stageRoot, target.entry.stagedPath) || !isPathInside(stageRoot, target.entry.stagedThumbnail)) {
+        if (
+          !isPathInside(stageRoot, target.entry.stagedPath) ||
+          !isPathInside(stageRoot, target.entry.stagedThumbnail)
+        ) {
           throw new Error('staged import file is outside the import workspace')
         }
         await fs.rename(target.entry.stagedPath, target.filePath)
@@ -313,23 +349,26 @@ class LibraryStore extends EventEmitter {
       }
 
       const now = Date.now()
-      const imported = targets.map(({ entry, id, filePath, thumbnail }) => ({
-        id,
-        title: entry.title,
-        createdAt: entry.createdAt || now,
-        updatedAt: entry.updatedAt || entry.createdAt || now,
-        kind: entry.kind,
-        width: entry.width,
-        height: entry.height,
-        filePath,
-        thumbnail,
-        tags: [],
-        favorite: false,
-        durationMs: entry.durationMs,
-        byteSize: 0,
-        importedFrom: entry.importedFrom,
-        contentHash: entry.contentHash
-      } satisfies LibraryItem))
+      const imported = targets.map(
+        ({ entry, id, filePath, thumbnail }) =>
+          ({
+            id,
+            title: entry.title,
+            createdAt: entry.createdAt || now,
+            updatedAt: entry.updatedAt || entry.createdAt || now,
+            kind: entry.kind,
+            width: entry.width,
+            height: entry.height,
+            filePath,
+            thumbnail,
+            tags: [],
+            favorite: false,
+            durationMs: entry.durationMs,
+            byteSize: 0,
+            importedFrom: entry.importedFrom,
+            contentHash: entry.contentHash
+          }) satisfies LibraryItem
+      )
       for (const item of imported) {
         item.byteSize = (await fs.stat(item.filePath)).size
       }
@@ -387,7 +426,8 @@ class LibraryStore extends EventEmitter {
       delete item.ocrVersion
     }
     if (patch.videoEdit !== undefined) {
-      if (current.kind !== 'video') throw new TypeError('Only recordings can have video edit drafts')
+      if (current.kind !== 'video')
+        throw new TypeError('Only recordings can have video edit drafts')
       if (patch.videoEdit === null) delete item.videoEdit
       else item.videoEdit = { ...patch.videoEdit }
     }
@@ -409,7 +449,7 @@ class LibraryStore extends EventEmitter {
   ownsPath(filePath: string): boolean {
     const target = resolve(filePath)
     return this.load().some((item) =>
-      [item.filePath, item.projectPath, item.thumbnail]
+      [item.filePath, item.projectPath, item.exportPath, item.thumbnail]
         .filter((path): path is string => Boolean(path))
         .some((path) => resolve(path) === target)
     )
@@ -503,7 +543,8 @@ class LibraryStore extends EventEmitter {
 
     for (const item of items) {
       const root = item.kind === 'image' ? capturesDir() : recordingsDir()
-      const owned = isPathInside(root, item.filePath) && (await isRealPathInside(root, item.filePath))
+      const owned =
+        isPathInside(root, item.filePath) && (await isRealPathInside(root, item.filePath))
       if (!owned) {
         removed += 1
         continue
@@ -515,14 +556,18 @@ class LibraryStore extends EventEmitter {
       }
 
       let next = item
+      if (!item.recovered && /^Recovered (capture|recording)$/.test(item.title)) {
+        next = { ...item, recovered: true }
+        repairedMetadata += 1
+      }
       if (item.kind === 'image' && (!item.thumbnail || !(await this.fileExists(item.thumbnail)))) {
         const image = nativeImage.createFromPath(item.filePath)
         if (!image.isEmpty()) {
-          next = { ...item, thumbnail: await this.writeThumb(item.id, image), byteSize: stat.size }
+          next = { ...next, thumbnail: await this.writeThumb(item.id, image), byteSize: stat.size }
           repairedMetadata += 1
         }
       } else if (item.byteSize !== stat.size) {
-        next = { ...item, byteSize: stat.size }
+        next = { ...next, byteSize: stat.size }
         repairedMetadata += 1
       }
       valid.push(next)
@@ -594,13 +639,90 @@ class LibraryStore extends EventEmitter {
       thumbnail,
       tags: [],
       favorite: false,
+      recovered: true,
       ocrText: project?.ocrText,
       byteSize: stat.size
     }
   }
 
+  private async view(item: LibraryItem): Promise<LibraryItemView> {
+    const sourcePathState = await this.inspectPath(item.filePath)
+    const sourceState =
+      sourcePathState === 'available' &&
+      (item.byteSize <= 0 || (item.kind === 'image' && !item.thumbnail))
+        ? ('incomplete' as const)
+        : sourcePathState
+    const projectState = item.projectPath
+      ? await this.inspectPath(item.projectPath, true)
+      : undefined
+    const exportState = item.exportPath ? await this.inspectPath(item.exportPath) : undefined
+    const allItems = this.load()
+    const sourceItem = item.derivedFromId
+      ? allItems.find((candidate) => candidate.id === item.derivedFromId)
+      : undefined
+    const lineageSource = item.derivedFromId
+      ? {
+          state: sourceItem ? await this.inspectPath(sourceItem.filePath) : ('missing' as const),
+          itemId: item.derivedFromId,
+          title: sourceItem?.title ?? 'Source recording',
+          label: sourceItem ? 'Source recording' : 'Source recording missing'
+        }
+      : undefined
+    const derived = await Promise.all(
+      allItems
+        .filter((candidate) => candidate.derivedFromId === item.id)
+        .map(async (candidate) => {
+          const state = await this.inspectPath(candidate.filePath)
+          const framing = candidate.derivedAspect
+            ? aspectLabel(candidate.derivedAspect)
+            : 'Original framing'
+          return {
+            state,
+            itemId: candidate.id,
+            title: candidate.title,
+            label:
+              state === 'available'
+                ? `${framing} export`
+                : state === 'missing'
+                  ? `${framing} export missing or moved`
+                  : `${framing} export unreadable`
+          }
+        })
+    )
+
+    return {
+      ...publicLibraryItem(item),
+      workbench: buildLibraryWorkbench(item, {
+        source: sourceState,
+        project: projectState,
+        export: exportState,
+        lineage: { source: lineageSource, derived }
+      })
+    }
+  }
+
+  private async inspectPath(
+    path: string,
+    parseProject = false
+  ): Promise<'available' | 'missing' | 'unreadable'> {
+    try {
+      const stat = await fs.stat(path)
+      if (!stat.isFile()) return 'unreadable'
+      if (parseProject) {
+        const text = await fs.readFile(path, 'utf8')
+        clipDocument(JSON.parse(text))
+      }
+      return 'available'
+    } catch (error) {
+      return (error as NodeJS.ErrnoException).code === 'ENOENT' ? 'missing' : 'unreadable'
+    }
+  }
+
   private async fileExists(path: string): Promise<boolean> {
-    return fs.stat(path).then((stat) => stat.isFile(), () => false)
+    return fs.stat(path).then(
+      (stat) => stat.isFile(),
+      () => false
+    )
   }
 }
 

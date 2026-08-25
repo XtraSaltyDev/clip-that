@@ -276,6 +276,30 @@ export const RELEASE_NOTES = [
         body: 'The Windows x64 setup, portable app, and ZIP now bundle audited FFmpeg and ffprobe tools for WebM recording plus MP4 and GIF export. This preview remains unsigned and requires real-hardware testing.'
       }
     ]
+  },
+  {
+    version: '0.1.18',
+    title: 'A clearer capture-to-output workflow',
+    summary:
+      'Take the next useful action faster, understand which captured text is trustworthy, and keep recordings connected to their reusable outputs.',
+    items: [
+      {
+        title: 'A visible capture handoff',
+        body: 'New image and recording captures open with clear actions for editing, copying, saving, revealing, dragging out, pinning, and running the configured local pipeline.'
+      },
+      {
+        title: 'Context you can trust',
+        body: 'Screen Context now distinguishes processing, trusted, uncertain, partial, empty, and failed analysis while keeping raw captures and text available for recovery.'
+      },
+      {
+        title: 'Library as a workbench',
+        body: 'Denser scanning, explicit recovery states, and source, project, and export relationships make larger capture collections easier to reuse.'
+      },
+      {
+        title: 'Aspect-aware recording exports',
+        body: 'Local recordings support original, landscape, square, and vertical framing with understandable export presets, persisted drafts, and lineage back to the source recording.'
+      }
+    ]
   }
 ] as const satisfies readonly ReleaseNotes[]
 

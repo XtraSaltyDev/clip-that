@@ -1,8 +1,8 @@
 import type { LibraryItem } from '@shared/types'
 
-const GRID_CARD_MIN = 220
-const GRID_GAP = 14
-const MAIN_HORIZONTAL_PADDING = 32
+export const GRID_CARD_MIN = 196
+export const GRID_GAP = 10
+export const MAIN_HORIZONTAL_PADDING = 24
 const DAY = 86_400_000
 
 /** The same column calculation used by the CSS grid, shared with keyboard navigation. */
@@ -11,11 +11,35 @@ export function libraryGridColumns(mainWidth: number): number {
   return Math.max(1, Math.floor((contentWidth + GRID_GAP) / (GRID_CARD_MIN + GRID_GAP)))
 }
 
+export function libraryQueryIsActive(search: string, filter: string, tag: string): boolean {
+  return Boolean(search.trim() || filter !== 'all' || tag)
+}
+
+export function libraryEmptyState(
+  search: string,
+  filter: string,
+  tag: string
+): {
+  title: string
+  detail: string
+} {
+  if (libraryQueryIsActive(search, filter, tag)) {
+    return {
+      title: 'Nothing matched these filters',
+      detail: 'Try a different search, remove a filter, or clear the tag.'
+    }
+  }
+  return {
+    title: 'Your Library is empty',
+    detail: 'Capture or import something to start building your workbench.'
+  }
+}
+
 /** Bucket captures into Today / Yesterday / weekday / date headings without reordering them. */
-export function groupLibraryItems(
-  items: LibraryItem[],
+export function groupLibraryItems<T extends LibraryItem>(
+  items: T[],
   now = Date.now()
-): Array<{ label: string; items: LibraryItem[] }> {
+): Array<{ label: string; items: T[] }> {
   const startOfDay = (timestamp: number) => {
     const date = new Date(timestamp)
     date.setHours(0, 0, 0, 0)
@@ -23,7 +47,7 @@ export function groupLibraryItems(
   }
   const today = startOfDay(now)
 
-  const groups: Array<{ label: string; items: LibraryItem[] }> = []
+  const groups: Array<{ label: string; items: T[] }> = []
   for (const item of items) {
     const start = startOfDay(item.createdAt)
     const age = Math.round((today - start) / DAY)

@@ -3,6 +3,7 @@ import type {
   AppUpdateStatus,
   LibraryHealth,
   LibraryItem,
+  LibraryItemView,
   GuideSummary,
   ReleaseNotesStatus,
   SnagitImportPreview,
@@ -23,7 +24,7 @@ import {
   useTheme
 } from '../shared/ui'
 import CommandPalette, { type Command } from '../shared/CommandPalette'
-import { groupLibraryItems, libraryGridColumns } from './layout'
+import { groupLibraryItems, libraryEmptyState, libraryGridColumns } from './layout'
 import GuideWorkspace from './GuideWorkspace'
 import './library.css'
 
@@ -31,7 +32,7 @@ type Filter = 'all' | 'image' | 'video' | 'favorite'
 
 export default function App(): React.ReactElement {
   useTheme()
-  const [items, setItems] = useState<LibraryItem[]>([])
+  const [items, setItems] = useState<LibraryItemView[]>([])
   const [guides, setGuides] = useState<GuideSummary[]>([])
   const [showGuides, setShowGuides] = useState(false)
   const [openGuideId, setOpenGuideId] = useState<string | null>(null)
@@ -42,6 +43,7 @@ export default function App(): React.ReactElement {
   const [selected, setSelected] = useState<string[]>([])
   const [view, setView] = useState<'grid' | 'list'>('grid')
   const [loading, setLoading] = useState(true)
+  const [loadError, setLoadError] = useState<string | null>(null)
   const [paletteOpen, setPaletteOpen] = useState(false)
   const [health, setHealth] = useState<LibraryHealth | null>(null)
   const [update, setUpdate] = useState<AppUpdateStatus | null>(null)
@@ -66,7 +68,9 @@ export default function App(): React.ReactElement {
       const [list, allTags] = await Promise.all([api.library.list(query), api.library.tags()])
       setItems(list)
       setTags(allTags)
+      setLoadError(null)
     } catch (error) {
+      setLoadError((error as Error).message || 'The Library could not be refreshed')
       toast('error', 'Could not load the Library', (error as Error).message)
     } finally {
       setLoading(false)
@@ -214,6 +218,7 @@ export default function App(): React.ReactElement {
   // Captures arrive constantly, so a flat wall of thumbnails stops being navigable fast.
   // Day buckets give the library the shape of a timeline.
   const groups = useMemo(() => groupLibraryItems(items), [items])
+  const emptyState = libraryEmptyState(search, filter, tag ?? '')
   const actionableUpdate =
     update?.state === 'available' || update?.state === 'downloading' || update?.state === 'ready'
       ? update
@@ -718,6 +723,15 @@ export default function App(): React.ReactElement {
             if (e.target === e.currentTarget) setSelected([])
           }}
         >
+          {loadError && (
+            <div className="lib-load-error" role="alert">
+              <Icon name="alert" size={15} />
+              <span>Could not refresh the Library: {loadError}</span>
+              <button className="btn ghost sm" onClick={() => void refresh()}>
+                Retry
+              </button>
+            </div>
+          )}
           {showGuides ? (
             guides.length === 0 ? (
               <div className="empty">
@@ -760,20 +774,18 @@ export default function App(): React.ReactElement {
                 ))}
               </div>
             )
-          ) : loading ? null : items.length === 0 ? (
+          ) : loading && items.length === 0 ? (
+            <div className="lib-loading" role="status" aria-live="polite">
+              <span className="lib-loading-dot" /> Loading Library…
+            </div>
+          ) : items.length === 0 ? (
             <div className="empty">
               <Icon name="image" size={32} />
               <div>
-                <div style={{ fontWeight: 600, color: 'var(--ink-1)' }}>
-                  {search ? 'Nothing matched that search' : 'Your library is empty'}
-                </div>
-                <div className="tiny">
-                  {search
-                    ? 'Try fewer words — captures are searchable by the text inside them.'
-                    : 'Captures and recordings land here automatically.'}
-                </div>
+                <div style={{ fontWeight: 600, color: 'var(--ink-1)' }}>{emptyState.title}</div>
+                <div className="tiny">{emptyState.detail}</div>
               </div>
-              {!search && (
+              {!search && filter === 'all' && !tag && (
                 <button className="btn" onClick={() => void api.capture.start({ mode: 'region' })}>
                   <Icon name="region" size={14} /> Take a capture
                 </button>
@@ -814,6 +826,7 @@ export default function App(): React.ReactElement {
             onCopy={() => void copy(active)}
             onDelete={() => void remove()}
             onChanged={refresh}
+            onOpenItem={(id) => void api.library.open(id)}
           />
         )}
       </div>
@@ -990,7 +1003,7 @@ function ImportCount(props: { label: string; value: number; detail: string }): R
 }
 
 function Card(props: {
-  item: LibraryItem
+  item: LibraryItemView
   view: 'grid' | 'list'
   selected: boolean
   cardRef: (node: HTMLElement | null) => void
@@ -1008,7 +1021,7 @@ function Card(props: {
       role="button"
       tabIndex={0}
       aria-pressed={props.selected}
-      aria-label={`${item.title}, ${item.kind === 'video' ? 'recording' : 'image'}, ${formatRelative(item.createdAt)}`}
+      aria-label={`${item.title}, ${item.kind === 'video' ? 'recording' : 'image'}, ${item.workbench.source.label}, ${item.workbench.project.label}, ${item.workbench.export.label}, ${formatRelative(item.createdAt)}`}
       onMouseDown={props.onSelect}
       onDoubleClick={props.onOpen}
       onFocus={props.onFocus}
@@ -1039,14 +1052,19 @@ function Card(props: {
         )}
       </div>
       <div className="lib-meta">
-        <div className="truncate">{item.title}</div>
+        <div className="lib-card-title truncate">{item.title}</div>
         <div className="tiny muted">
           {formatRelative(item.createdAt)} · {item.width}×{item.height}
         </div>
+        <div className="lib-card-status" aria-hidden="true">
+          <StatusChip link={item.workbench.source} />
+          {item.workbench.project.state !== 'none' && <StatusChip link={item.workbench.project} />}
+          {item.workbench.export.state !== 'none' && <StatusChip link={item.workbench.export} />}
+        </div>
       </div>
       {props.view === 'list' && (
-        <div className="lib-list-facts" aria-hidden="true">
-          <span>{item.kind === 'video' ? 'Recording' : 'Image'}</span>
+        <div className="lib-list-facts">
+          <span>{item.kind === 'video' ? 'Recording' : 'Image capture'}</span>
           <span>{formatBytes(item.byteSize)}</span>
           <span>{new Date(item.createdAt).toLocaleDateString()}</span>
           <span className="truncate">
@@ -1063,10 +1081,11 @@ function Card(props: {
 }
 
 function Details(props: {
-  item: LibraryItem
+  item: LibraryItemView
   onCopy: () => void
   onDelete: () => void
   onChanged: () => void
+  onOpenItem: (id: string) => void
 }): React.ReactElement {
   const { item } = props
   const [title, setTitle] = useState(item.title)
@@ -1132,6 +1151,74 @@ function Details(props: {
         </div>
       </div>
 
+      <section className="lib-workbench" aria-label="Capture relationships">
+        <div className="lib-section-label">Workbench relationships</div>
+        <RelationshipRow
+          label="Source"
+          link={item.workbench.source}
+          action={
+            item.workbench.source.itemId && item.workbench.source.state === 'available' ? (
+              <button
+                className="btn ghost sm"
+                onClick={() => props.onOpenItem(item.workbench.source.itemId!)}
+                title={`Open ${item.workbench.source.title ?? 'the source recording'}`}
+              >
+                Open
+              </button>
+            ) : undefined
+          }
+        />
+        <RelationshipRow label="Project" link={item.workbench.project} />
+        <RelationshipRow
+          label="Export"
+          link={item.workbench.export}
+          action={
+            item.workbench.export.state === 'available' && item.exportPath ? (
+              <button
+                className="btn ghost sm"
+                onClick={() => void api.exports.reveal(item.exportPath!)}
+                title="Reveal the linked export"
+              >
+                Reveal
+              </button>
+            ) : undefined
+          }
+        />
+        {item.workbench.derived.length > 0 && (
+          <div className="lib-derived-links" aria-label="Derived exports">
+            <div className="lib-section-label">Derived exports</div>
+            {item.workbench.derived.map((link) => (
+              <RelationshipRow
+                key={link.itemId}
+                label="Version"
+                link={link}
+                action={
+                  link.state === 'available' ? (
+                    <button
+                      className="btn ghost sm"
+                      onClick={() => props.onOpenItem(link.itemId!)}
+                      title={`Open ${link.title ?? 'derived export'}`}
+                    >
+                      Open
+                    </button>
+                  ) : undefined
+                }
+              />
+            ))}
+          </div>
+        )}
+        {item.workbench.source.state !== 'available' && (
+          <div className="lib-recovery-note tiny" role="status">
+            <Icon name="alert" size={13} />
+            {item.workbench.source.state === 'missing'
+              ? 'The original capture is missing or moved. Metadata remains available for recovery.'
+              : item.workbench.source.state === 'incomplete'
+                ? 'The capture is incomplete, but the original record is preserved for recovery.'
+                : 'The original capture could not be read. Keep this record while you recover the file.'}
+          </div>
+        )}
+      </section>
+
       <div className="lib-tags">
         {item.tags.map((t) => (
           <span key={t} className="lib-tag">
@@ -1166,7 +1253,16 @@ function Details(props: {
       <div className="spacer" />
 
       <div className="lib-actions">
-        <button className="btn" onClick={() => void api.library.open(item.id)}>
+        <button
+          className="btn"
+          onClick={() => void api.library.open(item.id)}
+          title={
+            item.workbench.project.state === 'missing' ||
+            item.workbench.project.state === 'unreadable'
+              ? 'Open the capture; the linked project needs recovery'
+              : 'Open in the editor'
+          }
+        >
           <Icon name={item.kind === 'video' ? 'play' : 'pen'} size={14} />
           {item.kind === 'video' ? 'Edit video' : 'Edit'}
         </button>
@@ -1182,7 +1278,16 @@ function Details(props: {
         >
           <Icon name="star" size={14} /> {item.favorite ? 'Unstar' : 'Star'}
         </button>
-        <button className="btn" onClick={() => void api.exports.reveal(item.filePath)}>
+        <button
+          className="btn"
+          onClick={() => void api.exports.reveal(item.filePath)}
+          disabled={item.workbench.source.state !== 'available'}
+          title={
+            item.workbench.source.state === 'available'
+              ? 'Reveal the original capture'
+              : 'The original capture is not currently available'
+          }
+        >
           <Icon name="folder" size={14} /> Reveal
         </button>
         <button className="btn danger" onClick={props.onDelete}>
@@ -1190,5 +1295,43 @@ function Details(props: {
         </button>
       </div>
     </aside>
+  )
+}
+
+function StatusChip(props: { link: { state: string; label: string } }): React.ReactElement {
+  const tone =
+    props.link.state === 'missing' ||
+    props.link.state === 'unreadable' ||
+    props.link.state === 'incomplete'
+      ? 'problem'
+      : props.link.state
+  return (
+    <span className={`lib-status-chip ${tone}`} title={props.link.label}>
+      <span className="lib-status-dot" />
+      {props.link.label}
+    </span>
+  )
+}
+
+function RelationshipRow(props: {
+  label: string
+  link: { state: string; label: string }
+  action?: React.ReactNode
+}): React.ReactElement {
+  const tone =
+    props.link.state === 'missing' ||
+    props.link.state === 'unreadable' ||
+    props.link.state === 'incomplete'
+      ? 'problem'
+      : props.link.state
+  return (
+    <div className="lib-relationship-row">
+      <span className="muted">{props.label}</span>
+      <span className={`lib-relationship-status ${tone}`}>
+        <span className="lib-status-dot" />
+        {props.link.label}
+      </span>
+      {props.action}
+    </div>
   )
 }

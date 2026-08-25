@@ -44,11 +44,11 @@ export const BEAUTIFY_CANVAS: CanvasStyle = {
   borderWidth: 1
 }
 
-/** Migrate the removed Quick Access default to the current editor workflow. */
+/** Preserve the saved capture handoff preference when loading older settings. */
 export function migrateAfterCapturePreference(
   value: Settings['afterCapture'] | undefined
 ): Settings['afterCapture'] | undefined {
-  return value === 'quickAccess' ? 'editor' : value
+  return value
 }
 
 export const DEFAULT_RECORDING: RecordingOptions = {
@@ -79,7 +79,7 @@ export function defaultSettings(picturesDir: string): Settings {
       guideCaptureNext: `${mod}+Shift+G`
     },
     // Index the capture first, then use the editor as the working surface.
-    afterCapture: 'editor',
+    afterCapture: 'quickAccess',
     libraryOpenBehavior: 'ask',
     pipeline: { copy: true, save: true, pin: false, edit: false, command: '' },
     saveDirectory: picturesDir,

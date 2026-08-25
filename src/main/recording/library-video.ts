@@ -4,7 +4,7 @@ import { join } from 'node:path'
 import type { LibraryItem, VideoExportOptions } from '@shared/types'
 import { recordingsDir } from '../store/paths'
 import { library } from '../store/library'
-import { toMp4, toWebm, type FfmpegProgress } from './ffmpeg'
+import { probeVideoMetadata, toMp4, toWebm, type FfmpegProgress } from './ffmpeg'
 
 /** Create a non-destructive edited copy of an existing Library recording. */
 export async function exportLibraryVideo(
@@ -18,10 +18,7 @@ export async function exportLibraryVideo(
   if (!source || source.kind !== 'video') throw new Error('Recording was not found')
   if (opts.format === 'gif') throw new TypeError('The video editor exports MP4 or WebM')
 
-  const durationMs = Math.max(
-    1,
-    (opts.endMs ?? source.durationMs ?? 1) - (opts.startMs ?? 0)
-  )
+  const durationMs = Math.max(1, (opts.endMs ?? source.durationMs ?? 1) - (opts.startMs ?? 0))
   const output = join(recordingsDir(), `.editing-${randomUUID()}.${opts.format}`)
   let saved = false
   try {
@@ -31,13 +28,17 @@ export async function exportLibraryVideo(
       await toWebm(source.filePath, output, opts, durationMs, onProgress, signal)
     }
 
+    const rendered = await probeVideoMetadata(output).catch(() => null)
     const item = await library.addVideo({
       filePath: output,
       title: `${source.title} — Edit`,
-      width: source.width,
-      height: source.height,
-      durationMs,
-      posterDataUrl
+      width: rendered?.width ?? source.width,
+      height: rendered?.height ?? source.height,
+      durationMs: rendered?.durationMs ?? durationMs,
+      posterDataUrl,
+      sourceId: source.id,
+      derivedAspect: opts.aspect,
+      derivedExportPreset: opts.exportPreset
     })
     saved = true
     return item

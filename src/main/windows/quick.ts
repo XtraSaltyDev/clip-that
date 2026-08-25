@@ -1,24 +1,28 @@
 import { BrowserWindow, nativeImage, screen } from 'electron'
 import { IPC } from '@shared/ipc'
-import type { CaptureResult } from '@shared/types'
+import type { CaptureResult, LibraryItem } from '@shared/types'
 import { loadEntry, preloadPath } from './urls'
 import { registerRendererWindow } from '../ipc/sender'
 
 /**
- * The Quick Access card: a small floating window that appears after a capture with the
- * things you actually do next — copy, save, pin, edit, drag into another app — without
- * opening the full editor. The card is the destination; the editor is opt-in.
+ * The capture handoff strip: a small floating window that appears after a capture with
+ * the things you actually do next without opening the full editor. The strip is the
+ * destination; the editor is opt-in.
  */
 
-const CARD_W = 384
-const CARD_H = 148
+const CARD_W = 624
+const CARD_H = 184
 
 let card: BrowserWindow | null = null
 
 /** Full-resolution results the card can act on, keyed by capture id. */
-const cache = new Map<string, { result: CaptureResult; libraryId?: string }>()
+export type QuickEntry =
+  | { kind: 'image'; result: CaptureResult; libraryId?: string }
+  | { kind: 'video'; item: LibraryItem }
 
-export function quickCache(): Map<string, { result: CaptureResult; libraryId?: string }> {
+const cache = new Map<string, QuickEntry>()
+
+export function quickCache(): Map<string, QuickEntry> {
   return cache
 }
 
@@ -48,26 +52,30 @@ function makeThumb(result: CaptureResult): string {
     : result.dataUrl
 }
 
-/**
- * Show (or refresh) the card for a capture. A second capture replaces the card's
- * content — the previous one is already safe in the library.
- */
-export function showQuickAccess(result: CaptureResult, libraryId?: string): BrowserWindow {
+function libraryFileUrl(filePath: string): string {
+  return `clipthat://file/${encodeURIComponent(filePath)}`
+}
+
+interface QuickPayload {
+  id: string
+  kind: 'image' | 'video'
+  thumb: string
+  title: string
+  width: number
+  height: number
+  durationMs?: number
+}
+
+function present(entry: QuickEntry, payload: QuickPayload): BrowserWindow {
   // The card only exposes its current capture. Keeping older full-resolution PNG data
   // made up to twelve inaccessible captures survive in the main process.
   cache.clear()
-  cache.set(result.id, { result, libraryId })
-
-  const payload = {
-    id: result.id,
-    thumb: makeThumb(result),
-    width: result.width,
-    height: result.height
-  }
+  cache.set(payload.id, entry)
 
   if (card && !card.isDestroyed()) {
     card.webContents.send(IPC.quickInit, payload)
-    card.showInactive()
+    card.show()
+    card.focus()
     return card
   }
 
@@ -107,8 +115,12 @@ export function showQuickAccess(result: CaptureResult, libraryId?: string): Brow
 
   loadEntry(win, 'hud', 'quick')
   win.webContents.once('did-finish-load', () => win.webContents.send(IPC.quickInit, payload))
-  // Never steal focus — the user is mid-flow in another app.
-  win.once('ready-to-show', () => win.showInactive())
+  // The handoff is the next step in the capture flow, so keyboard users should land
+  // on its action controls without having to find the card with the mouse.
+  win.once('ready-to-show', () => {
+    win.show()
+    win.focus()
+  })
 
   card = win
   win.on('closed', () => {
@@ -118,4 +130,35 @@ export function showQuickAccess(result: CaptureResult, libraryId?: string): Brow
     }
   })
   return win
+}
+
+/** Show (or refresh) the handoff for an image capture. */
+export function showQuickAccess(result: CaptureResult, libraryId?: string): BrowserWindow {
+  return present(
+    { kind: 'image', result, libraryId },
+    {
+      id: result.id,
+      kind: 'image',
+      thumb: makeThumb(result),
+      title: result.title ?? 'Image capture',
+      width: result.width,
+      height: result.height
+    }
+  )
+}
+
+/** Show the same handoff after a recording has been encoded into the Library. */
+export function showQuickAccessItem(item: LibraryItem): BrowserWindow {
+  return present(
+    { kind: 'video', item },
+    {
+      id: item.id,
+      kind: 'video',
+      thumb: item.thumbnail ? libraryFileUrl(item.thumbnail) : '',
+      title: item.title,
+      width: item.width,
+      height: item.height,
+      durationMs: item.durationMs
+    }
+  )
 }

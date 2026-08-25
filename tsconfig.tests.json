@@ -36,6 +36,9 @@
     "src/renderer/shared/extract.ts",
     "src/shared/release-notes.ts",
     "src/shared/platform-capabilities.ts",
+    "src/shared/context-trust.ts",
+    "src/shared/library-workbench.ts",
+    "src/shared/recording-polish.ts",
     "src/shared/ocr-quality.ts",
     "src/shared/types.ts"
   ]

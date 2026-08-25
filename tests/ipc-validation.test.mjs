@@ -67,6 +67,13 @@ test('external links remain limited to HTTP and HTTPS', () => {
   assert.throws(() => validation.externalUrl('file:///etc/passwd'), /HTTP or HTTPS/)
 })
 
+test('capture handoff actions accept the complete local action set', () => {
+  for (const action of ['copy', 'save', 'pin', 'edit', 'reveal', 'pipeline']) {
+    assert.equal(validation.quickAction(action), action)
+  }
+  assert.throws(() => validation.quickAction('upload'), /quick action/)
+})
+
 test('OCR IPC preserves validated confidence and geometry', () => {
   const payload = {
     id: 'ocr-1',

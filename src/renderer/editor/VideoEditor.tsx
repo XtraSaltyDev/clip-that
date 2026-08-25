@@ -1,5 +1,20 @@
 import React, { useCallback, useEffect, useRef, useState } from 'react'
-import type { LibraryItem } from '@shared/types'
+import type {
+  LibraryItem,
+  RecordingMediaCapabilities,
+  VideoAspectPreset,
+  VideoExportPreset
+} from '@shared/types'
+import {
+  VIDEO_EXPORT_PRESETS,
+  aspectCanvasDimensions,
+  aspectLabel,
+  aspectRatio,
+  exportPresetAvailability,
+  recordingPolishCapabilities,
+  transcriptStatus,
+  videoExportPreset
+} from '@shared/recording-polish'
 import { api } from '../shared/api'
 import { Icon } from '../shared/icons'
 import { Segmented, ToastHost, formatBytes, formatDuration, toast } from '../shared/ui'
@@ -115,13 +130,34 @@ async function buildFilmstrip(
   }
 }
 
-async function posterFromVideo(video: HTMLVideoElement): Promise<string | undefined> {
+async function posterFromVideo(
+  video: HTMLVideoElement,
+  aspect: VideoAspectPreset,
+  maxWidth?: number
+): Promise<string | undefined> {
   try {
     if (video.videoWidth <= 0 || video.videoHeight <= 0) return undefined
+    const canvasSize = aspectCanvasDimensions(aspect, maxWidth ?? 1280) ?? {
+      width: video.videoWidth,
+      height: video.videoHeight
+    }
     const canvas = document.createElement('canvas')
-    canvas.width = video.videoWidth
-    canvas.height = video.videoHeight
-    canvas.getContext('2d')?.drawImage(video, 0, 0)
+    canvas.width = canvasSize.width
+    canvas.height = canvasSize.height
+    const context = canvas.getContext('2d')
+    if (!context) return undefined
+    context.fillStyle = '#000'
+    context.fillRect(0, 0, canvas.width, canvas.height)
+    const scale = Math.min(canvas.width / video.videoWidth, canvas.height / video.videoHeight)
+    const width = video.videoWidth * scale
+    const height = video.videoHeight * scale
+    context.drawImage(
+      video,
+      (canvas.width - width) / 2,
+      (canvas.height - height) / 2,
+      width,
+      height
+    )
     return canvas.toDataURL('image/png')
   } catch {
     return undefined
@@ -144,6 +180,11 @@ export default function VideoEditor(props: {
   const [trim, setTrim] = useState<[number, number]>([0, item.durationMs ?? 0])
   const [format, setFormat] = useState<'mp4' | 'webm'>('mp4')
   const [quality, setQuality] = useState<'medium' | 'high'>('high')
+  const [aspect, setAspect] = useState<VideoAspectPreset>('original')
+  const [exportPreset, setExportPreset] = useState<VideoExportPreset>('custom')
+  const [mediaCapabilities, setMediaCapabilities] = useState<RecordingMediaCapabilities | null>(
+    null
+  )
   const [saving, setSaving] = useState(false)
   const [progress, setProgress] = useState(0)
   const [playhead, setPlayhead] = useState(0)
@@ -160,6 +201,8 @@ export default function VideoEditor(props: {
     setTrim(itemTrim(item, itemDuration))
     setFormat(item.videoEdit?.format ?? 'mp4')
     setQuality(item.videoEdit?.quality ?? 'high')
+    setAspect(item.videoEdit?.aspect ?? 'original')
+    setExportPreset(item.videoEdit?.exportPreset ?? 'custom')
     setSaving(false)
     setProgress(0)
     setPlayhead(0)
@@ -167,6 +210,21 @@ export default function VideoEditor(props: {
     setPlayingSelection(false)
     draftReady.current = true
   }, [item.id, item.durationMs, item.title])
+
+  useEffect(() => {
+    let active = true
+    void api.recording
+      .mediaCapabilities()
+      .then((capabilities) => {
+        if (active) setMediaCapabilities(capabilities)
+      })
+      .catch(() => {
+        if (active) setMediaCapabilities(null)
+      })
+    return () => {
+      active = false
+    }
+  }, [])
 
   useEffect(() => api.recording.onProgress(({ percent }) => setProgress(percent)), [])
 
@@ -203,10 +261,12 @@ export default function VideoEditor(props: {
         endMs: trim[1],
         format,
         quality,
+        aspect,
+        exportPreset,
         updatedAt: Date.now()
       }
     })
-  }, [duration, format, quality, trim, update])
+  }, [aspect, duration, exportPreset, format, quality, trim, update])
 
   useEffect(() => {
     props.registerDraftFlush(persistDraft)
@@ -236,9 +296,12 @@ export default function VideoEditor(props: {
           quality,
           startMs: trim[0],
           endMs: trim[1],
-          fps: 30
+          fps: videoExportPreset(exportPreset)?.fps ?? 30,
+          maxWidth: videoExportPreset(exportPreset)?.maxWidth,
+          aspect,
+          exportPreset
         },
-        await posterFromVideo(video)
+        await posterFromVideo(video, aspect, selectedPreset?.maxWidth)
       )
       toast('success', 'Edited copy saved', result.title)
     } catch (error) {
@@ -247,7 +310,7 @@ export default function VideoEditor(props: {
     } finally {
       setSaving(false)
     }
-  }, [format, item.id, quality, saving, trim])
+  }, [aspect, exportPreset, format, item.id, quality, saving, trim])
 
   const cancelSave = useCallback(async () => {
     if (await api.library.cancelVideoExport()) toast('info', 'Cancelling video export…')
@@ -340,6 +403,28 @@ export default function VideoEditor(props: {
   const endPercent = duration > 0 ? (trim[1] / duration) * 100 : 100
   const playheadPercent = duration > 0 ? (playhead / duration) * 100 : 0
   const fullSelection = trim[0] <= 0 && Math.abs(trim[1] - duration) < 1
+  const selectedPreset = videoExportPreset(exportPreset)
+  const presetDetail =
+    selectedPreset?.detail ??
+    'Choose a supported recipe, or use the format and quality controls below.'
+  const polish = recordingPolishCapabilities({
+    hasZoomTimeline: false,
+    hasCursorMetadata: false,
+    hasClickMetadata: false
+  })
+  const transcript = transcriptStatus('unavailable')
+  const previewRatio = aspectRatio(aspect)
+
+  const applyPreset = (next: VideoExportPreset) => {
+    if (!exportPresetAvailability(next, mediaCapabilities).available) return
+    setExportPreset(next)
+    const preset = videoExportPreset(next)
+    if (preset) {
+      setFormat(preset.format)
+      setQuality(preset.quality)
+      setAspect(preset.aspect)
+    }
+  }
 
   return (
     <div className="editor-shell">
@@ -376,40 +461,46 @@ export default function VideoEditor(props: {
 
       <div className="editor-body video-editor-body">
         <main className="video-workspace">
-          <video
-            ref={videoRef}
-            src={mediaUrl}
-            crossOrigin="anonymous"
-            controls
-            preload="metadata"
-            onTimeUpdate={(event) => {
-              const next = event.currentTarget.currentTime * 1000
-              setPlayhead(next)
-              if (playingSelection && next >= trim[1] - 20) {
-                if (loopSelection) {
-                  event.currentTarget.currentTime = trim[0] / 1000
-                  void event.currentTarget.play()
-                } else {
-                  event.currentTarget.pause()
-                  setPlayingSelection(false)
-                  setPlayhead(trim[1])
+          <div
+            className="video-preview-frame"
+            style={previewRatio ? { aspectRatio: String(previewRatio) } : undefined}
+            aria-label={`${aspectLabel(aspect)} recording preview`}
+          >
+            <video
+              ref={videoRef}
+              src={mediaUrl}
+              crossOrigin="anonymous"
+              controls
+              preload="metadata"
+              onTimeUpdate={(event) => {
+                const next = event.currentTarget.currentTime * 1000
+                setPlayhead(next)
+                if (playingSelection && next >= trim[1] - 20) {
+                  if (loopSelection) {
+                    event.currentTarget.currentTime = trim[0] / 1000
+                    void event.currentTarget.play()
+                  } else {
+                    event.currentTarget.pause()
+                    setPlayingSelection(false)
+                    setPlayhead(trim[1])
+                  }
                 }
-              }
-            }}
-            onPause={() => {
-              if (playingSelection && !loopSelection) setPlayingSelection(false)
-            }}
-            onLoadedMetadata={(event) => {
-              const ms = Number.isFinite(event.currentTarget.duration)
-                ? event.currentTarget.duration * 1000
-                : (item.durationMs ?? 0)
-              if (ms > 0) {
-                setDuration(ms)
-                setTrim(itemTrim(item, ms))
-              }
-            }}
-            onError={() => toast('error', 'This recording could not be played inside ClipThat')}
-          />
+              }}
+              onPause={() => {
+                if (playingSelection && !loopSelection) setPlayingSelection(false)
+              }}
+              onLoadedMetadata={(event) => {
+                const ms = Number.isFinite(event.currentTarget.duration)
+                  ? event.currentTarget.duration * 1000
+                  : (item.durationMs ?? 0)
+                if (ms > 0) {
+                  setDuration(ms)
+                  setTrim(itemTrim(item, ms))
+                }
+              }}
+              onError={() => toast('error', 'This recording could not be played inside ClipThat')}
+            />
+          </div>
           <section className="video-trimmer" aria-label="Trim recording">
             <div className="video-trim-heading">
               <div>
@@ -595,6 +686,47 @@ export default function VideoEditor(props: {
             </div>
           </dl>
           <div className="divider" />
+          <label className="tiny muted">Export preset</label>
+          <Segmented
+            value={exportPreset}
+            options={[
+              {
+                value: 'custom',
+                label: 'Custom',
+                tip: 'Keep the format and quality controls below.'
+              },
+              ...VIDEO_EXPORT_PRESETS.map((preset) => {
+                const availability = exportPresetAvailability(preset.id, mediaCapabilities)
+                return {
+                  value: preset.id,
+                  label:
+                    preset.id === 'web'
+                      ? 'Web'
+                      : preset.id === 'presentation'
+                        ? 'Slides'
+                        : 'Vertical',
+                  disabled: !availability.available,
+                  tip: availability.available ? preset.detail : availability.reason
+                }
+              })
+            ]}
+            onChange={applyPreset}
+          />
+          <p className="tiny muted video-control-note">{presetDetail}</p>
+          <label className="tiny muted">Canvas framing</label>
+          <Segmented
+            value={aspect}
+            options={[
+              { value: 'original', label: 'Original' },
+              { value: 'landscape', label: '16:9' },
+              { value: 'square', label: '1:1' },
+              { value: 'vertical', label: '9:16' }
+            ]}
+            onChange={setAspect}
+          />
+          <p className="tiny muted video-control-note">
+            Preview uses letterboxing; the source recording is unchanged.
+          </p>
           <label className="tiny muted">Format</label>
           <Segmented
             value={format}
@@ -602,7 +734,10 @@ export default function VideoEditor(props: {
               { value: 'mp4', label: 'MP4' },
               { value: 'webm', label: 'WebM' }
             ]}
-            onChange={setFormat}
+            onChange={(value) => {
+              setFormat(value)
+              setExportPreset('custom')
+            }}
           />
           <label className="tiny muted">Quality</label>
           <Segmented
@@ -611,8 +746,29 @@ export default function VideoEditor(props: {
               { value: 'medium', label: 'Balanced' },
               { value: 'high', label: 'High' }
             ]}
-            onChange={setQuality}
+            onChange={(value) => {
+              setQuality(value)
+              setExportPreset('custom')
+            }}
           />
+          <div className="divider" />
+          <section className="video-capability-section" aria-labelledby="recording-polish-heading">
+            <h3 id="recording-polish-heading">Recording polish</h3>
+            <div className="video-capability unavailable">
+              <strong>Zooms unavailable</strong>
+              <span>{polish.zooms.detail}</span>
+            </div>
+            <div className="video-capability unavailable">
+              <strong>Cursor &amp; clicks unavailable</strong>
+              <span>
+                {polish.cursor.detail} {polish.clicks.detail}
+              </span>
+            </div>
+            <div className="video-capability unavailable">
+              <strong>{transcript.label}</strong>
+              <span>{transcript.detail}</span>
+            </div>
+          </section>
           <div className="divider" />
           <button className="btn" onClick={() => void update({ favorite: !item.favorite })}>
             <Icon name="star" size={14} /> {item.favorite ? 'Remove favourite' : 'Add favourite'}

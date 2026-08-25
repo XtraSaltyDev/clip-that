@@ -15,7 +15,7 @@ import { formatFilename } from '@shared/defaults'
 import { settings } from '../store/settings'
 import { library } from '../store/library'
 import { recordingSessionsDir, recordingsDir } from '../store/paths'
-import { toGif, toMp4, toWebm } from './ffmpeg'
+import { probeVideoMetadata, toGif, toMp4, toWebm } from './ffmpeg'
 import { RecordingRecoveryStore } from './recovery-store'
 import { supportsSystemAudio } from './system-audio'
 import { recordingTransitionAllowed } from './state'
@@ -288,12 +288,13 @@ class RecordingSession extends EventEmitter {
       throw err
     }
 
+    const rendered = await probeVideoMetadata(output).catch(() => null)
     const item = await library.addVideo({
       filePath: output,
       title: name,
-      width: meta.width,
-      height: meta.height,
-      durationMs: total,
+      width: rendered?.width ?? meta.width,
+      height: rendered?.height ?? meta.height,
+      durationMs: rendered?.durationMs ?? total,
       posterDataUrl: meta.posterDataUrl
     })
 

@@ -13,6 +13,7 @@ import type {
   EditorContextMenuAction,
   EditorContextMenuRequest,
   LibraryItem,
+  LibraryItemView,
   LibraryHealth,
   LibraryItemPatch,
   LibraryQuery,
@@ -24,6 +25,7 @@ import type {
   RecoverableRecording,
   RecordingOptions,
   RecordingPreflight,
+  RecordingMediaCapabilities,
   RecordingStatus,
   PlatformCapability,
   ReleaseNotesStatus,
@@ -116,7 +118,7 @@ const api = {
   },
 
   library: {
-    list: (query: LibraryQuery = {}): Promise<LibraryItem[]> =>
+    list: (query: LibraryQuery = {}): Promise<LibraryItemView[]> =>
       ipcRenderer.invoke(IPC.libraryList, query),
     tags: (): Promise<string[]> => ipcRenderer.invoke(IPC.libraryTags),
     add: (payload: {
@@ -192,6 +194,8 @@ const api = {
   },
 
   recording: {
+    mediaCapabilities: (): Promise<RecordingMediaCapabilities> =>
+      ipcRenderer.invoke(IPC.recordMediaCapabilities),
     sources: (): Promise<{
       displays: DisplayInfo[]
       windows: WindowInfo[]
@@ -325,7 +329,7 @@ const api = {
     onInit: (handler: (payload: unknown) => void) => on(IPC.quickInit, handler),
     action: (
       id: string,
-      action: 'copy' | 'save' | 'pin' | 'edit'
+      action: 'copy' | 'save' | 'pin' | 'edit' | 'reveal' | 'pipeline'
     ): Promise<{ ok: boolean; error?: string }> => ipcRenderer.invoke(IPC.quickAction, id, action),
     drag: (id: string): Promise<void> => ipcRenderer.invoke(IPC.quickDrag, id)
   },
