@@ -11,6 +11,7 @@ import {
   aspectRatio,
   exportPresetAvailability,
   recordingPolishCapabilities,
+  recordingPolishVisible,
   transcriptStatus,
   videoExportPreset
 } from '../.cache/test/src/shared/recording-polish.js'
@@ -79,6 +80,18 @@ test('recording polish gates metadata-dependent features without fabricating dat
   assert.equal(capabilities.cursor.available, false)
   assert.match(capabilities.cursor.detail, /will not invent/)
   assert.equal(capabilities.clicks.available, false)
+  assert.equal(recordingPolishVisible(capabilities, transcriptStatus('unavailable')), false)
+  assert.equal(
+    recordingPolishVisible(
+      recordingPolishCapabilities({
+        hasZoomTimeline: true,
+        hasCursorMetadata: false,
+        hasClickMetadata: false
+      }),
+      transcriptStatus('unavailable')
+    ),
+    true
+  )
 })
 
 test('aspect and export choices survive validated draft persistence', async () => {

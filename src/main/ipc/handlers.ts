@@ -966,6 +966,11 @@ export function registerIpcHandlers(): void {
     registerHotkeys()
     installAppMenu()
     refreshTray()
+    app.setLoginItemSettings({ openAtLogin: next.launchAtLogin, openAsHidden: true })
+    if (process.platform === 'darwin') {
+      if (next.showInDock) void app.dock?.show()
+      else app.dock?.hide()
+    }
     broadcast(IPC.settingsChanged, next)
     return next
   })

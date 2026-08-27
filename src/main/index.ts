@@ -133,9 +133,7 @@ app.whenReady().then(async () => {
 
   const s = settings.get()
   if (IS_MAC && !s.showInDock) app.dock?.hide()
-  if (s.launchAtLogin) {
-    app.setLoginItemSettings({ openAtLogin: true, openAsHidden: true })
-  }
+  app.setLoginItemSettings({ openAtLogin: s.launchAtLogin, openAsHidden: true })
 
   installAppMenu()
   createTray()
@@ -173,10 +171,10 @@ app.whenReady().then(async () => {
   setTimeout(indexBacklog, 4000)
 
   // First launch lands on Settings so the macOS permission prompt is explained
-  // before the user hits a capture that silently returns black pixels.
+  // before the user hits a capture that silently returns black pixels. Stay on
+  // this screen across relaunches until the user continues from Welcome.
   if (!s.onboarded) {
     showSettingsWindow('welcome')
-    settings.set({ onboarded: true })
   } else if (!s.showInTray) {
     showLibraryWindow()
   }

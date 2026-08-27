@@ -3,6 +3,7 @@ import type { AppUpdateStatus, Hotkeys, ReleaseNotesStatus, Settings } from '@sh
 import { api } from '../shared/api'
 import { Icon, type IconName } from '../shared/icons'
 import { MOD_KEY } from '../shared/platform'
+import { welcomeCaptureReady } from '@shared/onboarding'
 import {
   ColorPicker,
   Segmented,
@@ -112,7 +113,7 @@ export default function App(): React.ReactElement {
       <main ref={mainRef} className="set-main">
         <div className="set-content">
           {section === 'welcome' && (
-            <Welcome platform={platform} onDone={() => setSection('general')} />
+            <Welcome platform={platform} patch={patch} onDone={() => setSection('general')} />
           )}
           {section === 'general' && (
             <General settings={settings} patch={patch} platform={platform} />
@@ -172,9 +173,11 @@ function Field(props: {
 
 function Welcome({
   platform,
+  patch,
   onDone
 }: {
   platform: string
+  patch: (p: Partial<Settings>) => Promise<void>
   onDone: () => void
 }): React.ReactElement {
   const [perm, setPerm] = useState<{ screen: string; screenVerified: boolean } | null>(null)
@@ -191,6 +194,7 @@ function Welcome({
   }, [check])
 
   const granted = perm?.screenVerified
+  const captureReady = welcomeCaptureReady(platform, perm?.screenVerified)
 
   return (
     <>
@@ -225,6 +229,12 @@ function Welcome({
       )}
 
       <Group title="Try it now">
+        {!captureReady && (
+          <p className="tiny muted">
+            Grant Screen Recording first. These actions stay off until ClipThat can actually read
+            pixels.
+          </p>
+        )}
         <div className="set-cards">
           {(
             [
@@ -254,7 +264,7 @@ function Welcome({
               ]
             ] as Array<[IconName, string, string, () => void]>
           ).map(([icon, title, body, action]) => (
-            <button key={title} className="set-card" onClick={action}>
+            <button key={title} className="set-card" disabled={!captureReady} onClick={action}>
               <Icon name={icon} size={20} />
               <div>
                 <div style={{ fontWeight: 600 }}>{title}</div>
@@ -267,7 +277,12 @@ function Welcome({
 
       <div className="row">
         <span className="spacer" />
-        <button className="btn primary" onClick={onDone}>
+        <button
+          className="btn primary"
+          onClick={() => {
+            void patch({ onboarded: true }).then(onDone)
+          }}
+        >
           Continue to settings
         </button>
       </div>
@@ -572,7 +587,8 @@ function HotkeySettings({
           <Icon name="alert" size={18} />
           <div className="tiny">
             {failures.length} shortcut{failures.length === 1 ? '' : 's'} could not be registered —
-            another app already owns {failures.length === 1 ? 'it' : 'them'}.
+            another ClipThat shortcut or another app already uses{' '}
+            {failures.length === 1 ? 'this combination' : 'these combinations'}.
           </div>
         </div>
       )}

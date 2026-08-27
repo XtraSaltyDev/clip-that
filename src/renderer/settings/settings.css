@@ -197,6 +197,16 @@ body.mac .set-side {
   background: var(--bg-3);
   transform: translateY(-1px);
 }
+.set-card:disabled {
+  opacity: 0.55;
+  cursor: not-allowed;
+  transform: none;
+}
+.set-card:disabled:hover {
+  border-color: var(--line);
+  background: var(--bg-2);
+  transform: none;
+}
 
 .hotkey {
   min-width: 130px;

@@ -39,6 +39,9 @@
     "src/shared/context-trust.ts",
     "src/shared/library-workbench.ts",
     "src/shared/recording-polish.ts",
+    "src/shared/defaults.ts",
+    "src/shared/hotkey-plan.ts",
+    "src/shared/onboarding.ts",
     "src/shared/ocr-quality.ts",
     "src/shared/types.ts"
   ]
