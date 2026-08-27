@@ -63,7 +63,7 @@ export default function ContextPanel({
       const assessment = assessOcr(result)
       state.setOcrResults(assessment.trusted, result)
       state.setOcrText(assessment.trusted.text)
-      if (assessment.disposition !== 'accepted') state.setLiveText(false)
+      if (assessment.disposition === 'rejected') state.setLiveText(false)
     } catch (err) {
       useEditor.getState().setOcrError((err as Error).message || 'The OCR engine did not complete.')
       toast('error', 'Could not read the capture', (err as Error).message)
@@ -243,6 +243,9 @@ export default function ContextPanel({
           </button>
         )}
         {!structuredActionsAllowed && trust.state !== 'processing' && trust.state !== 'empty' && (
+          <p className="ctx-trust-action-note">{trust.structuredActionReason}</p>
+        )}
+        {structuredActionsAllowed && trust.state === 'partial' && trust.structuredActionReason && (
           <p className="ctx-trust-action-note">{trust.structuredActionReason}</p>
         )}
       </section>

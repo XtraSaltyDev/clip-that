@@ -341,8 +341,8 @@ export function registerIpcHandlers(): void {
     saveProject(validate.clipDocument(doc), validate.booleanValue(saveAs, 'save as'))
   )
   secureHandle(IPC.openProject, ['editor'], async () => openProjectDialog())
-  secureHandle(IPC.startDrag, ['editor'], async (e, dataUrl: string, name: string) => {
-    await startDrag(e, validate.imageDataUrl(dataUrl), validate.idValue(name, 'drag name'))
+  secureHandle(IPC.startDrag, ['editor'], (e, dataUrl: string, name: string) => {
+    startDrag(e, validate.imageDataUrl(dataUrl), validate.idValue(name, 'drag name'))
   })
   secureHandle(IPC.revealFile, ['library', 'editor'], (_e, filePath: string) => {
     const path = validate.pathValue(filePath)
@@ -1169,18 +1169,37 @@ export function registerIpcHandlers(): void {
     }
   })
 
-  secureHandle(IPC.quickDrag, ['quick'], async (e, unsafeId: unknown) => {
-    const id = validate.idValue(unsafeId, 'quick capture id')
-    const entry = quickCache().get(id)
-    if (!entry) return
-    if (entry.kind === 'video') {
-      if (library.ownsPath(entry.item.filePath)) {
-        await startFileDrag(e, entry.item.filePath, entry.item.thumbnail || undefined)
+  // startDrag must run in the same turn as the renderer dragstart. invoke + writeFile
+  // is too late, so Quick Access uses sendSync against a fully sync handler.
+  secureOn(IPC.quickDrag, ['quick'], (e, unsafeId: unknown) => {
+    try {
+      const id = validate.idValue(unsafeId, 'quick capture id')
+      const entry = quickCache().get(id)
+      if (!entry) {
+        e.returnValue = false
+        return
       }
-      return
+      if (entry.kind === 'video') {
+        if (library.ownsPath(entry.item.filePath)) {
+          startFileDrag(e, entry.item.filePath, entry.item.thumbnail || undefined)
+          e.returnValue = true
+          return
+        }
+        e.returnValue = false
+        return
+      }
+      const item = entry.libraryId ? library.get(entry.libraryId) : undefined
+      if (item && library.ownsPath(item.filePath)) {
+        startFileDrag(e, item.filePath, item.thumbnail || undefined)
+      } else {
+        const name = entry.result.title || formatFilename(settings.get().filenameTemplate)
+        startDrag(e, entry.result.dataUrl, name)
+      }
+      e.returnValue = true
+    } catch (error) {
+      console.warn('[clipthat] quick drag failed', (error as Error).message)
+      e.returnValue = false
     }
-    const name = entry.result.title || formatFilename(settings.get().filenameTemplate)
-    await startDrag(e, entry.result.dataUrl, name)
   })
 
   secureHandle(IPC.quit, ['settings'], () => app.quit())

@@ -2,6 +2,7 @@ import type { Command } from '../shared/CommandPalette'
 import { api } from '../shared/api'
 import { BEAUTIFY_CANVAS, DEFAULT_CANVAS } from '@shared/defaults'
 import { assessOcr } from '@shared/ocr-quality'
+import { summarizeContextTrust } from '@shared/context-trust'
 import { useEditor } from './store'
 import { ALL_TOOLS } from './tools'
 import type { EditorActions } from './actions'
@@ -22,9 +23,13 @@ export function editorCommands(
   const hasSelection = () => state().selectedIds.length > 0
   const trustedContextReady = () => {
     const current = state()
-    return Boolean(
-      current.rawOcr && !current.ocrBusy && assessOcr(current.rawOcr).disposition === 'accepted'
-    )
+    if (!current.rawOcr || current.ocrBusy) return false
+    return summarizeContextTrust({
+      busy: false,
+      assessment: assessOcr(current.rawOcr),
+      raw: current.rawOcr,
+      error: current.ocrError
+    }).structuredActionsAllowed
   }
 
   const tools: Command[] = ALL_TOOLS.map((t) => ({
@@ -69,6 +74,14 @@ export function editorCommands(
       icon: 'scroll',
       keywords: 'long page stitch',
       run: () => void api.capture.start({ mode: 'scrolling' })
+    },
+    {
+      id: 'capture.last-region',
+      title: 'Repeat last region',
+      group: 'Capture',
+      icon: 'region',
+      keywords: 'last region repeat recapture',
+      run: () => void api.capture.start({ mode: 'lastRegion' })
     },
     {
       id: 'capture.clipboard',

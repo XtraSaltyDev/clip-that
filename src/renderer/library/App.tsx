@@ -319,6 +319,14 @@ export default function App(): React.ReactElement {
         run: () => void api.capture.start({ mode: 'scrolling' })
       },
       {
+        id: 'cap.last-region',
+        title: 'Repeat last region',
+        group: 'Capture',
+        icon: 'region',
+        keywords: 'last region repeat recapture',
+        run: () => void api.capture.start({ mode: 'lastRegion' })
+      },
+      {
         id: 'cap.record',
         title: 'Record screen',
         group: 'Capture',

@@ -5,6 +5,7 @@ import { api } from '../shared/api'
 import { toast } from '../shared/ui'
 import { runOcr, toImageSpace } from '../shared/ocr'
 import { assessOcr, findSensitive, SENSITIVE_LABELS } from '../shared/extract'
+import { summarizeContextTrust } from '@shared/context-trust'
 import { useEditor } from './store'
 import { encodeAs, flatten } from './exporting'
 
@@ -212,11 +213,18 @@ export function useEditorActions(stageRef: StageRef, settings: Settings | null) 
       state.setOcrText(assessment.trusted.text)
       state.setOcrResults(assessment.trusted, result)
 
-      if (assessment.disposition !== 'accepted') {
+      const trust = summarizeContextTrust({
+        busy: false,
+        assessment,
+        raw: result,
+        error: null
+      })
+      if (!trust.structuredActionsAllowed) {
         toast(
           'info',
           'Auto-blur unavailable',
-          'Context text is not fully trusted. Review the capture or raw OCR and blur manually.'
+          trust.structuredActionReason ||
+            'Context text is not trusted. Review the capture or raw OCR and blur manually.'
         )
         return
       }

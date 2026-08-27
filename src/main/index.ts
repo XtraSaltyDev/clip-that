@@ -20,6 +20,7 @@ import {
 import { installOverlayPool, openOverlay, takeFrozenSnapshot } from './windows/overlay'
 import { performCapture, routeResult } from './capture/service'
 import { recording } from './recording/session'
+import { installDisplayMediaHandler } from './recording/display-media'
 import { indexBacklog, indexCapture, requestOcr } from './ocr'
 import { trustedOcrText } from './store/library-ocr'
 import { library } from './store/library'
@@ -129,6 +130,7 @@ app.whenReady().then(async () => {
   await guides.initialize()
   registerLibraryProtocol()
   registerIpcHandlers()
+  installDisplayMediaHandler()
   initializeAppUpdates()
 
   const s = settings.get()

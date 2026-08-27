@@ -24,6 +24,10 @@ import { reconcileRecordingSources } from './recording-sources'
 import { capabilityStateLabel, recordingReadiness } from './preflight-summary'
 import './hud.css'
 
+function reviewMediaUrl(recovery: RecoverableRecording): string {
+  return api.library.fileUrl(recovery.playbackPath ?? recovery.rawPath)
+}
+
 type Phase = 'setup' | 'recovery' | 'countdown' | 'recording' | 'review' | 'encoding'
 
 const SIZES: Record<Phase, [number, number]> = {
@@ -73,6 +77,7 @@ export default function Recorder(): React.ReactElement {
   const [recoveries, setRecoveries] = useState<RecoverableRecording[]>([])
   const [activeRecovery, setActiveRecovery] = useState<RecoverableRecording | null>(null)
   const [mediaUrl, setMediaUrl] = useState<string | null>(null)
+  const [playbackError, setPlaybackError] = useState<string | null>(null)
   const [duration, setDuration] = useState(0)
   const [trim, setTrim] = useState<[number, number]>([0, 0])
   const [format, setFormat] = useState<VideoExportOptions['format']>('mp4')
@@ -207,6 +212,7 @@ export default function Recorder(): React.ReactElement {
         await new Promise((r) => setTimeout(r, 1000))
         if (run !== countdownRun.current) return
       }
+      setCount(0)
     }
 
     try {
@@ -244,7 +250,8 @@ export default function Recorder(): React.ReactElement {
         mimeType: handles.mimeType
       })
       setActiveRecovery(recovery)
-      setMediaUrl(api.library.fileUrl(recovery.rawPath))
+      setPlaybackError(null)
+      setMediaUrl(reviewMediaUrl(recovery))
       setPhase('review')
     } catch (err) {
       const message = (err as Error).message || 'Could not finish the recording'
@@ -252,7 +259,8 @@ export default function Recorder(): React.ReactElement {
       if (recovery && recovery.byteSize > 0) {
         setError(`${message}. The raw recording was preserved.`)
         setActiveRecovery(recovery)
-        setMediaUrl(api.library.fileUrl(recovery.rawPath))
+        setPlaybackError(null)
+        setMediaUrl(reviewMediaUrl(recovery))
         setPhase('review')
       } else {
         setError(message)
@@ -337,11 +345,18 @@ export default function Recorder(): React.ReactElement {
       setTrim([0, ms])
       video.currentTime = 0
     }
+    const onError = () => {
+      setPlaybackError(
+        "This recording couldn't be previewed here. Keep it to open it in the editor."
+      )
+    }
     video.addEventListener('loadedmetadata', onMeta)
     video.addEventListener('durationchange', onMeta)
+    video.addEventListener('error', onError)
     return () => {
       video.removeEventListener('loadedmetadata', onMeta)
       video.removeEventListener('durationchange', onMeta)
+      video.removeEventListener('error', onError)
     }
   }, [mediaUrl])
 
@@ -387,7 +402,8 @@ export default function Recorder(): React.ReactElement {
     setOptions(recovery.options)
     setDuration(recovery.durationMs ?? 0)
     if (recovery.durationMs) setTrim([0, recovery.durationMs])
-    setMediaUrl(api.library.fileUrl(recovery.rawPath))
+    setPlaybackError(null)
+    setMediaUrl(reviewMediaUrl(recovery))
     setPhase('review')
   }, [])
 
@@ -403,8 +419,13 @@ export default function Recorder(): React.ReactElement {
     return (
       <div className="hud-count">
         <div className="hud-count-ring">
-          <span>{count}</span>
+          <span>{count > 0 ? count : '…'}</span>
         </div>
+        {count <= 0 && (
+          <div className="tiny muted" role="status">
+            Starting capture
+          </div>
+        )}
         <button className="btn sm ghost" onClick={() => void cancelRecording()}>
           Cancel
         </button>
@@ -536,6 +557,11 @@ export default function Recorder(): React.ReactElement {
 
         <div className="hud-video">
           {mediaUrl && <video ref={videoRef} src={mediaUrl} controls preload="metadata" />}
+          {playbackError && (
+            <div className="hud-error" role="alert">
+              {playbackError}
+            </div>
+          )}
         </div>
 
         <div className="hud-trim">

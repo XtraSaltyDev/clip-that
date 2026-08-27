@@ -165,6 +165,11 @@ export function installAppMenu(): void {
           accelerator: keys.captureFullscreen,
           click: () => void performCapture({ mode: 'display' })
         },
+        {
+          label: 'Repeat Last Region',
+          accelerator: keys.captureLastRegion,
+          click: () => void performCapture({ mode: 'lastRegion' })
+        },
         { type: 'separator' },
         { label: 'Open Library', accelerator: keys.openLibrary, click: () => showLibraryWindow() },
         { type: 'separator' },

@@ -1,5 +1,5 @@
 import { BrowserWindow, clipboard, dialog, nativeImage, shell } from 'electron'
-import { promises as fs } from 'node:fs'
+import { existsSync, writeFileSync, promises as fs } from 'node:fs'
 import { join, extname, basename } from 'node:path'
 import type { ClipDocument, SaveImageRequest, SaveResult } from '@shared/types'
 import { formatFilename, safeFilename } from '@shared/defaults'
@@ -204,14 +204,14 @@ export async function exportPdf(dataUrl: string, suggestedName?: string): Promis
 }
 
 /** Write a temp PNG and hand it to the OS drag-and-drop pipeline. */
-export async function startDrag(
-  event: Electron.IpcMainInvokeEvent,
+export function startDrag(
+  event: { sender: Electron.WebContents },
   dataUrl: string,
   name: string
-): Promise<void> {
+): void {
   const image = nativeImage.createFromDataURL(dataUrl)
   const file = join(tempDir(), `${safeFilename(name)}.png`)
-  await fs.writeFile(file, image.toPNG())
+  writeFileSync(file, image.toPNG())
   const size = image.getSize()
   const scale = Math.min(1, 160 / Math.max(size.width, size.height, 1))
   event.sender.startDrag({
@@ -224,12 +224,12 @@ export async function startDrag(
 }
 
 /** Hand an existing Library file to the OS drag-and-drop pipeline. */
-export async function startFileDrag(
-  event: Electron.IpcMainInvokeEvent,
+export function startFileDrag(
+  event: { sender: Electron.WebContents },
   filePath: string,
   iconPath?: string
-): Promise<void> {
-  await fs.access(filePath)
+): void {
+  if (!existsSync(filePath)) throw new Error('Drag file is no longer available')
   const icon = nativeImage.createFromPath(iconPath ?? filePath)
   event.sender.startDrag({
     file: filePath,

@@ -15,7 +15,7 @@ import { formatFilename } from '@shared/defaults'
 import { settings } from '../store/settings'
 import { library } from '../store/library'
 import { recordingSessionsDir, recordingsDir } from '../store/paths'
-import { probeVideoMetadata, toGif, toMp4, toWebm } from './ffmpeg'
+import { probeVideoMetadata, remuxWebmForPlayback, toGif, toMp4, toWebm } from './ffmpeg'
 import { RecordingRecoveryStore } from './recovery-store'
 import { supportsSystemAudio } from './system-audio'
 import { recordingTransitionAllowed } from './state'
@@ -30,6 +30,7 @@ class RecordingSession extends EventEmitter {
   private sessionId: string | null = null
   private recoveryStore: RecordingRecoveryStore | null = null
   private displayOverride: string | null = null
+  private lastCaptureSource: Electron.DesktopCapturerSource | undefined
 
   status(): RecordingStatus {
     return {
@@ -73,12 +74,21 @@ class RecordingSession extends EventEmitter {
   }
 
   /**
+   * Last source resolved for getUserMedia / getDisplayMedia. The display-media
+   * handler must use this cache — enumerating inside that callback deadlocks.
+   */
+  cachedCaptureSource(): Electron.DesktopCapturerSource | undefined {
+    return this.lastCaptureSource
+  }
+
+  /**
    * Resolve the selected source before Chromium opens its media request. ScreenCaptureKit
    * can stall when desktopCapturer enumeration happens inside the getDisplayMedia handler;
    * the source ID path is the Electron-supported getUserMedia alternative.
    */
   async captureSourceId(): Promise<string> {
     const source = await this.captureSource()
+    this.lastCaptureSource = source
     if (!source) throw new Error('The selected screen or window is no longer available.')
     return source.id
   }
@@ -191,6 +201,7 @@ class RecordingSession extends EventEmitter {
     this.rawPath = null
     this.sessionId = null
     this.options = null
+    this.lastCaptureSource = undefined
     this.setState('idle')
   }
 
@@ -226,18 +237,21 @@ class RecordingSession extends EventEmitter {
     })
     if (recovery.byteSize === 0) throw new Error('The recording did not produce any video data')
     this.rawPath = recovery.rawPath
-    return recovery
+    await remuxWebmForPlayback(recovery.rawPath)
+    return this.store().get(this.sessionId) ?? recovery
   }
 
   async preserveFailure(message: string): Promise<RecoverableRecording | null> {
     if (!this.sessionId) return null
     if (this.state === 'recording' || this.state === 'paused') this.markStopping()
     else if (this.state === 'countdown') this.setState('encoding')
-    return this.store().update(this.sessionId, {
+    const recovery = await this.store().update(this.sessionId, {
       state: 'failed',
       durationMs: Math.max(1, this.accumulatedMs),
       failure: message
     })
+    if (recovery.byteSize > 0) await remuxWebmForPlayback(recovery.rawPath)
+    return this.store().get(this.sessionId) ?? recovery
   }
 
   async recover(id: string): Promise<RecoverableRecording> {
@@ -249,7 +263,8 @@ class RecordingSession extends EventEmitter {
     this.options = { ...recovery.options }
     this.accumulatedMs = recovery.durationMs ?? 0
     this.setState('encoding')
-    return recovery
+    await remuxWebmForPlayback(recovery.rawPath)
+    return this.store().get(id) ?? recovery
   }
 
   async discardRecovery(id: string): Promise<void> {

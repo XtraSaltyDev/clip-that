@@ -1,4 +1,5 @@
 import type { RecordingOptions, RecordingPreflightItem, Rect } from '@shared/types'
+import { displayCapturePlan } from '@shared/recording-capture'
 import { api } from '../shared/api'
 import {
   DEFAULT_CAMERA_CONFIG,
@@ -236,39 +237,17 @@ async function waitForVideoFrame(video: HTMLVideoElement, timeoutMs = 3000): Pro
  * service warms up; a bounded attempt with one retry turns a dead recorder into a
  * one-second hiccup. */
 async function getDisplayStream(options: RecordingOptions): Promise<MediaStream> {
-  const attempt = async () => {
-    // Resolve a fresh source immediately before each attempt. Electron documents the
-    // DesktopCapturerSource ID as a chromeMediaSourceId for getUserMedia; this avoids a
-    // ScreenCaptureKit deadlock observed when getSources runs inside the
-    // setDisplayMediaRequestHandler callback on macOS.
-    const sourceId = await api.recording.captureSource()
-    return navigator.mediaDevices.getUserMedia({
-      video: {
-        mandatory: {
-          chromeMediaSource: 'desktop',
-          chromeMediaSourceId: sourceId,
-          maxFrameRate: options.fps
-        }
-      },
-      audio: options.systemAudio
-        ? {
-            mandatory: {
-              chromeMediaSource: 'desktop',
-              chromeMediaSourceId: sourceId
-            }
-          }
-        : false
-    } as unknown as MediaStreamConstraints)
-  }
+  const plan = displayCapturePlan(options.systemAudio)
+  const sourceId = await api.recording.captureSource()
 
-  const bounded = (ms: number) =>
+  const bounded = (factory: () => Promise<MediaStream>, ms: number, message: string) =>
     new Promise<MediaStream>((resolve, reject) => {
       let expired = false
       const timer = setTimeout(() => {
         expired = true
-        reject(new Error('display capture timed out'))
+        reject(new Error(message))
       }, ms)
-      attempt().then(
+      factory().then(
         (stream) => {
           clearTimeout(timer)
           if (expired) {
@@ -279,15 +258,52 @@ async function getDisplayStream(options: RecordingOptions): Promise<MediaStream>
         },
         (err) => {
           clearTimeout(timer)
-          reject(err)
+          if (!expired) reject(err)
         }
       )
     })
 
+  const videoOnly = () =>
+    navigator.mediaDevices.getUserMedia({
+      video: {
+        mandatory: {
+          chromeMediaSource: 'desktop',
+          chromeMediaSourceId: sourceId,
+          maxFrameRate: options.fps
+        }
+      },
+      audio: false
+    } as unknown as MediaStreamConstraints)
+
+  if (plan.videoOnlyGetUserMedia) {
+    try {
+      return await bounded(videoOnly, 8000, 'display capture timed out')
+    } catch {
+      return bounded(videoOnly, 12000, 'display capture timed out')
+    }
+  }
+
+  // System audio: Electron loopback via getDisplayMedia, never chromeMediaSource audio
+  // on the same getUserMedia as the video track (that path hangs ScreenCaptureKit).
   try {
-    return await bounded(8000)
+    const stream = await bounded(
+      () => navigator.mediaDevices.getDisplayMedia({ video: true, audio: true }),
+      5000,
+      'system audio capture timed out'
+    )
+    if (stream.getAudioTracks().length === 0) {
+      stream.getTracks().forEach((track) => track.stop())
+      throw new Error('loopback produced no audio')
+    }
+    const video = stream.getVideoTracks()[0]
+    if (video && options.fps) {
+      await video.applyConstraints({ frameRate: options.fps }).catch(() => undefined)
+    }
+    return stream
   } catch {
-    return bounded(12000)
+    throw new Error(
+      'System audio could not be captured. Turn System audio off, or grant Screen Recording and try again.'
+    )
   }
 }
 

@@ -16,6 +16,15 @@ test('duplicate ClipThat accelerators are reported instead of silently skipped',
   )
 })
 
+test('duplicate Command+Shift+Z bindings are reported instead of silently accepted', () => {
+  const keys = defaultSettings('/tmp').hotkeys
+  keys.captureRegion = 'Command+Shift+Z'
+  keys.captureWindow = 'Command+Shift+Z'
+  const planned = planHotkeyBindings(keys)
+  assert.ok(planned.bindings.some((binding) => binding.action === 'captureRegion'))
+  assert.deepEqual(planned.failures, [{ action: 'captureWindow', accelerator: 'Command+Shift+Z' }])
+})
+
 test('empty accelerators are ignored and unique shortcuts still bind', () => {
   const keys = defaultSettings('/tmp').hotkeys
   keys.grabText = ''

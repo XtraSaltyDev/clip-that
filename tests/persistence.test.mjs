@@ -98,6 +98,12 @@ test('recording chunks survive reinitialization in exact byte order', async () =
       restarted.append(created.id, 3, new Uint8Array([9]), 'video/webm'),
       /out of order/
     )
+    assert.equal(restarted.ownsRawPath(created.rawPath), true)
+    const playPath = created.rawPath.replace(/\.webm$/, '.play.webm')
+    await writeFile(playPath, Buffer.from([9, 9]))
+    const withPlayback = restarted.get(created.id)
+    assert.equal(withPlayback?.playbackPath, playPath)
+    assert.equal(restarted.ownsRawPath(playPath), true)
   } finally {
     await rm(root, { recursive: true, force: true })
   }

@@ -257,6 +257,12 @@ function Welcome({
                 () => api.capture.start({ mode: 'scrolling' })
               ],
               [
+                'region',
+                'Repeat last region',
+                'Capture the same box again.',
+                () => api.capture.start({ mode: 'lastRegion' })
+              ],
+              [
                 'video',
                 'Record the screen',
                 'MP4 or GIF, with webcam.',

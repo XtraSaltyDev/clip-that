@@ -12,7 +12,6 @@ import {
   aspectRatio,
   exportPresetAvailability,
   recordingPolishCapabilities,
-  recordingPolishVisible,
   transcriptStatus,
   videoExportPreset
 } from '@shared/recording-polish'
@@ -414,7 +413,6 @@ export default function VideoEditor(props: {
     hasClickMetadata: false
   })
   const transcript = transcriptStatus('unavailable')
-  const showRecordingPolish = recordingPolishVisible(polish, transcript)
   const previewRatio = aspectRatio(aspect)
 
   const applyPreset = (next: VideoExportPreset) => {
@@ -753,37 +751,24 @@ export default function VideoEditor(props: {
               setExportPreset('custom')
             }}
           />
-          {showRecordingPolish && (
-            <>
-              <div className="divider" />
-              <section
-                className="video-capability-section"
-                aria-labelledby="recording-polish-heading"
-              >
-                <h3 id="recording-polish-heading">Recording polish</h3>
-                {polish.zooms.available && (
-                  <div className="video-capability">
-                    <strong>Zooms</strong>
-                    <span>{polish.zooms.detail}</span>
-                  </div>
-                )}
-                {(polish.cursor.available || polish.clicks.available) && (
-                  <div className="video-capability">
-                    <strong>Cursor &amp; clicks</strong>
-                    <span>
-                      {polish.cursor.detail} {polish.clicks.detail}
-                    </span>
-                  </div>
-                )}
-                {(transcript.canEdit || transcript.canShowCaptions) && (
-                  <div className="video-capability">
-                    <strong>{transcript.label}</strong>
-                    <span>{transcript.detail}</span>
-                  </div>
-                )}
-              </section>
-            </>
-          )}
+          <div className="divider" />
+          <section className="video-capability-section" aria-labelledby="recording-polish-heading">
+            <h3 id="recording-polish-heading">Recording polish</h3>
+            <div className="video-capability unavailable">
+              <strong>Zooms unavailable</strong>
+              <span>{polish.zooms.detail}</span>
+            </div>
+            <div className="video-capability unavailable">
+              <strong>Cursor &amp; clicks unavailable</strong>
+              <span>
+                {polish.cursor.detail} {polish.clicks.detail}
+              </span>
+            </div>
+            <div className="video-capability unavailable">
+              <strong>{transcript.label}</strong>
+              <span>{transcript.detail}</span>
+            </div>
+          </section>
           <div className="divider" />
           <button className="btn" onClick={() => void update({ favorite: !item.favorite })}>
             <Icon name="star" size={14} /> {item.favorite ? 'Remove favourite' : 'Add favourite'}
