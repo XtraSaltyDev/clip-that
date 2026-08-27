@@ -2,6 +2,7 @@ import assert from 'node:assert/strict'
 import test from 'node:test'
 import { join } from 'node:path'
 import { displayCapturePlan } from '../.cache/test/src/shared/recording-capture.js'
+import { nsFilenamesPlist } from '../.cache/test/src/shared/file-clipboard.js'
 import {
   reviewPlaybackCopyArgs,
   reviewPlaybackPath
@@ -35,4 +36,12 @@ test('review playback remux writes a sibling playable WebM next to the raw sessi
     'make_zero',
     playback
   ])
+})
+
+test('Finder pasteboard payload lists escaped absolute file paths', () => {
+  const plist = nsFilenamesPlist(['/Users/test/Clip That/shot.png', '/tmp/a&b.png'])
+  assert.match(plist, /<string>\/Users\/test\/Clip That\/shot.png<\/string>/)
+  assert.match(plist, /<string>\/tmp\/a&amp;b.png<\/string>/)
+  assert.doesNotMatch(plist, /<string>\/tmp\/a&b.png<\/string>/)
+  assert.match(plist, /<plist version="1.0">/)
 })

@@ -68,7 +68,7 @@ test('external links remain limited to HTTP and HTTPS', () => {
 })
 
 test('capture handoff actions accept the complete local action set', () => {
-  for (const action of ['copy', 'save', 'pin', 'edit', 'reveal', 'pipeline']) {
+  for (const action of ['copy', 'save', 'pin', 'edit', 'reveal', 'pipeline', 'copyFile']) {
     assert.equal(validation.quickAction(action), action)
   }
   assert.throws(() => validation.quickAction('upload'), /quick action/)

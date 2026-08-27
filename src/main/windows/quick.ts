@@ -1,8 +1,9 @@
-import { BrowserWindow, nativeImage, screen } from 'electron'
+import { BrowserWindow, nativeImage, nativeTheme, screen } from 'electron'
 import { IPC } from '@shared/ipc'
 import type { CaptureResult, LibraryItem } from '@shared/types'
 import { loadEntry, preloadPath } from './urls'
 import { registerRendererWindow } from '../ipc/sender'
+import { settings } from '../store/settings'
 
 /**
  * The capture handoff strip: a small floating window that appears after a capture with
@@ -12,6 +13,7 @@ import { registerRendererWindow } from '../ipc/sender'
 
 const CARD_W = 624
 const CARD_H = 184
+const IS_MAC = process.platform === 'darwin'
 
 let card: BrowserWindow | null = null
 
@@ -56,6 +58,13 @@ function libraryFileUrl(filePath: string): string {
   return `clipthat://file/${encodeURIComponent(filePath)}`
 }
 
+function panelBackground(): string {
+  const theme = settings.get().theme
+  const light =
+    theme === 'light' || (theme === 'system' && nativeTheme.shouldUseDarkColors === false)
+  return light ? '#ffffff' : '#12161d'
+}
+
 interface QuickPayload {
   id: string
   kind: 'image' | 'video'
@@ -73,6 +82,7 @@ function present(entry: QuickEntry, payload: QuickPayload): BrowserWindow {
   cache.set(payload.id, entry)
 
   if (card && !card.isDestroyed()) {
+    card.setBackgroundColor(panelBackground())
     card.webContents.send(IPC.quickInit, payload)
     card.show()
     card.focus()
@@ -88,14 +98,17 @@ function present(entry: QuickEntry, payload: QuickPayload): BrowserWindow {
     width: CARD_W,
     height: CARD_H,
     frame: false,
-    transparent: true,
-    backgroundColor: '#00000000',
-    hasShadow: false,
+    transparent: false,
+    backgroundColor: panelBackground(),
+    hasShadow: true,
+    roundedCorners: true,
+    ...(IS_MAC ? { type: 'panel' as const } : {}),
     alwaysOnTop: true,
     skipTaskbar: true,
     resizable: false,
     fullscreenable: false,
     minimizable: false,
+    focusable: true,
     title: 'ClipThat Quick Access',
     webPreferences: {
       preload: preloadPath(),

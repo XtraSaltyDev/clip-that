@@ -3,6 +3,7 @@ import { existsSync, writeFileSync, promises as fs } from 'node:fs'
 import { join, extname, basename } from 'node:path'
 import type { ClipDocument, SaveImageRequest, SaveResult } from '@shared/types'
 import { formatFilename, safeFilename } from '@shared/defaults'
+import { nsFilenamesPlist } from '@shared/file-clipboard'
 import { settings } from './store/settings'
 import { tempDir } from './store/paths'
 import { clipDocument } from './ipc/validation'
@@ -77,6 +78,17 @@ export function copyImageToClipboard(dataUrl: string): boolean {
   const image = nativeImage.createFromDataURL(dataUrl)
   if (image.isEmpty()) return false
   clipboard.writeImage(image)
+  return true
+}
+
+/** Put a real file on the pasteboard so Finder and other apps can paste it. */
+export function copyFileToClipboard(filePath: string): boolean {
+  if (!existsSync(filePath)) return false
+  if (process.platform === 'darwin') {
+    clipboard.writeBuffer('NSFilenamesPboardType', Buffer.from(nsFilenamesPlist([filePath])))
+    return true
+  }
+  clipboard.write({ text: filePath })
   return true
 }
 

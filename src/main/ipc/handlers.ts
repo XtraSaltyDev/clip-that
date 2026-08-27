@@ -77,6 +77,7 @@ import {
 } from '../windows/manager'
 import {
   copyImageToClipboard,
+  copyFileToClipboard,
   exportPdf,
   openProjectDialog,
   openFile,
@@ -1125,6 +1126,12 @@ export function registerIpcHandlers(): void {
             return { ok: false, error: 'file unavailable' }
           revealFile(entry.item.filePath)
           return { ok: true }
+        case 'copyFile':
+          if (!library.ownsPath(entry.item.filePath))
+            return { ok: false, error: 'file unavailable' }
+          return copyFileToClipboard(entry.item.filePath)
+            ? { ok: true }
+            : { ok: false, error: 'could not copy the recording file' }
         case 'copy':
           return { ok: false, error: 'Recordings cannot be copied as images' }
         case 'save':
@@ -1141,6 +1148,16 @@ export function registerIpcHandlers(): void {
     switch (action) {
       case 'copy':
         return { ok: copyImageToClipboard(result.dataUrl) }
+      case 'copyFile': {
+        if (!libraryId) return { ok: false, error: 'capture is not in the Library' }
+        const item = library.get(libraryId)
+        if (!item || !library.ownsPath(item.filePath)) {
+          return { ok: false, error: 'capture file unavailable' }
+        }
+        return copyFileToClipboard(item.filePath)
+          ? { ok: true }
+          : { ok: false, error: 'could not copy the capture file' }
+      }
       case 'save': {
         const saved = await saveImage({
           dataUrl: result.dataUrl,
