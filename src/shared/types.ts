@@ -632,6 +632,8 @@ export interface RecoverableRecording {
   createdAt: number
   updatedAt: number
   rawPath: string
+  /** Stream-copy remux used by HUD review when the raw MediaRecorder WebM is unplayable. */
+  playbackPath?: string
   mimeType: string
   byteSize: number
   chunkCount: number

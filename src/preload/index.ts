@@ -331,7 +331,7 @@ const api = {
       id: string,
       action: 'copy' | 'save' | 'pin' | 'edit' | 'reveal' | 'pipeline'
     ): Promise<{ ok: boolean; error?: string }> => ipcRenderer.invoke(IPC.quickAction, id, action),
-    drag: (id: string): Promise<void> => ipcRenderer.invoke(IPC.quickDrag, id)
+    drag: (id: string): boolean => ipcRenderer.sendSync(IPC.quickDrag, id) as boolean
   },
 
   ocr: {

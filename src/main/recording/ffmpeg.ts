@@ -8,6 +8,7 @@ import { aspectCanvasDimensions } from '@shared/recording-polish'
 import { tempDir } from '../store/paths'
 import { bundledFfmpegPath, bundledFfprobePath } from './ffmpeg-path'
 import { classifyFfmpegError } from './ffmpeg-errors'
+import { reviewPlaybackCopyArgs, reviewPlaybackPath } from './review-playback'
 
 /** Recording export is intentionally restricted to ClipThat's audited bundle. */
 function resolveFfmpeg(): string | null {
@@ -92,6 +93,19 @@ function runFfmpeg(
 export class FfmpegCancelledError extends Error {
   constructor() {
     super('Video export was cancelled')
+  }
+}
+
+/** Rewrite MediaRecorder WebM cues so Chromium can play the HUD review. */
+export async function remuxWebmForPlayback(input: string): Promise<string> {
+  const output = reviewPlaybackPath(input)
+  if (!existsSync(input) || output === input) return input
+  try {
+    await runFfmpeg(reviewPlaybackCopyArgs(input, output), 0)
+    return output
+  } catch (error) {
+    console.warn('[ffmpeg] review remux failed', (error as Error).message)
+    return input
   }
 }
 

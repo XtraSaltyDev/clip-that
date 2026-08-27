@@ -76,12 +76,15 @@ export function summarizeContextTrust(input: ContextTrustInput): ContextTrustSum
   }
 
   if (assessment.disposition === 'mixed') {
+    const allowStructured = recoveredWords > 0
     return summary(
       'partial',
       'Partial result',
       `Recovered ${recoveredWords} word${recoveredWords === 1 ? '' : 's'}; ${uncertainWords} word${uncertainWords === 1 ? '' : 's'} could not be verified.`,
-      false,
-      'Structured actions are unavailable until the full result passes the trust checks. You can still copy trusted or raw text.'
+      allowStructured,
+      allowStructured
+        ? 'Open, copy, and auto-blur use the recovered text only. Unverified words stay hidden.'
+        : 'Structured actions are unavailable until recovered text passes the trust checks. You can still copy raw text.'
     )
   }
 

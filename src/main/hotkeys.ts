@@ -1,5 +1,6 @@
 import { globalShortcut } from 'electron'
 import type { Hotkeys } from '@shared/types'
+import { planHotkeyBindings } from '@shared/hotkey-plan'
 import { settings } from './store/settings'
 import { performCapture } from './capture/service'
 import { showLibraryWindow } from './windows/manager'
@@ -34,13 +35,10 @@ export function hotkeyFailures(): Array<{ action: Action; accelerator: string }>
 
 export function registerHotkeys(): void {
   unregisterHotkeys()
-  failures = []
+  const planned = planHotkeyBindings(settings.get().hotkeys)
+  failures = [...planned.failures]
 
-  const keys = settings.get().hotkeys
-  for (const [action, accelerator] of Object.entries(keys) as [Action, string][]) {
-    if (!accelerator) continue
-    // A hotkey already taken by another app (or by us twice) simply won't bind.
-    if (registered.has(accelerator)) continue
+  for (const { action, accelerator } of planned.bindings) {
     try {
       const ok = globalShortcut.register(accelerator, () => {
         // Never let a shortcut stack a second capture on top of a running one.

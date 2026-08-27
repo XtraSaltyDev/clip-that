@@ -40,15 +40,15 @@ test('Context exposes trusted text and enables structured actions only after acc
   assert.equal(state.structuredActionReason, '')
 })
 
-test('Context labels mixed OCR partial and gates structured actions', () => {
+test('Context labels mixed OCR partial and allows structured actions on recovered text', () => {
   const source = result([word('Documentation', 96, 20, 20), word('XQZ', 45, 20, 60)])
   const state = context({ source })
 
   assert.equal(state.state, 'partial')
   assert.equal(state.recoveredWords, 1)
   assert.equal(state.uncertainWords, 1)
-  assert.equal(state.structuredActionsAllowed, false)
-  assert.match(state.structuredActionReason, /trust checks/)
+  assert.equal(state.structuredActionsAllowed, true)
+  assert.match(state.structuredActionReason, /recovered text only/)
 })
 
 test('Context exposes uncertain raw OCR without presenting it as verified', () => {
@@ -194,6 +194,14 @@ test('mixed content keeps valid results and separates uncertain OCR', () => {
     extractEntities(source).map((entity) => entity.kind),
     ['url']
   )
+  const trust = summarizeContextTrust({
+    busy: false,
+    assessment,
+    raw: source,
+    error: null
+  })
+  assert.equal(trust.structuredActionsAllowed, true)
+  assert.equal(trust.state, 'partial')
 })
 
 test('low-confidence raw OCR cannot power copy, highlight, or redaction inputs', () => {

@@ -85,7 +85,7 @@ export default function QuickAccess(): React.ReactElement | null {
   }, [payload])
 
   const drag = () => {
-    if (payload) void api.quick.drag(payload.id)
+    if (payload) api.quick.drag(payload.id)
   }
 
   if (!payload) return null
@@ -192,7 +192,6 @@ export default function QuickAccess(): React.ReactElement | null {
               e.preventDefault()
               drag()
             }}
-            onClick={drag}
             title={`Drag ${image ? 'image' : 'recording'} out into another app`}
             aria-label={`Drag ${image ? 'image' : 'recording'} out into another app`}
           >

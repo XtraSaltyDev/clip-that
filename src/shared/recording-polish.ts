@@ -189,3 +189,17 @@ export function recordingPolishCapabilities(input: {
         }
   }
 }
+
+/** Hide the polish panel until a recording actually has editable zoom, cursor, click, or caption data. */
+export function recordingPolishVisible(
+  polish: RecordingPolishCapabilities,
+  transcript: RecordingTranscriptStatus
+): boolean {
+  return (
+    polish.zooms.available ||
+    polish.cursor.available ||
+    polish.clicks.available ||
+    transcript.canEdit ||
+    transcript.canShowCaptions
+  )
+}

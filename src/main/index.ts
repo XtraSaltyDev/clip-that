@@ -20,6 +20,7 @@ import {
 import { installOverlayPool, openOverlay, takeFrozenSnapshot } from './windows/overlay'
 import { performCapture, routeResult } from './capture/service'
 import { recording } from './recording/session'
+import { installDisplayMediaHandler } from './recording/display-media'
 import { indexBacklog, indexCapture, requestOcr } from './ocr'
 import { trustedOcrText } from './store/library-ocr'
 import { library } from './store/library'
@@ -129,13 +130,12 @@ app.whenReady().then(async () => {
   await guides.initialize()
   registerLibraryProtocol()
   registerIpcHandlers()
+  installDisplayMediaHandler()
   initializeAppUpdates()
 
   const s = settings.get()
   if (IS_MAC && !s.showInDock) app.dock?.hide()
-  if (s.launchAtLogin) {
-    app.setLoginItemSettings({ openAtLogin: true, openAsHidden: true })
-  }
+  app.setLoginItemSettings({ openAtLogin: s.launchAtLogin, openAsHidden: true })
 
   installAppMenu()
   createTray()
@@ -173,10 +173,10 @@ app.whenReady().then(async () => {
   setTimeout(indexBacklog, 4000)
 
   // First launch lands on Settings so the macOS permission prompt is explained
-  // before the user hits a capture that silently returns black pixels.
+  // before the user hits a capture that silently returns black pixels. Stay on
+  // this screen across relaunches until the user continues from Welcome.
   if (!s.onboarded) {
     showSettingsWindow('welcome')
-    settings.set({ onboarded: true })
   } else if (!s.showInTray) {
     showLibraryWindow()
   }

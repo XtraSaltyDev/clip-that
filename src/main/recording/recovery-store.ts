@@ -1,4 +1,5 @@
 import { randomUUID } from 'node:crypto'
+import { existsSync } from 'node:fs'
 import { promises as fs } from 'node:fs'
 import { basename, join, resolve } from 'node:path'
 import type {
@@ -6,6 +7,7 @@ import type {
   RecoverableRecordingState,
   RecordingOptions
 } from '@shared/types'
+import { reviewPlaybackPath } from './review-playback'
 
 const MANIFEST_VERSION = 1
 
@@ -140,6 +142,7 @@ export class RecordingRecoveryStore {
       this.manifests.delete(id)
       await Promise.all([
         fs.rm(this.rawPath(id), { force: true }),
+        fs.rm(this.playbackPath(id), { force: true }),
         fs.rm(this.manifestPath(id), { force: true }),
         fs.rm(this.tempManifestPath(id), { force: true })
       ])
@@ -148,7 +151,10 @@ export class RecordingRecoveryStore {
 
   ownsRawPath(filePath: string): boolean {
     const absolute = resolve(filePath)
-    return [...this.manifests.keys()].some((id) => absolute === resolve(this.rawPath(id)))
+    return [...this.manifests.keys()].some(
+      (id) =>
+        absolute === resolve(this.rawPath(id)) || absolute === resolve(this.playbackPath(id))
+    )
   }
 
   private enqueue<T>(id: string, operation: () => Promise<T>): Promise<T> {
@@ -174,11 +180,22 @@ export class RecordingRecoveryStore {
   }
 
   private publicValue(manifest: RecordingManifest): RecoverableRecording {
-    return { ...manifest, options: { ...manifest.options }, rawPath: this.rawPath(manifest.id) }
+    const rawPath = this.rawPath(manifest.id)
+    const playbackPath = this.playbackPath(manifest.id)
+    return {
+      ...manifest,
+      options: { ...manifest.options },
+      rawPath,
+      playbackPath: existsSync(playbackPath) ? playbackPath : undefined
+    }
   }
 
   private rawPath(id: string): string {
     return join(this.root, `${id}.webm`)
+  }
+
+  private playbackPath(id: string): string {
+    return reviewPlaybackPath(this.rawPath(id))
   }
 
   private manifestPath(id: string): string {
