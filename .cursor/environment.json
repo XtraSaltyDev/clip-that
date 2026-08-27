@@ -1,0 +1,4 @@
+{
+  "name": "ClipThat",
+  "install": "npm ci"
+}
