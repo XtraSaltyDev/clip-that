@@ -2,6 +2,7 @@ import React, { useEffect, useState } from 'react'
 import { api } from '../shared/api'
 import { Icon } from '../shared/icons'
 import { MOD_KEY } from '../shared/platform'
+import { useTheme } from '../shared/ui'
 import './hud.css'
 
 interface Payload {
@@ -14,7 +15,7 @@ interface Payload {
   durationMs?: number
 }
 
-type Action = 'copy' | 'save' | 'pin' | 'edit' | 'reveal' | 'pipeline'
+type Action = 'copy' | 'save' | 'pin' | 'edit' | 'reveal' | 'pipeline' | 'copyFile'
 
 /**
  * The Quick Access card. Everything a capture usually needs, two seconds after the
@@ -22,6 +23,7 @@ type Action = 'copy' | 'save' | 'pin' | 'edit' | 'reveal' | 'pipeline'
  * dismissed; a newer capture replaces its contents.
  */
 export default function QuickAccess(): React.ReactElement | null {
+  useTheme()
   const [payload, setPayload] = useState<Payload | null>(null)
   const [done, setDone] = useState<string | null>(null)
 
@@ -42,9 +44,12 @@ export default function QuickAccess(): React.ReactElement | null {
       return
     }
     // Keep a short confirmation for actions that return to the source app. Edit and
-    // pin open their own surfaces immediately; drag stays open for the OS drag session.
+    // pin open their own surfaces immediately. Copy-file stays open so Finder paste
+    // can follow; drag stays open for the OS drag session.
     if (action === 'edit' || action === 'pin') {
       api.system.window('close')
+    } else if (action === 'copyFile') {
+      setDone('File copied — paste in Finder')
     } else if (action !== 'pipeline') {
       const labels: Partial<Record<Action, string>> = {
         copy: 'Copied',
@@ -104,6 +109,7 @@ export default function QuickAccess(): React.ReactElement | null {
     <div className="qa" role="dialog" aria-label="Capture handoff">
       <div
         className="qa-thumb"
+        data-quick-drag
         title={image ? 'Drag image into another app' : 'Drag recording into another app'}
         draggable
         onDragStart={(e) => {
@@ -187,13 +193,15 @@ export default function QuickAccess(): React.ReactElement | null {
           </button>
           <button
             className="qa-btn"
+            data-quick-drag-out
             draggable
             onDragStart={(e) => {
               e.preventDefault()
               drag()
             }}
-            title={`Drag ${image ? 'image' : 'recording'} out into another app`}
-            aria-label={`Drag ${image ? 'image' : 'recording'} out into another app`}
+            onClick={() => void act('copyFile')}
+            title={`Drag ${image ? 'image' : 'recording'} out, or click to copy the file and paste in Finder`}
+            aria-label={`Drag ${image ? 'image' : 'recording'} out, or click to copy the file and paste in Finder`}
           >
             <Icon name="externalLink" size={14} />
             Drag out
@@ -211,8 +219,8 @@ export default function QuickAccess(): React.ReactElement | null {
         </div>
         <div className="qa-hint tiny muted">
           {image
-            ? 'Edit is ready · drag the preview or use Drag out'
-            : 'Edit opens the video workspace'}
+            ? 'Edit is ready · drag the preview, or click Drag out and paste in Finder'
+            : 'Edit opens the video workspace · click Drag out and paste in Finder'}
           {' · esc to dismiss'}
         </div>
       </div>

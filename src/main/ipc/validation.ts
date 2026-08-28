@@ -1080,14 +1080,15 @@ export function windowAction(
 
 export function quickAction(
   value: unknown
-): 'copy' | 'save' | 'pin' | 'edit' | 'reveal' | 'pipeline' {
+): 'copy' | 'save' | 'pin' | 'edit' | 'reveal' | 'pipeline' | 'copyFile' {
   return enumValue(value, 'quick action', [
     'copy',
     'save',
     'pin',
     'edit',
     'reveal',
-    'pipeline'
+    'pipeline',
+    'copyFile'
   ] as const)
 }
 

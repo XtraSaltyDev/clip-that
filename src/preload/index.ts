@@ -329,7 +329,7 @@ const api = {
     onInit: (handler: (payload: unknown) => void) => on(IPC.quickInit, handler),
     action: (
       id: string,
-      action: 'copy' | 'save' | 'pin' | 'edit' | 'reveal' | 'pipeline'
+      action: 'copy' | 'save' | 'pin' | 'edit' | 'reveal' | 'pipeline' | 'copyFile'
     ): Promise<{ ok: boolean; error?: string }> => ipcRenderer.invoke(IPC.quickAction, id, action),
     drag: (id: string): boolean => ipcRenderer.sendSync(IPC.quickDrag, id) as boolean
   },
