@@ -300,6 +300,34 @@ export const RELEASE_NOTES = [
         body: 'Local recordings support original, landscape, square, and vertical framing with understandable export presets, persisted drafts, and lineage back to the source recording.'
       }
     ]
+  },
+  {
+    version: '0.1.19',
+    title: 'Installed-app polish for everyday Mac capture',
+    summary:
+      'First-run and hotkeys behave more predictably, Screen Context actions work on recovered text, and Quick Access drag-out plus recording review are more reliable.',
+    items: [
+      {
+        title: 'A steadier first run',
+        body: 'Welcome stays until you continue, try-it-now captures wait for verified Screen Recording permission, and launch-at-login stays in sync on every start.'
+      },
+      {
+        title: 'Clearer shortcut conflicts',
+        body: 'Duplicate hotkeys are surfaced in Settings so conflicting bindings are easier to notice and fix.'
+      },
+      {
+        title: 'Context actions on recovered text',
+        body: 'Partial OCR results can still drive auto-blur, open-link, and table copy when enough trusted text is available.'
+      },
+      {
+        title: 'More reliable Quick Access drag-out',
+        body: 'Drag-out starts from the Library file immediately, stays hittable, and pastes cleanly into other Mac apps.'
+      },
+      {
+        title: 'Recording capture and review fixes',
+        body: 'System audio uses loopback instead of a hanging mix, HUD review remuxes WebM for playback, and Repeat last region is available from the File menu, palettes, and Welcome.'
+      }
+    ]
   }
 ] as const satisfies readonly ReleaseNotes[]
 
