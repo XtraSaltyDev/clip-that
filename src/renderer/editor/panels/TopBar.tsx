@@ -380,6 +380,15 @@ export default function TopBar({
               <button
                 onClick={() => {
                   setMenu(null)
+                  void actions.print()
+                }}
+              >
+                <Icon name="print" size={14} /> Print <span className="kbd">{MOD_KEY}P</span>
+              </button>
+              <div className="menu-sep" />
+              <button
+                onClick={() => {
+                  setMenu(null)
                   void actions.exportAs('project')
                 }}
               >

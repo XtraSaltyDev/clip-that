@@ -38,6 +38,7 @@ export const IPC = {
   saveImage: 'export:save-image',
   copyImage: 'export:copy-image',
   exportPdf: 'export:pdf',
+  printImage: 'export:print-image',
   saveProject: 'export:save-project',
   openProject: 'export:open-project',
   startDrag: 'export:start-drag',

@@ -307,6 +307,7 @@ export default function App(): React.ReactElement {
       'mod+v': () => void pasteAnnotations(),
       'mod+s': () => void actions.save(false),
       'mod+shift+s': () => void actions.save(true),
+      'mod+p': () => void actions.print(),
       'mod+e': () => void actions.exportAs('png'),
       'mod+d': () => useEditor.getState().duplicateSelected(),
       'mod+a': () => {

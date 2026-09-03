@@ -79,6 +79,7 @@ import {
   copyImageToClipboard,
   copyFileToClipboard,
   exportPdf,
+  printImage,
   openProjectDialog,
   openFile,
   readImageFromClipboard,
@@ -336,6 +337,13 @@ export function registerIpcHandlers(): void {
     exportPdf(
       validate.imageDataUrl(dataUrl),
       name === undefined ? undefined : validate.idValue(name, 'PDF name')
+    )
+  )
+  secureHandle(IPC.printImage, ['editor'], async (e, dataUrl: string, name?: string) =>
+    printImage(
+      validate.imageDataUrl(dataUrl),
+      name === undefined ? undefined : validate.idValue(name, 'print name'),
+      BrowserWindow.fromWebContents(e.sender)
     )
   )
   secureHandle(IPC.saveProject, ['editor'], async (_e, doc: ClipDocument, saveAs: unknown = true) =>

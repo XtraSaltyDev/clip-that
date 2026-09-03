@@ -861,6 +861,12 @@ export interface SaveResult {
   error?: string
 }
 
+export interface PrintResult {
+  ok: boolean
+  canceled?: boolean
+  error?: string
+}
+
 export interface Toast {
   kind: 'info' | 'success' | 'error'
   message: string
