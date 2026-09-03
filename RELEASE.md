@@ -125,6 +125,7 @@ an unsigned experimental preview until every required hardware row passes.
 - [ ] Window capture, fullscreen capture, repeat-last-region
 - [ ] Recording with screen, system audio, microphone, webcam bubble, pause/resume, and auto-zoom
 - [ ] Quick Access card: copy and drag-out into another app
+- [ ] Editor Print: native dialog, portrait/landscape fit, Save as PDF, cancel, and printer failure
 - [ ] Pipeline shell command against a real destination (S3, scp, webhook)
 - [ ] System audio on Windows/Linux
 - [ ] Scrolling capture on a real browser page

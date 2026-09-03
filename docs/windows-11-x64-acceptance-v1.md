@@ -17,6 +17,7 @@ not prove real capture, device access, installer UX, performance, or Windows per
 - [ ] Fresh Windows 11 x64 user: install the explicitly unsigned NSIS preview after observing the OS warning; verify no signed/supported claim appears.
 - [ ] Launch the portable EXE and ZIP extraction independently; verify Library data is not written beside the executable.
 - [ ] Verify tray/taskbar behavior, minimize/maximize/close, native dialogs, Windows paths and legal filenames, context menus, clipboard image/text, and drag-out to Explorer and another app.
+- [ ] From an edited capture, open Print with the Save menu and `Ctrl+P`; verify the native dialog, portrait/landscape fit, Microsoft Print to PDF, cancellation, and a disconnected-printer failure without changing the project.
 - [ ] With monitors right, left, and above the primary at 100%, 125%, 150%, and a mixed-DPI combination, capture a region on each display and compare exact bounds/pixels.
 - [ ] Capture every display, all displays, a normal window, a vanished window, a protected source, clipboard content, repeat-last-region, delayed capture, and scrolling content.
 - [ ] Confirm failures distinguish unavailable, protected, vanished, permission, and transient capture-service states without capturing another source.

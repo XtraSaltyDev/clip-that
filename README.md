@@ -91,7 +91,9 @@ Full undo/redo, multi-select, a layers panel, snapping alignment guides, and a f
 toolbar that appears at whatever you've selected. Right-click the canvas for clip and paste
 actions, or right-click an annotation selection to copy, duplicate, delete, and paste
 annotations. The annotation clipboard works across open clips without replacing the system
-image or text clipboard.
+image or text clipboard. Print the current edited capture directly through the native system
+dialog with `⌘P` on macOS or `Ctrl+P` on Windows; ClipThat fits the flattened result to one page
+without changing the project.
 
 ### Recording
 
@@ -136,7 +138,8 @@ The tables use macOS glyphs. The Windows preview shows and registers `Ctrl`, `Sh
 **Editor** — `⌘K` command palette · `V` select · `C` crop · `A` arrow · `L` line · `P` pen ·
 `H` highlighter · `R` rect · `O` ellipse · `T` text · `Q` callout · `S` step · `U` blur ·
 `X` pixelate · `K` redact · `G` spotlight · `M` magnify · `D` measure ·
-`⌘Z`/`⇧⌘Z` undo/redo · `⌘D` duplicate · `⌘0` fit · arrows nudge (`⇧` = 10px).
+`⌘Z`/`⇧⌘Z` undo/redo · `⌘D` duplicate · `⌘P` print · `⌘0` fit · arrows nudge
+(`⇧` = 10px).
 
 **Capture overlay** — drag to select · `⌘A` whole screen · `C` copy colour under the cursor ·
 arrows nudge, `⌥`+arrows resize · `Enter` confirm · `Esc` cancel.

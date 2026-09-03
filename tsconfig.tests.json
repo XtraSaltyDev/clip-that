@@ -42,6 +42,8 @@
     "src/shared/recording-polish.ts",
     "src/shared/recording-capture.ts",
     "src/shared/file-clipboard.ts",
+    "src/shared/ipc.ts",
+    "src/shared/print.ts",
     "src/shared/defaults.ts",
     "src/shared/hotkey-plan.ts",
     "src/shared/onboarding.ts",

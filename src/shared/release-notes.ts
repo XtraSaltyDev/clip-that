@@ -328,6 +328,26 @@ export const RELEASE_NOTES = [
         body: 'System audio uses loopback instead of a hanging mix, HUD review remuxes WebM for playback, and Repeat last region is available from the File menu, palettes, and Welcome.'
       }
     ]
+  },
+  {
+    version: '0.1.20',
+    title: 'Print finished captures directly',
+    summary:
+      'Send the current edited capture through the native system print dialog without creating an intermediate export.',
+    items: [
+      {
+        title: 'Native printing from the editor',
+        body: 'Open Print from the Save menu or press Command-P on Mac and Ctrl-P on Windows to print the flattened capture with its crop, canvas styling, and annotations.'
+      },
+      {
+        title: 'Capture-aware page setup',
+        body: 'ClipThat fits the complete capture to one printable page and starts landscape captures in landscape orientation while leaving paper, printer, scale, and orientation controls in the system dialog.'
+      },
+      {
+        title: 'Safe cancellation and failures',
+        body: 'Canceling the print dialog leaves the editor untouched, while genuine printer failures remain visible and actionable.'
+      }
+    ]
   }
 ] as const satisfies readonly ReleaseNotes[]
 

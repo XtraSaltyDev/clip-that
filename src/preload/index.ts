@@ -28,6 +28,7 @@ import type {
   RecordingMediaCapabilities,
   RecordingStatus,
   PlatformCapability,
+  PrintResult,
   ReleaseNotesStatus,
   SaveImageRequest,
   SaveResult,
@@ -108,6 +109,8 @@ const api = {
     copyImage: (dataUrl: string): Promise<boolean> => ipcRenderer.invoke(IPC.copyImage, dataUrl),
     pdf: (dataUrl: string, name?: string): Promise<SaveResult> =>
       ipcRenderer.invoke(IPC.exportPdf, dataUrl, name),
+    print: (dataUrl: string, name?: string): Promise<PrintResult> =>
+      ipcRenderer.invoke(IPC.printImage, dataUrl, name),
     saveProject: (doc: ClipDocument, saveAs = true): Promise<SaveResult> =>
       ipcRenderer.invoke(IPC.saveProject, doc, saveAs),
     openProject: (): Promise<ClipDocument | null> => ipcRenderer.invoke(IPC.openProject),

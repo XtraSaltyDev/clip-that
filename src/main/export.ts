@@ -1,9 +1,10 @@
 import { BrowserWindow, clipboard, dialog, nativeImage, shell } from 'electron'
 import { existsSync, writeFileSync, promises as fs } from 'node:fs'
 import { join, extname, basename } from 'node:path'
-import type { ClipDocument, SaveImageRequest, SaveResult } from '@shared/types'
+import type { ClipDocument, PrintResult, SaveImageRequest, SaveResult } from '@shared/types'
 import { formatFilename, safeFilename } from '@shared/defaults'
 import { nsFilenamesPlist } from '@shared/file-clipboard'
+import { imagePrintHtml, isPrintCancellation } from '@shared/print'
 import { settings } from './store/settings'
 import { tempDir } from './store/paths'
 import { clipDocument } from './ipc/validation'
@@ -210,6 +211,57 @@ export async function exportPdf(dataUrl: string, suggestedName?: string): Promis
     return { ok: true, filePath: res.filePath }
   } catch (err) {
     return { ok: false, error: (err as Error).message }
+  } finally {
+    if (!win.isDestroyed()) win.destroy()
+  }
+}
+
+/** Print the flattened editor capture through the native system dialog. */
+export async function printImage(
+  dataUrl: string,
+  suggestedName?: string,
+  parent?: BrowserWindow | null
+): Promise<PrintResult> {
+  const image = nativeImage.createFromDataURL(dataUrl)
+  if (image.isEmpty()) return { ok: false, error: 'The rendered capture could not be decoded' }
+
+  const { width, height } = image.getSize()
+  const title = safeFilename(suggestedName?.trim() || 'ClipThat capture')
+  const win = new BrowserWindow({
+    show: false,
+    parent: parent && !parent.isDestroyed() ? parent : undefined,
+    width: 800,
+    height: 600,
+    skipTaskbar: true,
+    webPreferences: {
+      sandbox: true,
+      contextIsolation: true,
+      nodeIntegration: false
+    }
+  })
+
+  try {
+    const html = imagePrintHtml(dataUrl, title)
+    await win.loadURL(`data:text/html;charset=utf-8,${encodeURIComponent(html)}`)
+
+    return await new Promise<PrintResult>((resolve) => {
+      win.webContents.print(
+        {
+          silent: false,
+          printBackground: true,
+          landscape: width > height,
+          margins: { marginType: 'printableArea' },
+          usePrinterDefaultPageSize: true
+        },
+        (success, failureReason) => {
+          if (success) resolve({ ok: true })
+          else if (isPrintCancellation(failureReason)) resolve({ ok: false, canceled: true })
+          else resolve({ ok: false, error: failureReason || 'The print job failed' })
+        }
+      )
+    })
+  } catch (error) {
+    return { ok: false, error: (error as Error).message }
   } finally {
     if (!win.isDestroyed()) win.destroy()
   }

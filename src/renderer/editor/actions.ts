@@ -147,6 +147,15 @@ export function useEditorActions(stageRef: StageRef, settings: Settings | null) 
     [quality, render, syncLibrary]
   )
 
+  const print = useCallback(async () => {
+    const doc = useEditor.getState().doc
+    if (!doc) return
+    const png = await render()
+    if (!png) return
+    const result = await api.exports.print(png, doc.title)
+    if (!result.ok && !result.canceled) toast('error', 'Print failed', result.error)
+  }, [render])
+
   const pinToScreen = useCallback(async () => {
     const png = await render()
     if (!png) return
@@ -281,7 +290,18 @@ export function useEditorActions(stageRef: StageRef, settings: Settings | null) 
     }
   }, [])
 
-  return { copy, save, exportAs, dragOut, grabText, autoRedact, pinToScreen, render, syncLibrary }
+  return {
+    copy,
+    save,
+    exportAs,
+    print,
+    dragOut,
+    grabText,
+    autoRedact,
+    pinToScreen,
+    render,
+    syncLibrary
+  }
 }
 
 export type EditorActions = ReturnType<typeof useEditorActions>

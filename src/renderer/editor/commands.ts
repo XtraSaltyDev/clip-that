@@ -276,6 +276,16 @@ export function editorCommands(
       shortcut: `⇧${mod}S`,
       run: () => void actions.save(true)
     },
+    {
+      id: 'export.print',
+      title: 'Print',
+      hint: 'open the system print dialog',
+      group: 'Export',
+      icon: 'print',
+      shortcut: `${mod}P`,
+      keywords: 'printer paper native dialog',
+      run: () => void actions.print()
+    },
     ...(['png', 'jpg', 'webp', 'pdf'] as const).map((format) => ({
       id: `export.${format}`,
       title: `Export as ${format.toUpperCase()}`,
