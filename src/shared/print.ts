@@ -8,6 +8,14 @@ function escapeHtml(value: string): string {
     .replaceAll("'", '&#39;')
 }
 
+/** printToPDF uses inches; the flattened capture uses 96 CSS pixels per inch. */
+export function imagePdfPageSize(width: number, height: number): { width: number; height: number } {
+  if (!Number.isFinite(width) || !Number.isFinite(height) || width <= 0 || height <= 0) {
+    throw new Error('The capture has no printable image dimensions')
+  }
+  return { width: width / 96, height: height / 96 }
+}
+
 /** Build a single-page document that contains only the flattened editor capture. */
 export function imagePrintHtml(dataUrl: string, title: string): string {
   return `<!doctype html>

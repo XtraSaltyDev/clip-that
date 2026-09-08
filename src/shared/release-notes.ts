@@ -366,6 +366,10 @@ export const RELEASE_NOTES = [
       {
         title: 'Clearer save and export failures',
         body: 'Project export errors are visible, and ClipThat distinguishes a saved image from a Library update that could not finish so you know what succeeded.'
+      },
+      {
+        title: 'PDF exports work at the right size',
+        body: 'PDF export uses the correct page units for the current printing engine, fixing printing failures while preserving the capture dimensions.'
       }
     ]
   }

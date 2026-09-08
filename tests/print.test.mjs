@@ -3,7 +3,7 @@ import { readFile } from 'node:fs/promises'
 import test from 'node:test'
 import { load } from './helpers.mjs'
 
-const { imagePrintHtml, isPrintCancellation } = await load('src/shared/print.js')
+const { imagePdfPageSize, imagePrintHtml, isPrintCancellation } = await load('src/shared/print.js')
 const { IPC } = await load('src/shared/ipc.js')
 
 test('print page contains only a fitted flattened capture and escaped title', () => {
@@ -21,6 +21,26 @@ test('print cancellation is distinct from printer failures', () => {
   assert.equal(isPrintCancellation('Print job cancelled'), true)
   assert.equal(isPrintCancellation('Invalid printer settings'), false)
   assert.equal(isPrintCancellation('Print job failed'), false)
+})
+
+test('PDF page dimensions use inches and retain the capture aspect ratio', () => {
+  assert.deepEqual(imagePdfPageSize(960, 1920), { width: 10, height: 20 })
+  const landscape = imagePdfPageSize(430, 309)
+  assert.ok(Math.abs(landscape.width * 72 - 322.5) < 0.001)
+  assert.ok(Math.abs(landscape.height * 72 - 231.75) < 0.001)
+  assert.ok(Math.abs(landscape.width / landscape.height - 430 / 309) < 1e-12)
+})
+
+test('PDF export rejects empty or non-finite image dimensions before printing', () => {
+  for (const [width, height] of [
+    [0, 1],
+    [1, 0],
+    [-1, 1],
+    [NaN, 1],
+    [1, Infinity]
+  ]) {
+    assert.throws(() => imagePdfPageSize(width, height), /no printable image dimensions/)
+  }
 })
 
 test('editor-only print is wired through IPC, the Save menu, commands, and platform shortcut', async () => {

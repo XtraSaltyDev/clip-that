@@ -4,7 +4,7 @@ import { join, extname, basename } from 'node:path'
 import type { ClipDocument, PrintResult, SaveImageRequest, SaveResult } from '@shared/types'
 import { formatFilename, safeFilename } from '@shared/defaults'
 import { nsFilenamesPlist } from '@shared/file-clipboard'
-import { imagePrintHtml, isPrintCancellation } from '@shared/print'
+import { imagePdfPageSize, imagePrintHtml, isPrintCancellation } from '@shared/print'
 import { assertImageFormatMatchesPath } from '@shared/image-format'
 import { settings } from './store/settings'
 import { tempDir } from './store/paths'
@@ -207,7 +207,7 @@ export async function exportPdf(dataUrl: string, suggestedName?: string): Promis
     // Match the page box to the image so nothing is cropped or letterboxed.
     const pdf = await win.webContents.printToPDF({
       printBackground: true,
-      pageSize: { width: (width / 96) * 25400, height: (height / 96) * 25400 },
+      pageSize: imagePdfPageSize(width, height),
       margins: { top: 0, bottom: 0, left: 0, right: 0 }
     })
     await atomicFileWrite(res.filePath, pdf)
