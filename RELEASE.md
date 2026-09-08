@@ -125,6 +125,8 @@ an unsigned experimental preview until every required hardware row passes.
 - [ ] Window capture, fullscreen capture, repeat-last-region
 - [ ] Recording with screen, system audio, microphone, webcam bubble, pause/resume, and auto-zoom
 - [ ] Quick Access card: copy and drag-out into another app
+- [ ] Editor Save As: PNG, JPEG, and WebP; change the default format, then Save keeps the linked file's format
+- [ ] Editor exports: overwrite image/PDF/project, cancel, and verify a failed save preserves the previous file and reports an error
 - [ ] Editor Print: native dialog, portrait/landscape fit, Save as PDF, cancel, and printer failure
 - [ ] Pipeline shell command against a real destination (S3, scp, webhook)
 - [ ] System audio on Windows/Linux

@@ -22,6 +22,7 @@ import {
 } from './paths'
 import { isPathInside, isRealPathInside } from './path-guard'
 import { clipDocument } from '../ipc/validation'
+import { atomicFileWrite } from './atomic-file'
 import { buildLibraryWorkbench } from '@shared/library-workbench'
 import { aspectLabel } from '@shared/recording-polish'
 import {
@@ -391,11 +392,11 @@ class LibraryStore extends EventEmitter {
     const current = this.get(id)
     if (!current) return undefined
     const image = nativeImage.createFromDataURL(dataUrl)
-    await fs.writeFile(current.filePath, image.toPNG())
+    await atomicFileWrite(current.filePath, image.toPNG())
     const item = { ...current }
     if (project) {
       item.projectPath ??= join(projectsDir(), `${id}.clipthat`)
-      await fs.writeFile(item.projectPath, JSON.stringify(project), 'utf8')
+      await atomicFileWrite(item.projectPath, JSON.stringify(project))
     }
     item.thumbnail = await this.writeThumb(id, image)
     const size = image.getSize()
