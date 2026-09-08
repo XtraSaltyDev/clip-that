@@ -5,9 +5,11 @@ import type { ClipDocument, PrintResult, SaveImageRequest, SaveResult } from '@s
 import { formatFilename, safeFilename } from '@shared/defaults'
 import { nsFilenamesPlist } from '@shared/file-clipboard'
 import { imagePrintHtml, isPrintCancellation } from '@shared/print'
+import { assertImageFormatMatchesPath } from '@shared/image-format'
 import { settings } from './store/settings'
 import { tempDir } from './store/paths'
 import { clipDocument } from './ipc/validation'
+import { atomicFileWrite } from './store/atomic-file'
 
 const EXT_FILTERS: Record<string, Electron.FileFilter> = {
   png: { name: 'PNG image', extensions: ['png'] },
@@ -61,10 +63,11 @@ export async function saveImage(req: SaveImageRequest): Promise<SaveResult> {
   }
 
   try {
-    await fs.writeFile(target, bufferFor(req.dataUrl, format))
+    assertImageFormatMatchesPath(target, format)
+    await atomicFileWrite(target, bufferFor(req.dataUrl, format))
     if (req.project) {
       const projectPath = target.replace(extname(target), '.clipthat')
-      await fs.writeFile(projectPath, JSON.stringify(req.project), 'utf8')
+      await atomicFileWrite(projectPath, JSON.stringify(req.project))
     }
     if (s.copyOnSave && !req.saveAs) {
       clipboard.writeImage(nativeImage.createFromDataURL(req.dataUrl))
@@ -120,7 +123,7 @@ export async function saveProject(doc: ClipDocument, saveAs = true): Promise<Sav
     target = await uniquePath(s.saveDirectory, name, 'clipthat')
   }
   try {
-    await fs.writeFile(target, JSON.stringify(doc), 'utf8')
+    await atomicFileWrite(target, JSON.stringify(doc))
     return { ok: true, filePath: target }
   } catch (err) {
     return { ok: false, error: (err as Error).message }
@@ -207,7 +210,7 @@ export async function exportPdf(dataUrl: string, suggestedName?: string): Promis
       pageSize: { width: (width / 96) * 25400, height: (height / 96) * 25400 },
       margins: { top: 0, bottom: 0, left: 0, right: 0 }
     })
-    await fs.writeFile(res.filePath, pdf)
+    await atomicFileWrite(res.filePath, pdf)
     return { ok: true, filePath: res.filePath }
   } catch (err) {
     return { ok: false, error: (err as Error).message }

@@ -348,6 +348,26 @@ export const RELEASE_NOTES = [
         body: 'Canceling the print dialog leaves the editor untouched, while genuine printer failures remain visible and actionable.'
       }
     ]
+  },
+  {
+    version: '0.1.21',
+    title: 'More dependable saves and exports',
+    summary:
+      'Keep saved captures in their original format and protect existing files when a save cannot finish.',
+    items: [
+      {
+        title: 'Save keeps the linked image format',
+        body: 'An existing PNG, JPEG, or WebP keeps its format when you change the default for new captures. Incompatible export filenames produce a clear error before the file is changed.'
+      },
+      {
+        title: 'Safer file replacement',
+        body: 'Image, PDF, editable-project, and Library replacement saves finish writing a temporary file before replacing the previous file. Failed writes leave the previous file intact.'
+      },
+      {
+        title: 'Clearer save and export failures',
+        body: 'Project export errors are visible, and ClipThat distinguishes a saved image from a Library update that could not finish so you know what succeeded.'
+      }
+    ]
   }
 ] as const satisfies readonly ReleaseNotes[]
 

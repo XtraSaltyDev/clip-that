@@ -6,6 +6,7 @@ import { toast } from '../shared/ui'
 import { runOcr, toImageSpace } from '../shared/ocr'
 import { assessOcr, findSensitive, SENSITIVE_LABELS } from '../shared/extract'
 import { summarizeContextTrust } from '@shared/context-trust'
+import { imageFormatForPath } from '@shared/image-format'
 import { useEditor } from './store'
 import { encodeAs, flatten } from './exporting'
 
@@ -73,75 +74,97 @@ export function useEditorActions(stageRef: StageRef, settings: Settings | null) 
 
   const save = useCallback(
     async (saveAs: boolean) => {
-      const png = await render()
-      if (!png) return
-      const state = useEditor.getState()
-      const doc = state.doc
-      if (!doc) return
+      let savedPath: string | undefined
+      try {
+        const png = await render()
+        if (!png) return
+        const state = useEditor.getState()
+        const doc = state.doc
+        if (!doc) return
 
-      if (await api.editor.guideContext()) {
-        await api.guides.saveEditedStep(doc, png)
+        if (await api.editor.guideContext()) {
+          await api.guides.saveEditedStep(doc, png)
+          useEditor.getState().markSaved()
+          toast('success', 'Guide step saved')
+          return
+        }
+
+        const saveFormat = (!saveAs && imageFormatForPath(state.exportPath)) || format
+        const encoded = await encodeAs(png, saveFormat, quality)
+        const res = await api.exports.saveImage({
+          dataUrl: encoded,
+          format: saveFormat,
+          suggestedName: doc.title,
+          saveAs,
+          targetPath: saveAs ? undefined : (state.exportPath ?? undefined)
+        })
+        if (res.canceled) return
+        if (!res.ok) {
+          toast('error', 'Save failed', res.error)
+          return
+        }
+        savedPath = res.filePath
+        const current = useEditor.getState()
+        if (saveAs && res.title) current.setTitle(res.title)
+        if (res.filePath) current.setExportPath(res.filePath)
+        await syncLibrary(png)
         useEditor.getState().markSaved()
-        toast('success', 'Guide step saved')
-        return
+        toast('success', 'Saved', res.filePath)
+      } catch (error) {
+        toast(
+          'error',
+          savedPath ? 'Image saved, but Library update failed' : 'Save failed',
+          savedPath ? `${savedPath}\n${(error as Error).message}` : (error as Error).message
+        )
       }
-
-      const encoded = await encodeAs(png, format, quality)
-      const res = await api.exports.saveImage({
-        dataUrl: encoded,
-        format,
-        suggestedName: doc.title,
-        saveAs,
-        targetPath: saveAs ? undefined : (state.exportPath ?? undefined)
-      })
-      if (res.canceled) return
-      if (!res.ok) {
-        toast('error', 'Save failed', res.error)
-        return
-      }
-      const current = useEditor.getState()
-      if (saveAs && res.title) current.setTitle(res.title)
-      if (res.filePath) current.setExportPath(res.filePath)
-      await syncLibrary(png)
-      useEditor.getState().markSaved()
-      toast('success', 'Saved', res.filePath)
     },
     [format, quality, render, syncLibrary]
   )
 
   const exportAs = useCallback(
     async (target: 'png' | 'jpg' | 'webp' | 'pdf' | 'project') => {
-      const doc = useEditor.getState().doc
-      if (!doc) return
+      let exportedPath: string | undefined
+      try {
+        const doc = useEditor.getState().doc
+        if (!doc) return
 
-      if (target === 'project') {
-        const res = await api.exports.saveProject(doc, true)
-        if (res.ok) toast('success', 'Project saved', res.filePath)
-        return
-      }
+        if (target === 'project') {
+          const res = await api.exports.saveProject(doc, true)
+          if (res.ok) toast('success', 'Project saved', res.filePath)
+          else if (!res.canceled) toast('error', 'Project export failed', res.error)
+          return
+        }
 
-      const png = await render()
-      if (!png) return
+        const png = await render()
+        if (!png) return
 
-      if (target === 'pdf') {
-        const res = await api.exports.pdf(png, doc.title)
-        if (res.ok) toast('success', 'PDF exported', res.filePath)
-        else if (!res.canceled) toast('error', 'PDF export failed', res.error)
-        return
-      }
+        if (target === 'pdf') {
+          const res = await api.exports.pdf(png, doc.title)
+          if (res.ok) toast('success', 'PDF exported', res.filePath)
+          else if (!res.canceled) toast('error', 'PDF export failed', res.error)
+          return
+        }
 
-      const encoded = await encodeAs(png, target, quality)
-      const res = await api.exports.saveImage({
-        dataUrl: encoded,
-        format: target,
-        suggestedName: doc.title,
-        saveAs: true
-      })
-      if (res.ok) {
-        await syncLibrary(png)
-        toast('success', `Exported as ${target.toUpperCase()}`, res.filePath)
-      } else if (!res.canceled) {
-        toast('error', 'Export failed', res.error)
+        const encoded = await encodeAs(png, target, quality)
+        const res = await api.exports.saveImage({
+          dataUrl: encoded,
+          format: target,
+          suggestedName: doc.title,
+          saveAs: true
+        })
+        if (res.ok) {
+          exportedPath = res.filePath
+          await syncLibrary(png)
+          toast('success', `Exported as ${target.toUpperCase()}`, res.filePath)
+        } else if (!res.canceled) {
+          toast('error', 'Export failed', res.error)
+        }
+      } catch (error) {
+        toast(
+          'error',
+          exportedPath ? 'Image exported, but Library update failed' : 'Export failed',
+          exportedPath ? `${exportedPath}\n${(error as Error).message}` : (error as Error).message
+        )
       }
     },
     [quality, render, syncLibrary]
