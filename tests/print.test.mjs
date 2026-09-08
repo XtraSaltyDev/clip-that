@@ -3,7 +3,8 @@ import { readFile } from 'node:fs/promises'
 import test from 'node:test'
 import { load } from './helpers.mjs'
 
-const { imagePdfPageSize, imagePrintHtml, isPrintCancellation } = await load('src/shared/print.js')
+const { imagePdfHtml, imagePdfPageSize, imagePrintHtml, isPrintCancellation } =
+  await load('src/shared/print.js')
 const { IPC } = await load('src/shared/ipc.js')
 
 test('print page contains only a fitted flattened capture and escaped title', () => {
@@ -41,6 +42,13 @@ test('PDF export rejects empty or non-finite image dimensions before printing', 
   ]) {
     assert.throws(() => imagePdfPageSize(width, height), /no printable image dimensions/)
   }
+})
+
+test('PDF metadata uses an escaped capture title instead of the full image URL', () => {
+  const html = imagePdfHtml('data:image/png;base64,AAAA', 'Capture <one> & "two"')
+  assert.match(html, /<title>Capture &lt;one&gt; &amp; &quot;two&quot;<\/title>/)
+  assert.doesNotMatch(html, /<title>data:/)
+  assert.match(html, /<img src="data:image\/png;base64,AAAA" alt="">/)
 })
 
 test('editor-only print is wired through IPC, the Save menu, commands, and platform shortcut', async () => {

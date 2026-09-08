@@ -4,7 +4,7 @@ import { join, extname, basename } from 'node:path'
 import type { ClipDocument, PrintResult, SaveImageRequest, SaveResult } from '@shared/types'
 import { formatFilename, safeFilename } from '@shared/defaults'
 import { nsFilenamesPlist } from '@shared/file-clipboard'
-import { imagePdfPageSize, imagePrintHtml, isPrintCancellation } from '@shared/print'
+import { imagePdfHtml, imagePdfPageSize, imagePrintHtml, isPrintCancellation } from '@shared/print'
 import { assertImageFormatMatchesPath } from '@shared/image-format'
 import { settings } from './store/settings'
 import { tempDir } from './store/paths'
@@ -198,11 +198,7 @@ export async function exportPdf(dataUrl: string, suggestedName?: string): Promis
   })
 
   try {
-    const html = `<!doctype html><meta charset="utf-8"><style>
-      @page { margin: 0; }
-      html,body { margin:0; padding:0; background:#fff; }
-      img { display:block; width:100%; }
-    </style><img src="${dataUrl}">`
+    const html = imagePdfHtml(dataUrl, suggestedName || 'ClipThat capture')
     await win.loadURL(`data:text/html;charset=utf-8,${encodeURIComponent(html)}`)
     // Match the page box to the image so nothing is cropped or letterboxed.
     const pdf = await win.webContents.printToPDF({
