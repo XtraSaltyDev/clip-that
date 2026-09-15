@@ -1,6 +1,7 @@
 import React, { useEffect, useState } from 'react'
 import { api } from '../shared/api'
 import { Icon } from '../shared/icons'
+import { useSurfaceTheme } from '../shared/ui'
 import './hud.css'
 
 /**
@@ -8,6 +9,7 @@ import './hud.css'
  * Drag anywhere to move; scroll to change opacity; double-click or Esc to dismiss.
  */
 export default function Pin(): React.ReactElement | null {
+  useSurfaceTheme()
   const [src, setSrc] = useState<string | null>(null)
   const [opacity, setOpacity] = useState(1)
 
@@ -32,11 +34,16 @@ export default function Pin(): React.ReactElement | null {
   if (!src) return null
 
   return (
-    <div className="pin drag-region" style={{ opacity }} onDoubleClick={() => api.system.window('close')}>
-      <img src={src} alt="" draggable={false} />
+    <div
+      className="pin drag-region"
+      style={{ opacity }}
+      onDoubleClick={() => api.system.window('close')}
+    >
+      <img src={src} alt="Pinned capture" draggable={false} />
       <button
         className="pin-close no-drag"
         title="Close (Esc, or double-click)"
+        aria-label="Close pinned capture"
         onClick={() => api.system.window('close')}
       >
         <Icon name="close" size={12} />

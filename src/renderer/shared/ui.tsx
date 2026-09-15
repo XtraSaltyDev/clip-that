@@ -1,6 +1,7 @@
 import React, { useCallback, useEffect, useId, useLayoutEffect, useRef, useState } from 'react'
 import type { Settings, Toast } from '@shared/types'
 import { api } from './api'
+import { Icon } from './icons'
 
 /* ------------------------------------------------------------------ *
  * Theme
@@ -20,6 +21,33 @@ export function useTheme(): Settings | null {
     }
   }, [])
 
+  useAppearance(settings)
+  return settings
+}
+
+/** Small capture windows only need appearance, not paths, pipelines, or other preferences. */
+export function useSurfaceTheme(): void {
+  const [appearance, setAppearance] = useState<Pick<Settings, 'theme' | 'accent'> | null>(null)
+  useEffect(() => {
+    let alive = true
+    void api.settings
+      .appearance()
+      .then((next) => {
+        if (alive) setAppearance(next)
+      })
+      .catch((error) => {
+        console.warn('[theme] appearance could not be loaded', (error as Error).message)
+      })
+    const off = api.settings.onChanged(({ theme, accent }) => setAppearance({ theme, accent }))
+    return () => {
+      alive = false
+      off()
+    }
+  }, [])
+  useAppearance(appearance)
+}
+
+function useAppearance(settings: Pick<Settings, 'theme' | 'accent'> | null): void {
   useEffect(() => {
     if (!settings) return
     const root = document.documentElement
@@ -34,8 +62,6 @@ export function useTheme(): Settings | null {
     root.style.setProperty('--accent', settings.accent)
     return () => media.removeEventListener('change', apply)
   }, [settings])
-
-  return settings
 }
 
 /* ------------------------------------------------------------------ *
@@ -46,12 +72,23 @@ let toastSeq = 0
 
 export function ToastHost(): React.ReactElement {
   const [toasts, setToasts] = useState<Array<Toast & { id: number }>>([])
+  const timers = useRef(new Map<number, ReturnType<typeof setTimeout>>())
+  const dismiss = (id: number) => {
+    clearTimeout(timers.current.get(id))
+    timers.current.delete(id)
+    setToasts((current) => current.filter((item) => item.id !== id))
+  }
 
   useEffect(() => {
     const push = (toast: Toast) => {
       const id = ++toastSeq
       setToasts((t) => [...t, { ...toast, id }])
-      setTimeout(() => setToasts((t) => t.filter((x) => x.id !== id)), 4200)
+      // Failures stay readable until dismissed; successful actions can fade away.
+      if (toast.kind !== 'error')
+        timers.current.set(
+          id,
+          setTimeout(() => dismiss(id), 5000)
+        )
     }
     const off = api.system.onToast(push)
     const local = (e: Event) => push((e as CustomEvent<Toast>).detail)
@@ -59,22 +96,27 @@ export function ToastHost(): React.ReactElement {
     return () => {
       off()
       window.removeEventListener('clipthat-toast', local)
+      timers.current.forEach(clearTimeout)
+      timers.current.clear()
     }
   }, [])
 
   return (
-    <div className="toast-stack">
+    <div className="toast-stack" aria-label="Notifications">
       {toasts.map((t) => (
         <div key={t.id} className={`toast ${t.kind}`}>
-          <span className="dot" />
-          <div style={{ minWidth: 0 }}>
+          <span className="dot" aria-hidden="true" />
+          <div className="toast-copy" role={t.kind === 'error' ? 'alert' : 'status'}>
             <div>{t.message}</div>
-            {t.detail && (
-              <div className="tiny muted truncate" style={{ maxWidth: 400 }}>
-                {t.detail}
-              </div>
-            )}
+            {t.detail && <div className="tiny muted toast-detail">{t.detail}</div>}
           </div>
+          <button
+            className="btn ghost icon"
+            aria-label="Dismiss notification"
+            onClick={() => dismiss(t.id)}
+          >
+            <Icon name="close" size={14} />
+          </button>
         </div>
       ))}
     </div>
@@ -252,9 +294,11 @@ export function ColorPicker(props: {
             props.onChangeEnd?.()
           }}
           title={c}
+          aria-label={`Colour ${c}`}
+          aria-pressed={props.value.toLowerCase() === c.toLowerCase()}
           style={{
-            width: 20,
-            height: 20,
+            width: 24,
+            height: 24,
             borderRadius: 5,
             background: c,
             border:
@@ -291,10 +335,14 @@ export function useHotkeys(map: Record<string, (e: KeyboardEvent) => void>, enab
   useEffect(() => {
     if (!enabled) return
     const onKey = (e: KeyboardEvent) => {
+      if (e.defaultPrevented || e.isComposing) return
       const target = e.target as HTMLElement | null
       const typing =
         target &&
-        (target.tagName === 'INPUT' || target.tagName === 'TEXTAREA' || target.isContentEditable)
+        (target.tagName === 'INPUT' ||
+          target.tagName === 'TEXTAREA' ||
+          target.tagName === 'SELECT' ||
+          target.isContentEditable)
 
       const parts: string[] = []
       if (e.metaKey) parts.push('mod')
@@ -305,8 +353,15 @@ export function useHotkeys(map: Record<string, (e: KeyboardEvent) => void>, enab
       parts.push(key)
       const combo = parts.join('+')
 
+      // Let focused controls activate themselves instead of running canvas/Library Enter actions.
+      if (
+        (key === 'enter' || key === ' ') &&
+        target?.closest('button, a, summary, [role="button"]')
+      )
+        return
+
       // Single-letter tool shortcuts must not fire while the user is typing.
-      if (typing && !parts.includes('mod')) return
+      if (typing && (!parts.includes('mod') || ['a', 'c', 'v', 'x', 'z', 'y'].includes(key))) return
 
       const handler = ref.current[combo]
       if (handler) {
@@ -349,8 +404,10 @@ export function useImage(src: string | undefined): HTMLImageElement | null {
       return
     }
     let alive = true
+    setImage(null)
     const img = new Image()
     img.onload = () => alive && setImage(img)
+    img.onerror = () => alive && setImage(null)
     img.src = src
     return () => {
       alive = false

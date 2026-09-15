@@ -116,6 +116,7 @@ export const IPC = {
 
   // settings
   settingsGet: 'settings:get',
+  settingsAppearance: 'settings:appearance',
   settingsSet: 'settings:set',
   settingsChanged: 'settings:changed',
   settingsReset: 'settings:reset',

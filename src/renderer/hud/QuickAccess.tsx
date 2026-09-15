@@ -1,8 +1,8 @@
-import React, { useEffect, useState } from 'react'
+import React, { useEffect, useRef, useState } from 'react'
 import { api } from '../shared/api'
 import { Icon } from '../shared/icons'
-import { MOD_KEY } from '../shared/platform'
-import { useTheme } from '../shared/ui'
+import { IS_MAC_RENDERER, MOD_KEY } from '../shared/platform'
+import { useEvent, useSurfaceTheme } from '../shared/ui'
 import './hud.css'
 
 interface Payload {
@@ -23,46 +23,84 @@ type Action = 'copy' | 'save' | 'pin' | 'edit' | 'reveal' | 'pipeline' | 'copyFi
  * dismissed; a newer capture replaces its contents.
  */
 export default function QuickAccess(): React.ReactElement | null {
-  useTheme()
+  useSurfaceTheme()
   const [payload, setPayload] = useState<Payload | null>(null)
-  const [done, setDone] = useState<string | null>(null)
+  const [done, setDone] = useState<{ message: string; error?: boolean } | null>(null)
+  const [busy, setBusy] = useState(false)
+  const inFlight = useRef(false)
+  const generation = useRef(0)
+  const closeTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
+  const fileManager = IS_MAC_RENDERER ? 'Finder' : 'your file manager'
 
   useEffect(
     () =>
       api.quick.onInit((p) => {
+        generation.current++
+        if (closeTimer.current) clearTimeout(closeTimer.current)
+        inFlight.current = false
+        setBusy(false)
         setPayload(p as Payload)
         setDone(null)
       }),
     []
   )
 
-  const act = async (action: Action) => {
-    if (!payload) return
-    const res = await api.quick.action(payload.id, action)
-    if (!res.ok) {
-      setDone(res.error ?? 'failed')
-      return
+  useEffect(
+    () => () => {
+      generation.current++
+      if (closeTimer.current) clearTimeout(closeTimer.current)
+    },
+    []
+  )
+
+  const act = useEvent(async (action: Action) => {
+    if (!payload || inFlight.current) return
+    inFlight.current = true
+    setBusy(true)
+    setDone(null)
+    if (closeTimer.current) clearTimeout(closeTimer.current)
+    const current = generation.current
+    const closeSoon = (delay: number) => {
+      closeTimer.current = setTimeout(() => {
+        if (current === generation.current) api.system.window('close')
+      }, delay)
     }
-    // Keep a short confirmation for actions that return to the source app. Edit and
-    // pin open their own surfaces immediately. Copy-file stays open so Finder paste
-    // can follow; drag stays open for the OS drag session.
-    if (action === 'edit' || action === 'pin') {
-      api.system.window('close')
-    } else if (action === 'copyFile') {
-      setDone('File copied — paste in Finder')
-    } else if (action !== 'pipeline') {
-      const labels: Partial<Record<Action, string>> = {
-        copy: 'Copied',
-        save: 'Saved',
-        reveal: 'Revealed'
+    try {
+      const res = await api.quick.action(payload.id, action)
+      if (current !== generation.current || res.canceled) return
+      if (!res.ok) {
+        setDone({ message: res.error ?? 'The action could not finish. Try again.', error: true })
+        return
       }
-      setDone(labels[action] ?? 'Done')
-      setTimeout(() => api.system.window('close'), 900)
-    } else {
-      setDone('Pipeline finished')
-      setTimeout(() => api.system.window('close'), 1_200)
+      // Keep a short confirmation for actions that return to the source app. Edit and
+      // pin open their own surfaces immediately. Copy-file stays open so Finder paste
+      // can follow; drag stays open for the OS drag session.
+      if (action === 'edit' || action === 'pin') {
+        api.system.window('close')
+      } else if (action === 'copyFile') {
+        setDone({ message: `File copied — paste in ${fileManager}` })
+      } else if (action !== 'pipeline') {
+        const labels: Partial<Record<Action, string>> = {
+          copy: 'Copied',
+          save: 'Saved',
+          reveal: 'Revealed'
+        }
+        setDone({ message: labels[action] ?? 'Done' })
+        closeSoon(1200)
+      } else {
+        setDone({ message: 'Pipeline finished' })
+        closeSoon(1500)
+      }
+    } catch (error) {
+      if (current === generation.current)
+        setDone({ message: (error as Error).message, error: true })
+    } finally {
+      if (current === generation.current) {
+        inFlight.current = false
+        setBusy(false)
+      }
     }
-  }
+  })
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
@@ -72,7 +110,7 @@ export default function QuickAccess(): React.ReactElement | null {
         api.system.window('close')
       } else if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === 'c') {
         e.preventDefault()
-        void act('copy')
+        void act(payload.kind === 'image' ? 'copy' : 'copyFile')
       } else if (e.key === 'Enter' && e.target === document.body) {
         e.preventDefault()
         void act('edit')
@@ -80,7 +118,7 @@ export default function QuickAccess(): React.ReactElement | null {
     }
     window.addEventListener('keydown', onKey)
     return () => window.removeEventListener('keydown', onKey)
-  }, [payload])
+  }, [act, payload])
 
   useEffect(() => {
     if (!payload) return
@@ -106,7 +144,7 @@ export default function QuickAccess(): React.ReactElement | null {
   }
 
   return (
-    <div className="qa" role="dialog" aria-label="Capture handoff">
+    <div className="qa" role="dialog" aria-label="Capture handoff" aria-busy={busy}>
       <div
         className="qa-thumb"
         data-quick-drag
@@ -125,12 +163,6 @@ export default function QuickAccess(): React.ReactElement | null {
             <span>Recording</span>
           </div>
         )}
-        {done && (
-          <div className="qa-done">
-            <Icon name="check" size={16} />
-            {done}
-          </div>
-        )}
       </div>
 
       <div className="qa-body">
@@ -141,7 +173,7 @@ export default function QuickAccess(): React.ReactElement | null {
             {payload.durationMs ? ` · ${Math.round(payload.durationMs / 1000)}s` : ''}
           </span>
         </div>
-        <div className="qa-actions">
+        <fieldset className="qa-actions" disabled={busy} aria-label="Capture actions">
           <button
             className="qa-btn primary"
             data-quick-primary
@@ -185,8 +217,8 @@ export default function QuickAccess(): React.ReactElement | null {
           <button
             className="qa-btn"
             onClick={() => void act('reveal')}
-            title="Reveal in Finder"
-            aria-label="Reveal in Finder"
+            title={`Reveal in ${fileManager}`}
+            aria-label={`Reveal in ${fileManager}`}
           >
             <Icon name="folder" size={14} />
             Reveal
@@ -200,8 +232,8 @@ export default function QuickAccess(): React.ReactElement | null {
               drag()
             }}
             onClick={() => void act('copyFile')}
-            title={`Drag ${image ? 'image' : 'recording'} out, or click to copy the file and paste in Finder`}
-            aria-label={`Drag ${image ? 'image' : 'recording'} out, or click to copy the file and paste in Finder`}
+            title={`Drag ${image ? 'image' : 'recording'} out, or click to copy the file and paste in ${fileManager}`}
+            aria-label={`Drag ${image ? 'image' : 'recording'} out, or click to copy the file and paste in ${fileManager}`}
           >
             <Icon name="externalLink" size={14} />
             Drag out
@@ -216,13 +248,26 @@ export default function QuickAccess(): React.ReactElement | null {
             <Icon name="layers" size={14} />
             Pipeline
           </button>
-        </div>
-        <div className="qa-hint tiny muted">
-          {image
-            ? 'Edit is ready · drag the preview, or click Drag out and paste in Finder'
-            : 'Edit opens the video workspace · click Drag out and paste in Finder'}
-          {' · esc to dismiss'}
-        </div>
+        </fieldset>
+        {done && (
+          <div
+            className={`qa-feedback ${done.error ? 'error' : ''}`}
+            role={done.error ? 'alert' : 'status'}
+          >
+            <Icon name={done.error ? 'alert' : 'check'} size={14} />
+            <span>{done.message}</span>
+          </div>
+        )}
+        {!done && (
+          <div className="qa-hint tiny muted">
+            {busy
+              ? 'Working…'
+              : image
+                ? `Drag the preview, or click Drag out and paste in ${fileManager}`
+                : `Edit your recording, or click Drag out and paste in ${fileManager}`}
+            {' · esc to dismiss'}
+          </div>
+        )}
       </div>
 
       <button

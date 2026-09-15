@@ -946,6 +946,10 @@ export function registerIpcHandlers(): void {
     platform: process.platform,
     version: PRODUCT_VERSION
   }))
+  secureHandle(IPC.settingsAppearance, ['quick', 'pin'], () => {
+    const { theme, accent } = settings.get()
+    return { theme, accent }
+  })
 
   secureHandle(IPC.settingsSet, ['settings'], (_e, unsafePatch: Partial<Settings>) => {
     const before = settings.get()
@@ -1172,7 +1176,7 @@ export function registerIpcHandlers(): void {
           format: s.imageFormat,
           suggestedName: result.title || formatFilename(s.filenameTemplate)
         })
-        return saved.ok ? { ok: true } : { ok: false, error: saved.error }
+        return saved.ok ? { ok: true } : { ok: false, error: saved.error, canceled: saved.canceled }
       }
       case 'pin':
         return { ok: Boolean(createPin(result.dataUrl, { scaleFactor: result.scaleFactor })) }

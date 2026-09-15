@@ -66,11 +66,13 @@ export default function LayersPanel(): React.ReactElement {
 
   return (
     <div className="layers">
-      {shapes.map((shape) => {
+      {shapes.map((shape, index) => {
         const active = selectedIds.includes(shape.id)
         return (
           <div
             key={shape.id}
+            role="group"
+            aria-label={`${describe(shape)} layer`}
             className={`layer-row ${active ? 'active' : ''} ${shape.hidden ? 'hidden' : ''}`}
             onClick={(e) => {
               setTool('select')
@@ -83,15 +85,18 @@ export default function LayersPanel(): React.ReactElement {
               )
             }}
           >
-            <span className="layer-icon">
-              <Icon name={ICONS[shape.type] ?? 'layers'} size={14} />
-            </span>
-            <span className="truncate" style={{ flex: 1 }}>
-              {describe(shape)}
-            </span>
+            <button className="layer-select" aria-pressed={active} title={describe(shape)}>
+              <span className="layer-icon">
+                <Icon name={ICONS[shape.type] ?? 'layers'} size={14} />
+              </span>
+              <span className="truncate" style={{ flex: 1 }}>
+                {describe(shape)}
+              </span>
+            </button>
             <button
               className="layer-btn"
               title={shape.hidden ? 'Show' : 'Hide'}
+              aria-label={`${shape.hidden ? 'Show' : 'Hide'} ${describe(shape)}`}
               onClick={(e) => {
                 e.stopPropagation()
                 begin()
@@ -104,6 +109,8 @@ export default function LayersPanel(): React.ReactElement {
             <button
               className="layer-btn"
               title={shape.locked ? 'Unlock' : 'Lock'}
+              aria-label={`${shape.locked ? 'Unlock' : 'Lock'} ${describe(shape)}`}
+              aria-pressed={Boolean(shape.locked)}
               onClick={(e) => {
                 e.stopPropagation()
                 begin()
@@ -116,6 +123,7 @@ export default function LayersPanel(): React.ReactElement {
             <button
               className="layer-btn"
               title="Bring forward"
+              disabled={index === 0}
               onClick={(e) => {
                 e.stopPropagation()
                 reorder(shape.id, 'forward')
@@ -126,6 +134,7 @@ export default function LayersPanel(): React.ReactElement {
             <button
               className="layer-btn"
               title="Send backward"
+              disabled={index === shapes.length - 1}
               onClick={(e) => {
                 e.stopPropagation()
                 reorder(shape.id, 'backward')
@@ -136,6 +145,7 @@ export default function LayersPanel(): React.ReactElement {
             <button
               className="layer-btn danger"
               title="Delete"
+              aria-label={`Delete ${describe(shape)}`}
               onClick={(e) => {
                 e.stopPropagation()
                 removeShapes([shape.id])

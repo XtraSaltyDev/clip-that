@@ -1,5 +1,6 @@
-import React, { useEffect, useMemo, useRef, useState } from 'react'
+import React, { useEffect, useId, useMemo, useRef, useState } from 'react'
 import { Icon, type IconName } from './icons'
+import { toast } from './ui'
 import './palette.css'
 
 export interface Command {
@@ -50,11 +51,19 @@ export default function CommandPalette({
   const [query, setQuery] = useState('')
   const [active, setActive] = useState(0)
   const listRef = useRef<HTMLDivElement>(null)
+  const inputRef = useRef<HTMLInputElement>(null)
+  const dialogRef = useRef<HTMLDivElement>(null)
+  const listId = useId()
 
   useEffect(() => {
     if (open) {
+      const previousFocus = document.activeElement as HTMLElement | null
       setQuery('')
       setActive(0)
+      inputRef.current?.focus()
+      return () => {
+        if (previousFocus?.isConnected) previousFocus.focus()
+      }
     }
   }, [open])
 
@@ -84,11 +93,31 @@ export default function CommandPalette({
 
   const run = (command: Command) => {
     onClose()
-    void command.run()
+    void Promise.resolve()
+      .then(() => command.run())
+      .catch((error) => {
+        toast('error', `Could not ${command.title.toLowerCase()}`, (error as Error).message)
+      })
   }
 
   const onKeyDown = (e: React.KeyboardEvent) => {
     e.stopPropagation()
+    if (e.nativeEvent.isComposing) return
+    if (e.key === 'Tab') {
+      const controls = dialogRef.current?.querySelectorAll<HTMLElement>(
+        'input, button:not([tabindex="-1"])'
+      )
+      const first = controls?.[0]
+      const last = controls?.[controls.length - 1]
+      if (e.shiftKey && document.activeElement === first) {
+        e.preventDefault()
+        last?.focus()
+      } else if (!e.shiftKey && document.activeElement === last) {
+        e.preventDefault()
+        first?.focus()
+      }
+      return
+    }
     if (e.key === 'Escape') {
       e.preventDefault()
       onClose()
@@ -99,6 +128,7 @@ export default function CommandPalette({
       e.preventDefault()
       setActive((a) => (a - 1 + results.length) % Math.max(1, results.length))
     } else if (e.key === 'Enter') {
+      if (e.target !== inputRef.current) return
       e.preventDefault()
       const command = results[active]
       if (command) run(command)
@@ -109,20 +139,43 @@ export default function CommandPalette({
 
   return (
     <div className="cmd-scrim" onMouseDown={onClose}>
-      <div className="cmd" onMouseDown={(e) => e.stopPropagation()} onKeyDown={onKeyDown}>
+      <div
+        className="cmd"
+        ref={dialogRef}
+        role="dialog"
+        aria-modal="true"
+        aria-label="Command palette"
+        onMouseDown={(e) => e.stopPropagation()}
+        onKeyDown={onKeyDown}
+      >
         <div className="cmd-search">
           <Icon name="search" size={15} />
           <input
-            autoFocus
+            ref={inputRef}
+            role="combobox"
+            aria-label="Search commands"
+            aria-expanded="true"
+            aria-autocomplete="list"
+            aria-controls={listId}
+            aria-activedescendant={results[active] ? `${listId}-${results[active].id}` : undefined}
             value={query}
             placeholder={placeholder}
-            onChange={(e) => setQuery(e.target.value)}
+            onChange={(e) => {
+              setQuery(e.target.value)
+              setActive(0)
+            }}
           />
-          <span className="kbd">esc</span>
+          <button className="btn ghost icon" aria-label="Close command palette" onClick={onClose}>
+            <Icon name="close" size={15} />
+          </button>
         </div>
 
-        <div className="cmd-list" ref={listRef}>
-          {results.length === 0 && <div className="cmd-none">No matching commands</div>}
+        <div className="cmd-list" ref={listRef} id={listId} role="listbox" aria-label="Commands">
+          {results.length === 0 && (
+            <div className="cmd-none" role="status">
+              No matching commands. Try a tool or action name.
+            </div>
+          )}
           {results.map((c, i) => {
             const header = c.group !== lastGroup ? c.group : null
             lastGroup = c.group
@@ -130,6 +183,10 @@ export default function CommandPalette({
               <React.Fragment key={c.id}>
                 {header && <div className="cmd-group">{header}</div>}
                 <button
+                  id={`${listId}-${c.id}`}
+                  role="option"
+                  aria-selected={i === active}
+                  tabIndex={-1}
                   className={`cmd-item ${i === active ? 'active' : ''}`}
                   onMouseEnter={() => setActive(i)}
                   onClick={() => run(c)}
@@ -144,6 +201,11 @@ export default function CommandPalette({
               </React.Fragment>
             )
           })}
+        </div>
+        <div className="cmd-footer">
+          <span>↑ ↓ Navigate</span>
+          <span>Enter Run</span>
+          <span>Esc Close</span>
         </div>
       </div>
     </div>

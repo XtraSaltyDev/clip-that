@@ -1227,12 +1227,22 @@ body.mac .topbar {
   display: flex;
   align-items: center;
   gap: 7px;
-  height: 30px;
+  min-height: 34px;
   padding: 0 6px 0 8px;
   border-radius: 8px;
   color: var(--ink-1);
   font-size: 12px;
   cursor: default;
+}
+.layer-select {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  min-width: 0;
+  flex: 1;
+  min-height: 32px;
+  text-align: left;
+  border-radius: 5px;
 }
 .layer-row:hover {
   background: var(--bg-2);
@@ -1255,15 +1265,19 @@ body.mac .topbar {
 .layer-btn {
   display: none;
   place-items: center;
-  width: 21px;
-  height: 21px;
+  width: 24px;
+  height: 28px;
   border-radius: 5px;
   color: var(--ink-2);
   flex: none;
 }
 .layer-row:hover .layer-btn,
+.layer-row:focus-within .layer-btn,
 .layer-row.active .layer-btn {
   display: grid;
+}
+.layer-btn:disabled {
+  opacity: 0.3;
 }
 .layer-btn:hover {
   background: var(--bg-3);
@@ -1499,4 +1513,24 @@ body.mac .topbar {
 .ctx-raw-body p {
   margin: 0 0 8px;
   line-height: 1.45;
+}
+.video-playback-error {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 12px;
+  color: var(--danger);
+  border: 1px solid var(--line-strong);
+  border-radius: var(--radius);
+}
+.video-playback-error span {
+  flex: 1;
+  min-width: 0;
+}
+.video-playback-error > svg {
+  flex: none;
+}
+.video-capability-section summary {
+  cursor: pointer;
+  color: var(--ink-1);
 }

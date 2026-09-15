@@ -10,9 +10,12 @@
     "sourceMap": false
   },
   "include": [
+    "src/renderer/shared/save-queue.ts",
+    "src/renderer/editor/ocr-source.ts",
     "src/main/ipc/validation.ts",
     "src/main/capture/failures.ts",
     "src/main/capture/geometry.ts",
+    "src/main/capture/window-sources.ts",
     "src/main/protocol/byte-range.ts",
     "src/main/recording/recovery-store.ts",
     "src/main/recording/review-playback.ts",

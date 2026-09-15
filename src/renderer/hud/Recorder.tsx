@@ -364,31 +364,39 @@ export default function Recorder(): React.ReactElement {
     if (!mediaUrl) return
     setPhase('encoding')
     setProgress(0)
-    const poster = await posterFromUrl(mediaUrl, trim[0] + 200)
-    const knownDuration = Math.max(1, duration, activeRecovery?.durationMs ?? 0)
-    const hasTrim = trim[1] > trim[0]
-    const item = await api.recording.export(
-      {
-        format,
-        quality,
-        startMs: hasTrim ? trim[0] : undefined,
-        endMs: hasTrim ? trim[1] : undefined,
-        fps: format === 'gif' ? 15 : options.fps,
-        maxWidth: format === 'gif' ? 900 : undefined
-      },
-      {
-        width: videoRef.current?.videoWidth || activeRecovery?.width || 1920,
-        height: videoRef.current?.videoHeight || activeRecovery?.height || 1080,
-        durationMs: knownDuration,
-        posterDataUrl: poster
+    setError(null)
+    try {
+      const poster = await posterFromUrl(mediaUrl, trim[0] + 200)
+      const knownDuration = Math.max(1, duration, activeRecovery?.durationMs ?? 0)
+      const hasTrim = trim[1] > trim[0]
+      const item = await api.recording.export(
+        {
+          format,
+          quality,
+          startMs: hasTrim ? trim[0] : undefined,
+          endMs: hasTrim ? trim[1] : undefined,
+          fps: format === 'gif' ? 15 : options.fps,
+          maxWidth: format === 'gif' ? 900 : undefined
+        },
+        {
+          width: videoRef.current?.videoWidth || activeRecovery?.width || 1920,
+          height: videoRef.current?.videoHeight || activeRecovery?.height || 1080,
+          durationMs: knownDuration,
+          posterDataUrl: poster
+        }
+      )
+      if (item) api.hud.close()
+      else {
+        setError('Encoding failed. The raw recording is still available to retry.')
+        setPhase('review')
       }
-    )
-    if (item) api.hud.close()
-    else {
-      setError('Encoding failed. The raw recording is still available to retry.')
+    } catch (error) {
+      setError(
+        `Export could not finish. Your raw recording is preserved. ${(error as Error).message}`
+      )
       setPhase('review')
     }
-  }, [activeRecovery, duration, format, mediaUrl, quality, trim])
+  }, [activeRecovery, duration, format, mediaUrl, options.fps, quality, trim])
 
   const discard = useCallback(async () => {
     await api.recording.cancel()
@@ -478,7 +486,14 @@ export default function Recorder(): React.ReactElement {
         <Icon name="refresh" size={20} className="spin" />
         <div style={{ flex: 1 }}>
           <div style={{ fontWeight: 600 }}>Encoding {format.toUpperCase()}…</div>
-          <div className="hud-progress">
+          <div
+            className="hud-progress"
+            role="progressbar"
+            aria-label="Recording export"
+            aria-valuemin={0}
+            aria-valuemax={100}
+            aria-valuenow={Math.round(progress)}
+          >
             <span style={{ width: `${progress}%` }} />
           </div>
         </div>
@@ -575,22 +590,26 @@ export default function Recorder(): React.ReactElement {
           </div>
           <input
             type="range"
+            aria-label="Trim start"
+            aria-valuetext={formatDuration(trim[0])}
             min={0}
             max={Math.max(1, duration)}
             value={trim[0]}
             onChange={(e) => {
-              const v = Math.min(Number(e.target.value), trim[1] - 200)
+              const v = Math.max(0, Math.min(Number(e.target.value), trim[1] - 200))
               setTrim([v, trim[1]])
               if (videoRef.current) videoRef.current.currentTime = v / 1000
             }}
           />
           <input
             type="range"
+            aria-label="Trim end"
+            aria-valuetext={formatDuration(trim[1])}
             min={0}
             max={Math.max(1, duration)}
             value={trim[1]}
             onChange={(e) => {
-              const v = Math.max(Number(e.target.value), trim[0] + 200)
+              const v = Math.min(duration, Math.max(Number(e.target.value), trim[0] + 200))
               setTrim([trim[0], v])
               if (videoRef.current) videoRef.current.currentTime = v / 1000
             }}

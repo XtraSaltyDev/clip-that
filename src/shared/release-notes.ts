@@ -372,6 +372,38 @@ export const RELEASE_NOTES = [
         body: 'PDF export uses the correct page units for the current printing engine, fixing printing failures while preserving the capture dimensions.'
       }
     ]
+  },
+  {
+    version: '0.1.22',
+    title: 'A more dependable everyday workspace',
+    summary:
+      'Keep edits safe, move through ClipThat with the keyboard, and see clearer feedback across capture, editing, Library, guides, and Settings.',
+    items: [
+      {
+        title: 'Guide edits stay with you',
+        body: 'Guide autosaves preserve your latest typing, finish before you leave or export, and keep failed drafts available to retry. The toolbar adapts without clipping export actions.'
+      },
+      {
+        title: 'Analysis stays with its capture',
+        body: 'Text recognition and auto-blur discard stale results after you switch captures or change the source crop, keeping another image’s results out of your current work.'
+      },
+      {
+        title: 'Clearer feedback and keyboard controls',
+        body: 'Errors remain readable until dismissed, command search keeps focus inside the palette, and text-field shortcuts, layer controls, colour selections, and window selection behave more consistently.'
+      },
+      {
+        title: 'Native acceptance fixes',
+        body: 'Option-modified shortcuts retain their keyboard key names, windows with titles beginning with ClipThat remain capturable, and PDF exports fit the complete image onto one page without a trailing overflow page.'
+      },
+      {
+        title: 'A steadier Library and Settings',
+        body: 'Library searches ignore outdated responses, previews show the complete image, and the editor loads a bounded recent-capture strip. Settings serialize changes and report save failures.'
+      },
+      {
+        title: 'Better capture and recording recovery',
+        body: 'Quick Access distinguishes success, cancellation, and failure, and older actions cannot dismiss a newer capture. Recording and scrolling failures offer clearer feedback while preserving recovery options.'
+      }
+    ]
   }
 ] as const satisfies readonly ReleaseNotes[]
 

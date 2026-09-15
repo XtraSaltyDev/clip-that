@@ -92,17 +92,18 @@ async function buildFilmstrip(
   video.crossOrigin = 'anonymous'
   video.muted = true
   video.preload = 'auto'
-  video.src = url
-  if (video.readyState < HTMLMediaElement.HAVE_CURRENT_DATA) await waitForVideo(video, 'loadeddata')
-
-  const canvas = document.createElement('canvas')
-  canvas.width = 160
-  canvas.height = 90
-  const ctx = canvas.getContext('2d')
-  if (!ctx || video.videoWidth <= 0 || video.videoHeight <= 0) return []
-
-  const frames: string[] = []
   try {
+    video.src = url
+    if (video.readyState < HTMLMediaElement.HAVE_CURRENT_DATA)
+      await waitForVideo(video, 'loadeddata')
+
+    const canvas = document.createElement('canvas')
+    canvas.width = 160
+    canvas.height = 90
+    const ctx = canvas.getContext('2d')
+    if (!ctx || video.videoWidth <= 0 || video.videoHeight <= 0) return []
+
+    const frames: string[] = []
     for (let index = 0; index < FILMSTRIP_FRAMES; index += 1) {
       if (cancelled()) return []
       const target = Math.min(
@@ -189,6 +190,7 @@ export default function VideoEditor(props: {
   const [progress, setProgress] = useState(0)
   const [playhead, setPlayhead] = useState(0)
   const [filmstrip, setFilmstrip] = useState<string[]>([])
+  const [playbackError, setPlaybackError] = useState<string | null>(null)
   const [playingSelection, setPlayingSelection] = useState(false)
   const [loopSelection, setLoopSelection] = useState(false)
   const mediaUrl = api.library.fileUrl(item.filePath)
@@ -207,6 +209,7 @@ export default function VideoEditor(props: {
     setProgress(0)
     setPlayhead(0)
     setFilmstrip([])
+    setPlaybackError(null)
     setPlayingSelection(false)
     draftReady.current = true
   }, [item.id, item.durationMs, item.title])
@@ -327,18 +330,30 @@ export default function VideoEditor(props: {
     if (!video || trim[1] <= trim[0]) return
     seek(trim[0])
     setPlayingSelection(true)
-    void video.play()
+    void video.play().catch(() => {
+      setPlayingSelection(false)
+      setPlaybackError('This recording could not be played. Try reloading the preview.')
+    })
   }, [trim])
 
   useEffect(() => {
     const onKeyDown = (event: KeyboardEvent) => {
+      if (
+        event.defaultPrevented ||
+        event.isComposing ||
+        event.metaKey ||
+        event.ctrlKey ||
+        event.altKey
+      )
+        return
       const target = event.target as HTMLElement | null
       if (target?.matches('input, select, textarea, button, [contenteditable="true"]')) return
       const video = videoRef.current
       if (!video) return
       if (event.key === ' ' || event.key.toLowerCase() === 'k') {
         event.preventDefault()
-        if (video.paused) void video.play()
+        if (video.paused)
+          void video.play().catch(() => setPlaybackError('This recording could not be played.'))
         else video.pause()
       } else if (event.key.toLowerCase() === 'j' || event.key === 'ArrowLeft') {
         event.preventDefault()
@@ -439,7 +454,16 @@ export default function VideoEditor(props: {
             value={title}
             aria-label="Recording title"
             onChange={(event) => setTitle(event.target.value)}
-            onBlur={() => void update({ title })}
+            onBlur={() => {
+              if (!title.trim()) {
+                setTitle(item.title)
+                return
+              }
+              if (title.trim() !== item.title)
+                void update({ title: title.trim() }).catch((error) =>
+                  toast('error', 'Could not rename the recording', (error as Error).message)
+                )
+            }}
             onKeyDown={(event) => event.key === 'Enter' && event.currentTarget.blur()}
           />
         </div>
@@ -452,7 +476,11 @@ export default function VideoEditor(props: {
               <Icon name="close" size={14} /> Cancel export
             </button>
           )}
-          <button className="btn primary" disabled={saving} onClick={() => void saveCopy()}>
+          <button
+            className="btn primary"
+            disabled={saving || selectedMs <= 0 || !mediaCapabilities?.[format]}
+            onClick={() => void saveCopy()}
+          >
             <Icon name="save" size={14} />{' '}
             {saving ? `Saving ${Math.round(progress)}%` : 'Save copy'}
           </button>
@@ -478,7 +506,7 @@ export default function VideoEditor(props: {
                 if (playingSelection && next >= trim[1] - 20) {
                   if (loopSelection) {
                     event.currentTarget.currentTime = trim[0] / 1000
-                    void event.currentTarget.play()
+                    void event.currentTarget.play().catch(() => setPlayingSelection(false))
                   } else {
                     event.currentTarget.pause()
                     setPlayingSelection(false)
@@ -490,6 +518,7 @@ export default function VideoEditor(props: {
                 if (playingSelection && !loopSelection) setPlayingSelection(false)
               }}
               onLoadedMetadata={(event) => {
+                setPlaybackError(null)
                 const ms = Number.isFinite(event.currentTarget.duration)
                   ? event.currentTarget.duration * 1000
                   : (item.durationMs ?? 0)
@@ -498,9 +527,28 @@ export default function VideoEditor(props: {
                   setTrim(itemTrim(item, ms))
                 }
               }}
-              onError={() => toast('error', 'This recording could not be played inside ClipThat')}
+              onError={() =>
+                setPlaybackError(
+                  'This recording could not be played inside ClipThat. The original file is preserved.'
+                )
+              }
             />
           </div>
+          {playbackError && (
+            <div className="video-playback-error" role="alert">
+              <Icon name="alert" size={16} />
+              <span>{playbackError}</span>
+              <button
+                className="btn sm"
+                onClick={() => {
+                  setPlaybackError(null)
+                  videoRef.current?.load()
+                }}
+              >
+                Retry preview
+              </button>
+            </div>
+          )}
           <section className="video-trimmer" aria-label="Trim recording">
             <div className="video-trim-heading">
               <div>
@@ -752,8 +800,8 @@ export default function VideoEditor(props: {
             }}
           />
           <div className="divider" />
-          <section className="video-capability-section" aria-labelledby="recording-polish-heading">
-            <h3 id="recording-polish-heading">Recording polish</h3>
+          <details className="video-capability-section">
+            <summary>Recording capabilities</summary>
             <div className="video-capability unavailable">
               <strong>Zooms unavailable</strong>
               <span>{polish.zooms.detail}</span>
@@ -768,9 +816,17 @@ export default function VideoEditor(props: {
               <strong>{transcript.label}</strong>
               <span>{transcript.detail}</span>
             </div>
-          </section>
+          </details>
           <div className="divider" />
-          <button className="btn" onClick={() => void update({ favorite: !item.favorite })}>
+          <button
+            className="btn"
+            aria-pressed={item.favorite}
+            onClick={() =>
+              void update({ favorite: !item.favorite }).catch((error) =>
+                toast('error', 'Could not update favourites', (error as Error).message)
+              )
+            }
+          >
             <Icon name="star" size={14} /> {item.favorite ? 'Remove favourite' : 'Add favourite'}
           </button>
           <p className="tiny muted video-save-note">
@@ -783,7 +839,12 @@ export default function VideoEditor(props: {
           openingId={props.openingId}
           onOpen={(next) => {
             if (saving) toast('info', 'Finish or cancel the video export before switching items')
-            else void persistDraft().then(() => props.onOpen(next))
+            else
+              void persistDraft()
+                .then(() => props.onOpen(next))
+                .catch((error) =>
+                  toast('error', 'Could not save the video draft', (error as Error).message)
+                )
           }}
         />
       </div>

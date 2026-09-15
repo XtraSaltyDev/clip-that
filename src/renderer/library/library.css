@@ -48,7 +48,7 @@
 
 .guide-workspace {
   display: grid;
-  grid-template-rows: 56px minmax(0, 1fr) 54px;
+  grid-template-rows: auto minmax(0, 1fr) auto;
   height: 100%;
   background: var(--bg-0);
 }
@@ -60,11 +60,15 @@
   padding: 0 12px 0 var(--lib-left-pad, 12px);
   border-bottom: 1px solid var(--line);
   background: var(--bg-1);
+  flex-wrap: wrap;
+  padding-block: 10px;
+  min-height: 56px;
 }
 body.mac .guide-top {
   --lib-left-pad: 82px;
 }
 .guide-title {
+  flex: 1 1 180px;
   min-width: 130px;
   max-width: 280px;
   font-size: 15px;
@@ -81,6 +85,7 @@ body.mac .guide-top {
   background: var(--bg-2);
 }
 .guide-save-state {
+  flex: none;
   display: inline-flex;
   align-items: center;
   gap: 4px;
@@ -91,11 +96,13 @@ body.mac .guide-top {
   color: var(--danger);
 }
 .guide-capture-mode {
+  flex: none;
   width: 112px;
   height: 30px;
   padding: 0 8px;
 }
 .guide-export {
+  flex: none;
   display: flex;
 }
 .guide-export .btn {
@@ -124,6 +131,8 @@ body.mac .guide-top {
   padding: 12px 8px;
 }
 .guide-inspector {
+  margin: 0;
+  border: 0;
   border-left: 1px solid var(--line);
   padding: 16px;
 }
@@ -602,6 +611,8 @@ body.mac .lib-top {
   flex: none;
 }
 .lib-thumb img {
+  position: absolute;
+  inset: 0;
   width: 100%;
   height: 100%;
   object-fit: contain;
@@ -724,6 +735,8 @@ body.mac .lib-top {
   overflow-y: auto;
 }
 .lib-preview {
+  position: relative;
+  flex: none;
   display: grid;
   place-items: center;
   aspect-ratio: 4 / 3;
@@ -735,6 +748,8 @@ body.mac .lib-top {
 }
 .lib-preview img,
 .lib-preview video {
+  position: absolute;
+  inset: 0;
   width: 100%;
   height: 100%;
   object-fit: contain;

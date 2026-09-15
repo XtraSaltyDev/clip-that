@@ -54,10 +54,15 @@ export default function App(): React.ReactElement {
   const [snagitSummary, setSnagitSummary] = useState<SnagitImportSummary | null>(null)
   const [snagitScanning, setSnagitScanning] = useState(false)
   const searchRef = useRef<HTMLInputElement>(null)
+  const snagitDialogRef = useRef<HTMLElement>(null)
+  const snagitImportActive = useRef(false)
   const cardRefs = useRef(new Map<string, HTMLElement>())
+  const requestId = useRef(0)
+  const guideRequestId = useRef(0)
   const [mainRef, mainSize] = useSize<HTMLElement>()
 
   const refresh = useCallback(async () => {
+    const request = ++requestId.current
     const query = {
       search: search.trim() || undefined,
       kind: filter === 'image' || filter === 'video' ? filter : undefined,
@@ -66,28 +71,36 @@ export default function App(): React.ReactElement {
     }
     try {
       const [list, allTags] = await Promise.all([api.library.list(query), api.library.tags()])
+      if (request !== requestId.current) return
       setItems(list)
+      setSelected((current) => current.filter((id) => list.some((item) => item.id === id)))
       setTags(allTags)
       setLoadError(null)
     } catch (error) {
+      if (request !== requestId.current) return
       setLoadError((error as Error).message || 'The Library could not be refreshed')
-      toast('error', 'Could not load the Library', (error as Error).message)
     } finally {
-      setLoading(false)
+      if (request === requestId.current) setLoading(false)
     }
   }, [search, filter, tag])
 
   useEffect(() => {
     void refresh()
+    return () => {
+      requestId.current++
+    }
   }, [refresh])
 
   useEffect(() => api.library.onChanged(() => void refresh()), [refresh])
 
   const refreshGuides = useCallback(async () => {
+    const request = ++guideRequestId.current
     try {
-      setGuides(await api.guides.list(showGuides ? search : ''))
+      const next = await api.guides.list(showGuides ? search : '')
+      if (request === guideRequestId.current) setGuides(next)
     } catch (error) {
-      toast('error', 'Could not load Guides', (error as Error).message)
+      if (request === guideRequestId.current)
+        toast('error', 'Could not load Guides', (error as Error).message)
     }
   }, [search, showGuides])
 
@@ -184,7 +197,9 @@ export default function App(): React.ReactElement {
   }, [snagitProgress?.state, snagitScanning])
 
   const importSnagit = useCallback(async () => {
-    if (!snagitPreview || snagitProgress?.state === 'importing') return
+    if (!snagitPreview || snagitProgress?.state === 'importing' || snagitImportActive.current)
+      return
+    snagitImportActive.current = true
     try {
       const summary = await api.library.importSnagit(snagitPreview.planId)
       setSnagitSummary(summary)
@@ -203,12 +218,36 @@ export default function App(): React.ReactElement {
       }
     } catch (error) {
       toast('error', 'Snagit import failed', (error as Error).message)
+    } finally {
+      snagitImportActive.current = false
     }
   }, [refresh, snagitPreview, snagitProgress?.state])
 
   const cancelSnagit = useCallback(() => {
     if (snagitPreview) void api.library.cancelSnagit(snagitPreview.planId)
   }, [snagitPreview])
+
+  const closeSnagit = useCallback(() => {
+    if (snagitImportActive.current || snagitProgress?.state === 'importing') return
+    cancelSnagit()
+    setSnagitPreview(null)
+    setSnagitSummary(null)
+    setSnagitProgress(null)
+  }, [cancelSnagit, snagitProgress?.state])
+
+  const importOpen = Boolean(snagitPreview)
+  useEffect(() => {
+    if (!importOpen) return
+    const previousFocus = document.activeElement as HTMLElement | null
+    snagitDialogRef.current?.querySelector<HTMLButtonElement>('button')?.focus()
+    return () => {
+      if (previousFocus?.isConnected) previousFocus.focus()
+    }
+  }, [importOpen])
+
+  useEffect(() => {
+    if (importOpen) snagitDialogRef.current?.querySelector<HTMLButtonElement>('button')?.focus()
+  }, [importOpen, snagitProgress?.state])
 
   const active = useMemo(
     () => (selected.length === 1 ? items.find((i) => i.id === selected[0]) : null),
@@ -240,16 +279,22 @@ export default function App(): React.ReactElement {
       toast('info', 'Only images can be copied to the clipboard')
       return
     }
-    const url = api.library.fileUrl(item.filePath)
-    const res = await fetch(url)
-    const blob = await res.blob()
-    const dataUrl = await new Promise<string>((resolve) => {
-      const reader = new FileReader()
-      reader.onload = () => resolve(String(reader.result))
-      reader.readAsDataURL(blob)
-    })
-    const ok = await api.exports.copyImage(dataUrl)
-    toast(ok ? 'success' : 'error', ok ? 'Copied to clipboard' : 'Copy failed')
+    try {
+      const url = api.library.fileUrl(item.filePath)
+      const res = await fetch(url)
+      if (!res.ok) throw new Error('The original image is missing or could not be read.')
+      const blob = await res.blob()
+      const dataUrl = await new Promise<string>((resolve, reject) => {
+        const reader = new FileReader()
+        reader.onload = () => resolve(String(reader.result))
+        reader.onerror = () => reject(new Error('The image could not be read.'))
+        reader.readAsDataURL(blob)
+      })
+      const ok = await api.exports.copyImage(dataUrl)
+      toast(ok ? 'success' : 'error', ok ? 'Copied to clipboard' : 'Copy failed')
+    } catch (error) {
+      toast('error', 'Could not copy this capture', (error as Error).message)
+    }
   }, [])
 
   /** Move the selection through the grid with the keyboard. */
@@ -269,7 +314,7 @@ export default function App(): React.ReactElement {
   // Match the real responsive grid so up/down navigation remains stable with the inspector open.
   const perRow = view === 'list' ? 1 : libraryGridColumns(mainSize.width)
 
-  useHotkeys({ 'mod+k': () => setPaletteOpen((o) => !o) })
+  useHotkeys({ 'mod+k': () => setPaletteOpen((o) => !o) }, !openGuideId && !importOpen)
 
   useHotkeys(
     {
@@ -285,7 +330,7 @@ export default function App(): React.ReactElement {
       arrowup: () => step(-perRow),
       ' ': () => active && void api.library.open(active.id)
     },
-    !paletteOpen
+    !paletteOpen && !showGuides && !openGuideId && !importOpen
   )
 
   const commands = useMemo<Command[]>(
@@ -347,6 +392,7 @@ export default function App(): React.ReactElement {
         group: 'View',
         icon: 'layers',
         run: () => {
+          setShowGuides(false)
           setFilter('all')
           setTag(null)
         }
@@ -357,6 +403,7 @@ export default function App(): React.ReactElement {
         group: 'View',
         icon: 'image',
         run: () => {
+          setShowGuides(false)
           setFilter('image')
           setTag(null)
         }
@@ -367,6 +414,7 @@ export default function App(): React.ReactElement {
         group: 'View',
         icon: 'video',
         run: () => {
+          setShowGuides(false)
           setFilter('video')
           setTag(null)
         }
@@ -377,6 +425,7 @@ export default function App(): React.ReactElement {
         group: 'View',
         icon: 'star',
         run: () => {
+          setShowGuides(false)
           setFilter('favorite')
           setTag(null)
         }
@@ -401,6 +450,7 @@ export default function App(): React.ReactElement {
         group: 'Tags',
         icon: 'tag' as const,
         run: () => {
+          setShowGuides(false)
           setTag(t)
           setFilter('all')
         }
@@ -420,7 +470,8 @@ export default function App(): React.ReactElement {
         title: 'Copy selection to clipboard',
         group: 'Selection',
         icon: 'copy',
-        disabled: !active,
+        disabled:
+          !active || active.kind !== 'image' || active.workbench.source.state !== 'available',
         run: () => {
           if (active) void copy(active)
         }
@@ -482,14 +533,19 @@ export default function App(): React.ReactElement {
   }
 
   const createGuide = async (): Promise<void> => {
-    const guide = await api.guides.create('Untitled guide')
-    setOpenGuideId(guide.id)
+    try {
+      const guide = await api.guides.create('Untitled guide')
+      setOpenGuideId(guide.id)
+    } catch (error) {
+      toast('error', 'Could not create a guide', (error as Error).message)
+    }
   }
 
   if (openGuideId) {
     return (
       <>
         <GuideWorkspace
+          key={openGuideId}
           guideId={openGuideId}
           onBack={() => {
             setOpenGuideId(null)
@@ -652,10 +708,11 @@ export default function App(): React.ReactElement {
       )}
 
       <div className={`lib-body ${active ? 'has-details' : ''}`}>
-        <nav className="lib-side">
+        <nav className="lib-side" aria-label="Library collections">
           <div className="lib-side-group">
             <button
               className={`lib-nav ${showGuides ? 'active' : ''}`}
+              aria-current={showGuides ? 'page' : undefined}
               onClick={() => {
                 setShowGuides(true)
                 setSelected([])
@@ -675,6 +732,7 @@ export default function App(): React.ReactElement {
               <button
                 key={key}
                 className={`lib-nav ${!showGuides && filter === key && !tag ? 'active' : ''}`}
+                aria-current={!showGuides && filter === key && !tag ? 'page' : undefined}
                 onClick={() => {
                   setShowGuides(false)
                   setFilter(key)
@@ -697,6 +755,7 @@ export default function App(): React.ReactElement {
                   <button
                     key={t}
                     className={`lib-nav ${tag === t ? 'active' : ''}`}
+                    aria-current={tag === t ? 'page' : undefined}
                     onClick={() => {
                       setTag(t)
                       setFilter('all')
@@ -830,6 +889,7 @@ export default function App(): React.ReactElement {
 
         {!showGuides && active && (
           <Details
+            key={active.id}
             item={active}
             onCopy={() => void copy(active)}
             onDelete={() => void remove()}
@@ -861,10 +921,30 @@ export default function App(): React.ReactElement {
       {snagitPreview && (
         <div className="snagit-scrim" role="presentation">
           <section
+            ref={snagitDialogRef}
             className="snagit-dialog"
             role="dialog"
             aria-modal="true"
             aria-labelledby="snagit-title"
+            onKeyDown={(event) => {
+              event.stopPropagation()
+              if (event.key === 'Escape') {
+                event.preventDefault()
+                closeSnagit()
+              }
+              if (event.key !== 'Tab') return
+              const controls =
+                event.currentTarget.querySelectorAll<HTMLButtonElement>('button:not(:disabled)')
+              const first = controls[0],
+                last = controls[controls.length - 1]
+              if (event.shiftKey && document.activeElement === first) {
+                event.preventDefault()
+                last?.focus()
+              } else if (!event.shiftKey && document.activeElement === last) {
+                event.preventDefault()
+                first?.focus()
+              }
+            }}
           >
             <div className="row">
               <div>
@@ -1098,6 +1178,7 @@ function Details(props: {
   const { item } = props
   const [title, setTitle] = useState(item.title)
   const [tagDraft, setTagDraft] = useState('')
+  const tagSaving = useRef(false)
 
   useEffect(() => setTitle(item.title), [item.id, item.title])
 
@@ -1105,25 +1186,44 @@ function Details(props: {
   const videoSrc = item.kind === 'video' ? api.library.fileUrl(item.filePath) : undefined
 
   const commitTitle = async () => {
-    if (title.trim() && title !== item.title) {
-      await api.library.update(item.id, { title: title.trim() })
-      props.onChanged()
+    if (!title.trim()) {
+      setTitle(item.title)
+      return
+    }
+    if (title.trim() !== item.title) {
+      try {
+        await api.library.update(item.id, { title: title.trim() })
+        props.onChanged()
+      } catch (error) {
+        toast('error', 'Could not rename the capture', (error as Error).message)
+      }
     }
   }
 
   const addTag = async () => {
     const value = tagDraft.trim()
-    if (!value || item.tags.includes(value)) return
-    await api.library.update(item.id, { tags: [...item.tags, value] })
-    setTagDraft('')
-    props.onChanged()
+    if (!value || tagSaving.current) return
+    if (item.tags.includes(value)) {
+      setTagDraft('')
+      return
+    }
+    tagSaving.current = true
+    try {
+      await api.library.update(item.id, { tags: [...item.tags, value] })
+      setTagDraft('')
+      props.onChanged()
+    } catch (error) {
+      toast('error', 'Could not add the tag', (error as Error).message)
+    } finally {
+      tagSaving.current = false
+    }
   }
 
   return (
-    <aside className="lib-details">
+    <aside className="lib-details" aria-label="Capture details">
       <div className="lib-preview">
         {videoSrc ? (
-          <video src={videoSrc} controls preload="metadata" />
+          <video src={videoSrc} crossOrigin="anonymous" controls preload="metadata" />
         ) : src ? (
           <img src={src} alt="" />
         ) : (
@@ -1133,6 +1233,7 @@ function Details(props: {
 
       <input
         className="field"
+        aria-label="Capture title"
         value={title}
         onChange={(e) => setTitle(e.target.value)}
         onBlur={commitTitle}
@@ -1160,7 +1261,7 @@ function Details(props: {
       </div>
 
       <section className="lib-workbench" aria-label="Capture relationships">
-        <div className="lib-section-label">Workbench relationships</div>
+        <div className="lib-section-label">Files and versions</div>
         <RelationshipRow
           label="Source"
           link={item.workbench.source}
@@ -1232,9 +1333,14 @@ function Details(props: {
           <span key={t} className="lib-tag">
             {t}
             <button
+              aria-label={`Remove tag ${t}`}
               onClick={async () => {
-                await api.library.update(item.id, { tags: item.tags.filter((x) => x !== t) })
-                props.onChanged()
+                try {
+                  await api.library.update(item.id, { tags: item.tags.filter((x) => x !== t) })
+                  props.onChanged()
+                } catch (error) {
+                  toast('error', 'Could not remove the tag', (error as Error).message)
+                }
               }}
             >
               <Icon name="close" size={10} />
@@ -1244,6 +1350,7 @@ function Details(props: {
         <input
           className="lib-tag-input"
           placeholder="Add tag…"
+          aria-label="Add a tag"
           value={tagDraft}
           onChange={(e) => setTagDraft(e.target.value)}
           onKeyDown={(e) => e.key === 'Enter' && void addTag()}
@@ -1274,15 +1381,25 @@ function Details(props: {
           <Icon name={item.kind === 'video' ? 'play' : 'pen'} size={14} />
           {item.kind === 'video' ? 'Edit video' : 'Edit'}
         </button>
-        <button className="btn" onClick={props.onCopy}>
+        <button
+          className="btn"
+          onClick={props.onCopy}
+          disabled={item.kind !== 'image' || item.workbench.source.state !== 'available'}
+          title={item.kind !== 'image' ? 'Image copying is available for screenshots' : undefined}
+        >
           <Icon name="copy" size={14} /> Copy
         </button>
         <button
           className="btn"
           onClick={async () => {
-            await api.library.update(item.id, { favorite: !item.favorite })
-            props.onChanged()
+            try {
+              await api.library.update(item.id, { favorite: !item.favorite })
+              props.onChanged()
+            } catch (error) {
+              toast('error', 'Could not update favourites', (error as Error).message)
+            }
           }}
+          aria-pressed={item.favorite}
         >
           <Icon name="star" size={14} /> {item.favorite ? 'Unstar' : 'Star'}
         </button>
