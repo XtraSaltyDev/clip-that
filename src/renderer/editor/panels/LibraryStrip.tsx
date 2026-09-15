@@ -1,22 +1,10 @@
-import React, { useCallback, useEffect, useState } from 'react'
+import React, { useCallback, useEffect, useRef, useState } from 'react'
 import type { LibraryItem } from '@shared/types'
 import { api } from '../../shared/api'
 import { Icon } from '../../shared/icons'
 import { formatRelative } from '../../shared/ui'
 
-const PAGE_SIZE = 500
-
-async function listEveryLibraryItem(): Promise<LibraryItem[]> {
-  const items: LibraryItem[] = []
-  for (let offset = 0; ; offset += PAGE_SIZE) {
-    const page = await api.library.list({ limit: PAGE_SIZE, offset })
-    items.push(...page)
-    if (page.length < PAGE_SIZE) break
-  }
-  return [...new Map(items.map((item) => [item.id, item])).values()].sort(
-    (a, b) => b.createdAt - a.createdAt
-  )
-}
+const RECENT_LIMIT = 50
 
 export default function LibraryStrip(props: {
   activeId: string | null
@@ -25,18 +13,32 @@ export default function LibraryStrip(props: {
 }): React.ReactElement {
   const [items, setItems] = useState<LibraryItem[]>([])
   const [loading, setLoading] = useState(true)
+  const [error, setError] = useState(false)
+  const [hasMore, setHasMore] = useState(false)
+  const generation = useRef(0)
 
   const refresh = useCallback(async () => {
+    const request = ++generation.current
     try {
-      setItems(await listEveryLibraryItem())
+      const next = await api.library.list({ limit: RECENT_LIMIT + 1 })
+      if (request !== generation.current) return
+      setItems(next.slice(0, RECENT_LIMIT))
+      setHasMore(next.length > RECENT_LIMIT)
+      setError(false)
+    } catch {
+      if (request === generation.current) setError(true)
     } finally {
-      setLoading(false)
+      if (request === generation.current) setLoading(false)
     }
   }, [])
 
   useEffect(() => {
     void refresh()
-    return api.library.onChanged(() => void refresh())
+    const off = api.library.onChanged(() => void refresh())
+    return () => {
+      generation.current++
+      off()
+    }
   }, [refresh])
 
   return (
@@ -49,9 +51,14 @@ export default function LibraryStrip(props: {
         >
           <Icon name="layers" size={15} />
           <span>Library</span>
-          {!loading && <span className="editor-library-count">{items.length}</span>}
+          {!loading && !error && (
+            <span className="editor-library-count">
+              {items.length}
+              {hasMore ? '+' : ''}
+            </span>
+          )}
         </button>
-        <span className="editor-library-order">Newest first</span>
+        <span className="editor-library-order">{hasMore ? '50 most recent' : 'Newest first'}</span>
       </div>
 
       <div
@@ -61,8 +68,18 @@ export default function LibraryStrip(props: {
           event.currentTarget.scrollLeft += event.deltaY
         }}
       >
-        {!loading && items.length === 0 && (
-          <div className="editor-library-empty">Saved captures and recordings will appear here.</div>
+        {error && (
+          <div className="editor-library-empty" role="status">
+            Recent captures could not be loaded.{' '}
+            <button className="btn ghost sm" onClick={() => void refresh()}>
+              Retry
+            </button>
+          </div>
+        )}
+        {!loading && !error && items.length === 0 && (
+          <div className="editor-library-empty">
+            Saved captures and recordings will appear here.
+          </div>
         )}
         {items.map((item) => {
           const thumbnail = item.thumbnail ? api.library.fileUrl(item.thumbnail) : undefined

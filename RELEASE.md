@@ -32,8 +32,8 @@ npm run install:mac      # build → sign → /Applications, keeps the TCC grant
 - **Production release** (signing, notarization, stapling, and verification):
 
   ```bash
-  xcrun notarytool store-credentials vllm-studio-notarize --apple-id <id> --team-id <team>
-  APPLE_KEYCHAIN_PROFILE=vllm-studio-notarize npm run release:mac
+  xcrun notarytool store-credentials clipthat-notarization --apple-id <id> --team-id <team>
+  APPLE_KEYCHAIN_PROFILE=clipthat-notarization npm run release:mac
   ```
 
   `release:mac` refuses to proceed without a Developer ID Application identity and
@@ -54,7 +54,7 @@ npm run install:mac      # build → sign → /Applications, keeps the TCC grant
   macOS minutes:
 
   ```bash
-  APPLE_KEYCHAIN_PROFILE=vllm-studio-notarize npm run release:mac
+  APPLE_KEYCHAIN_PROFILE=clipthat-notarization npm run release:mac
   npm run release:publish:mac
   ```
 

@@ -20,6 +20,7 @@ import { decodeQrFromImage, looksLikeUrl } from '../../shared/qr'
 import { summarizeContextTrust } from '@shared/context-trust'
 import { orderWords, selectedText } from '../canvas/LiveText'
 import { useEditor } from '../store'
+import { sameOcrSource } from '../ocr-source'
 
 const ENTITY_ICON: Record<Entity['kind'], IconName> = {
   url: 'externalLink',
@@ -54,21 +55,27 @@ export default function ContextPanel({
     const state = useEditor.getState()
     const current = state.doc
     if (!current || state.ocrBusy) return
+    const epoch = state.documentEpoch
+    const isCurrent = () =>
+      useEditor.getState().documentEpoch === epoch &&
+      sameOcrSource(useEditor.getState().doc, current)
     state.setOcrError(null)
     state.setOcrResults(null, null)
     state.setOcrBusy(true)
     try {
       const region = current.crop.enabled ? current.crop : undefined
       const result = toImageSpace(await runOcr(current.image, region), region)
+      if (!isCurrent()) return
       const assessment = assessOcr(result)
       state.setOcrResults(assessment.trusted, result)
       state.setOcrText(assessment.trusted.text)
       if (assessment.disposition === 'rejected') state.setLiveText(false)
     } catch (err) {
+      if (!isCurrent()) return
       useEditor.getState().setOcrError((err as Error).message || 'The OCR engine did not complete.')
       toast('error', 'Could not read the capture', (err as Error).message)
     } finally {
-      useEditor.getState().setOcrBusy(false)
+      if (useEditor.getState().documentEpoch === epoch) useEditor.getState().setOcrBusy(false)
     }
   }, [])
 
@@ -85,6 +92,8 @@ export default function ContextPanel({
   const structuredActionsAllowed = trust.structuredActionsAllowed
 
   useEffect(() => {
+    setPalette([])
+    setQr(null)
     if (!image) return
     setPalette(extractPalette(image))
     // QR decode is ~30ms at panel scale; run it off the click path anyway.
@@ -121,8 +130,12 @@ export default function ContextPanel({
   }, [entities])
 
   const copy = async (value: string, label = 'Copied') => {
-    await navigator.clipboard.writeText(value)
-    toast('success', label)
+    try {
+      await navigator.clipboard.writeText(value)
+      toast('success', label)
+    } catch (error) {
+      toast('error', 'Could not copy to the clipboard', (error as Error).message)
+    }
   }
 
   /** Drop a blur over every sensitive hit found. */

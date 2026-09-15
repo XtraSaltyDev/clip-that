@@ -12,6 +12,7 @@ export default function ScrollHud(): React.ReactElement {
   useTheme()
   const [frames, setFrames] = useState(0)
   const [busy, setBusy] = useState(false)
+  const [error, setError] = useState<string | null>(null)
   const stopSampler = useRef<() => Promise<void>>(async () => {})
 
   useEffect(() => {
@@ -54,9 +55,11 @@ export default function ScrollHud(): React.ReactElement {
             reject(new Error('live display stream timed out'))
           }, 15000)
         })
-        request.then((lateStream) => {
-          if (expired || disposed) lateStream.getTracks().forEach((track) => track.stop())
-        }).catch(() => {})
+        request
+          .then((lateStream) => {
+            if (expired || disposed) lateStream.getTracks().forEach((track) => track.stop())
+          })
+          .catch(() => {})
         try {
           stream = await Promise.race([request, timeout])
         } finally {
@@ -117,7 +120,9 @@ export default function ScrollHud(): React.ReactElement {
               canvas.width,
               canvas.height
             )
-            const blob = await new Promise<Blob | null>((resolve) => canvas.toBlob(resolve, 'image/png'))
+            const blob = await new Promise<Blob | null>((resolve) =>
+              canvas.toBlob(resolve, 'image/png')
+            )
             if (!blob || disposed) return
             api.capture.submitScrollFrame(new Uint8Array(await blob.arrayBuffer()))
           })().finally(() => {
@@ -145,9 +150,16 @@ export default function ScrollHud(): React.ReactElement {
   }, [])
 
   const done = async () => {
+    if (busy) return
     setBusy(true)
-    await stopSampler.current()
-    await api.capture.finishScrolling()
+    setError(null)
+    try {
+      await stopSampler.current()
+      await api.capture.finishScrolling()
+    } catch (error) {
+      setError((error as Error).message || 'The scrolling capture could not finish.')
+      setBusy(false)
+    }
   }
 
   return (
@@ -157,8 +169,8 @@ export default function ScrollHud(): React.ReactElement {
         <div style={{ fontWeight: 600, fontSize: 12 }}>
           {busy ? 'Stitching…' : 'Scroll the content'}
         </div>
-        <div className="tiny muted">
-          {frames} frame{frames === 1 ? '' : 's'} captured
+        <div className="tiny muted" role={error ? 'alert' : 'status'} title={error ?? undefined}>
+          {error ?? `${frames} frame${frames === 1 ? '' : 's'} captured`}
         </div>
       </div>
       <span className="spacer" />
@@ -168,6 +180,7 @@ export default function ScrollHud(): React.ReactElement {
       <button
         className="hud-btn no-drag"
         title="Cancel"
+        aria-label="Cancel scrolling capture"
         onClick={() => {
           void stopSampler.current()
           api.capture.cancel()

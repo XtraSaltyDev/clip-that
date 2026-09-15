@@ -1,9 +1,10 @@
-import React, { useCallback, useEffect, useRef, useState } from 'react'
+import React, { useCallback, useEffect, useId, useRef, useState } from 'react'
 import type { AppUpdateStatus, Hotkeys, ReleaseNotesStatus, Settings } from '@shared/types'
 import { api } from '../shared/api'
 import { Icon, type IconName } from '../shared/icons'
 import { MOD_KEY } from '../shared/platform'
 import { welcomeCaptureReady } from '@shared/onboarding'
+import { defaultSettings } from '@shared/defaults'
 import {
   ColorPicker,
   Segmented,
@@ -33,6 +34,11 @@ export default function App(): React.ReactElement {
   useTheme()
   const mainRef = useRef<HTMLElement>(null)
   const [settings, setSettings] = useState<Settings | null>(null)
+  const [loadError, setLoadError] = useState<string | null>(null)
+  const [saveState, setSaveState] = useState('')
+  const writes = useRef(Promise.resolve(true))
+  const revision = useRef(0)
+  const completed = useRef(0)
   const [platform, setPlatform] = useState('')
   const [version, setVersion] = useState('')
   const [releaseNotes, setReleaseNotes] = useState<ReleaseNotesStatus | null>(null)
@@ -41,21 +47,33 @@ export default function App(): React.ReactElement {
     (window.location.hash.replace('#', '') as SectionId) || 'general'
   )
 
-  useEffect(() => {
-    void api.settings.get().then((res) => {
+  const load = useCallback(async () => {
+    try {
+      const res = await api.settings.get()
       setSettings(res.settings)
       setPlatform(res.platform)
       setVersion(res.version)
       setFailures(res.hotkeyFailures)
-    })
+      setLoadError(null)
+    } catch (error) {
+      setLoadError((error as Error).message)
+    }
+  }, [])
+
+  useEffect(() => {
+    void load()
     void api.releaseNotes.get().then(setReleaseNotes)
     const offNavigate = api.settings.onNavigate((s) => setSection(s as SectionId))
     const offReleaseNotes = api.releaseNotes.onChanged(setReleaseNotes)
+    const offSettings = api.settings.onChanged((next) => {
+      if (completed.current === revision.current) setSettings(next)
+    })
     return () => {
       offNavigate()
       offReleaseNotes()
+      offSettings()
     }
-  }, [])
+  }, [load])
 
   useEffect(() => {
     if (section !== 'whats-new') return
@@ -72,19 +90,68 @@ export default function App(): React.ReactElement {
     mainRef.current?.scrollTo({ top: 0 })
   }, [section])
 
-  const patch = useCallback(async (p: Partial<Settings>) => {
-    setSettings((s) => (s ? { ...s, ...p } : s))
-    const next = await api.settings.set(p)
-    setSettings(next)
-    const info = await api.settings.get()
-    setFailures(info.hotkeyFailures)
-  }, [])
+  const patch = useCallback(
+    (p: Partial<Settings>) => {
+      const request = ++revision.current
+      setSaveState('Saving…')
+      setSettings((s) =>
+        s
+          ? {
+              ...s,
+              ...p,
+              hotkeys: { ...s.hotkeys, ...p.hotkeys },
+              pipeline: { ...s.pipeline, ...p.pipeline },
+              recording: { ...s.recording, ...p.recording },
+              canvasPreset: { ...s.canvasPreset, ...p.canvasPreset }
+            }
+          : s
+      )
+      const write = writes.current.then(async () => {
+        try {
+          const next = await api.settings.set(p)
+          const info = await api.settings.get()
+          if (request === revision.current) {
+            setSettings(next)
+            setFailures(info.hotkeyFailures)
+            setSaveState('Changes saved')
+          }
+          return true
+        } catch (error) {
+          if (request === revision.current) {
+            setSaveState('Changes could not be saved')
+            await load()
+          }
+          toast('error', 'Could not save this setting', (error as Error).message)
+          return false
+        } finally {
+          completed.current = request
+        }
+      })
+      writes.current = write
+      return write
+    },
+    [load]
+  )
 
-  if (!settings) return <div className="set-shell" />
+  if (!settings)
+    return (
+      <div className="empty" role={loadError ? 'alert' : 'status'}>
+        <Icon name="settings" size={28} />
+        <strong>{loadError ? 'Settings could not be loaded' : 'Loading settings…'}</strong>
+        {loadError && (
+          <>
+            <span>{loadError}</span>
+            <button className="btn" onClick={() => void load()}>
+              Retry
+            </button>
+          </>
+        )}
+      </div>
+    )
 
   return (
     <div className="set-shell">
-      <nav className="set-side drag-region">
+      <nav className="set-side drag-region" aria-label="Settings sections">
         <div className="set-brand no-drag">
           <span className="set-logo">
             <Icon name="region" size={15} />
@@ -107,6 +174,9 @@ export default function App(): React.ReactElement {
               )}
             </button>
           ))}
+        </div>
+        <div className="set-save-state no-drag" role="status">
+          {saveState}
         </div>
       </nav>
 
@@ -156,13 +226,24 @@ function Field(props: {
   hint?: string
   children: React.ReactNode
 }): React.ReactElement {
+  const labelId = useId()
   return (
-    <div className="set-field">
+    <div className="set-field" role="group" aria-labelledby={labelId}>
       <div className="set-field-label">
-        <div>{props.label}</div>
+        <div id={labelId}>{props.label}</div>
         {props.hint && <div className="tiny muted">{props.hint}</div>}
       </div>
-      <div className="set-field-control">{props.children}</div>
+      <div className="set-field-control">
+        {React.Children.map(props.children, (child) =>
+          React.isValidElement(child) &&
+          typeof child.type === 'string' &&
+          ['input', 'select', 'textarea'].includes(child.type)
+            ? React.cloneElement(child as React.ReactElement<{ 'aria-labelledby'?: string }>, {
+                'aria-labelledby': labelId
+              })
+            : child
+        )}
+      </div>
     </div>
   )
 }
@@ -177,7 +258,7 @@ function Welcome({
   onDone
 }: {
   platform: string
-  patch: (p: Partial<Settings>) => Promise<void>
+  patch: (p: Partial<Settings>) => Promise<boolean>
   onDone: () => void
 }): React.ReactElement {
   const [perm, setPerm] = useState<{ screen: string; screenVerified: boolean } | null>(null)
@@ -286,7 +367,9 @@ function Welcome({
         <button
           className="btn primary"
           onClick={() => {
-            void patch({ onboarded: true }).then(onDone)
+            void patch({ onboarded: true }).then((saved) => {
+              if (saved) onDone()
+            })
           }}
         >
           Continue to settings
@@ -383,6 +466,32 @@ function General({
           onChange={(autoOcr) => patch({ autoOcr })}
         />
       </Group>
+      <details className="set-reset">
+        <summary>Reset preferences</summary>
+        <p className="tiny muted">
+          Restore default appearance, capture options, shortcuts and save locations. Captures and
+          guides are kept.
+        </p>
+        <button
+          className="btn danger"
+          onClick={async () => {
+            if (
+              !window.confirm(
+                'Reset all ClipThat preferences? Your captures and guides will be kept.'
+              )
+            )
+              return
+            try {
+              await api.settings.reset()
+              location.reload()
+            } catch (error) {
+              toast('error', 'Could not reset preferences', (error as Error).message)
+            }
+          }}
+        >
+          Reset all settings
+        </button>
+      </details>
     </>
   )
 }
@@ -602,6 +711,7 @@ function HotkeySettings({
         {(Object.keys(HOTKEY_LABELS) as Array<keyof Hotkeys>).map((key) => (
           <Field key={key} label={HOTKEY_LABELS[key]}>
             <HotkeyInput
+              label={HOTKEY_LABELS[key]}
               value={settings.hotkeys[key]}
               invalid={failed.has(key)}
               onChange={(accelerator) =>
@@ -613,9 +723,9 @@ function HotkeySettings({
       </Group>
       <button
         className="btn ghost"
-        onClick={() => void api.settings.reset().then(() => location.reload())}
+        onClick={() => patch({ hotkeys: defaultSettings(settings.saveDirectory).hotkeys })}
       >
-        <Icon name="refresh" size={14} /> Reset all settings
+        <Icon name="refresh" size={14} /> Reset shortcuts
       </button>
     </>
   )
@@ -623,6 +733,7 @@ function HotkeySettings({
 
 /** Records a key combination and formats it as an Electron accelerator. */
 function HotkeyInput(props: {
+  label: string
   value: string
   invalid?: boolean
   onChange: (value: string) => void
@@ -665,6 +776,7 @@ function HotkeyInput(props: {
     <div className="row" style={{ gap: 6 }}>
       <button
         className={`hotkey ${recording ? 'recording' : ''} ${props.invalid ? 'invalid' : ''}`}
+        aria-label={`${props.label}: ${recording ? 'press a shortcut' : prettify(props.value) || 'not set'}`}
         onClick={() => setRecording((r) => !r)}
       >
         {recording ? 'Press keys…' : prettify(props.value) || 'Not set'}
@@ -674,7 +786,7 @@ function HotkeyInput(props: {
           className="btn ghost icon sm"
           onClick={() => props.onChange('')}
           title="Clear"
-          aria-label="Clear shortcut"
+          aria-label={`Clear ${props.label.toLowerCase()} shortcut`}
         >
           <Icon name="close" size={13} />
         </button>

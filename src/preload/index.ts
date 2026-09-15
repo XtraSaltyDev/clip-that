@@ -264,6 +264,8 @@ const api = {
   },
 
   settings: {
+    appearance: (): Promise<Pick<Settings, 'theme' | 'accent'>> =>
+      ipcRenderer.invoke(IPC.settingsAppearance),
     get: (): Promise<{
       settings: Settings
       hotkeyFailures: Array<{ action: string; accelerator: string }>
@@ -333,7 +335,8 @@ const api = {
     action: (
       id: string,
       action: 'copy' | 'save' | 'pin' | 'edit' | 'reveal' | 'pipeline' | 'copyFile'
-    ): Promise<{ ok: boolean; error?: string }> => ipcRenderer.invoke(IPC.quickAction, id, action),
+    ): Promise<{ ok: boolean; error?: string; canceled?: boolean }> =>
+      ipcRenderer.invoke(IPC.quickAction, id, action),
     drag: (id: string): boolean => ipcRenderer.sendSync(IPC.quickDrag, id) as boolean
   },
 

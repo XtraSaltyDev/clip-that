@@ -4,6 +4,7 @@ import type { BoxShape, Settings, Shape } from '@shared/types'
 import { api } from '../shared/api'
 import { toast } from '../shared/ui'
 import { runOcr, toImageSpace } from '../shared/ocr'
+import { sameOcrSource } from './ocr-source'
 import { assessOcr, findSensitive, SENSITIVE_LABELS } from '../shared/extract'
 import { summarizeContextTrust } from '@shared/context-trust'
 import { imageFormatForPath } from '@shared/image-format'
@@ -199,6 +200,10 @@ export function useEditorActions(stageRef: StageRef, settings: Settings | null) 
     const doc = useEditor.getState().doc
     if (!doc) return
     const state = useEditor.getState()
+    if (state.ocrBusy) return
+    const epoch = state.documentEpoch
+    const isCurrent = () =>
+      useEditor.getState().documentEpoch === epoch && sameOcrSource(useEditor.getState().doc, doc)
     state.setOcrError(null)
     state.setOcrResults(null, null)
     state.setLiveText(false)
@@ -206,6 +211,7 @@ export function useEditorActions(stageRef: StageRef, settings: Settings | null) 
     try {
       const region = doc.crop.enabled ? doc.crop : undefined
       const result = toImageSpace(await runOcr(doc.image, region), region)
+      if (!isCurrent()) return
       const assessment = assessOcr(result)
       const text = assessment.trusted.text
       useEditor.getState().setOcrResults(assessment.trusted, result)
@@ -217,10 +223,11 @@ export function useEditorActions(stageRef: StageRef, settings: Settings | null) 
         toast('info', 'No meaningful text detected')
       }
     } catch (err) {
+      if (!isCurrent()) return
       useEditor.getState().setOcrError((err as Error).message || 'The OCR engine did not complete.')
       toast('error', 'Text recognition failed', (err as Error).message)
     } finally {
-      useEditor.getState().setOcrBusy(false)
+      if (useEditor.getState().documentEpoch === epoch) useEditor.getState().setOcrBusy(false)
     }
   }, [])
 
@@ -231,7 +238,10 @@ export function useEditorActions(stageRef: StageRef, settings: Settings | null) 
   const autoRedact = useCallback(async () => {
     const state = useEditor.getState()
     const doc = state.doc
-    if (!doc) return
+    if (!doc || state.ocrBusy) return
+    const epoch = state.documentEpoch
+    const isCurrent = () =>
+      useEditor.getState().documentEpoch === epoch && sameOcrSource(useEditor.getState().doc, doc)
 
     state.setOcrError(null)
     state.setOcrResults(null, null)
@@ -240,6 +250,7 @@ export function useEditorActions(stageRef: StageRef, settings: Settings | null) 
     try {
       const region = doc.crop.enabled ? doc.crop : undefined
       const raw = await runOcr(doc.image, region)
+      if (!isCurrent()) return
       const result = toImageSpace(raw, region)
       const assessment = assessOcr(result)
       state.setOcrText(assessment.trusted.text)
@@ -268,7 +279,7 @@ export function useEditorActions(stageRef: StageRef, settings: Settings | null) 
       }
 
       state.begin()
-      let z = doc.shapes.reduce((m, s) => Math.max(m, s.z), 0)
+      let z = useEditor.getState().doc!.shapes.reduce((m, s) => Math.max(m, s.z), 0)
       const pad = 3
       const shapes: BoxShape[] = matches.map((m) => ({
         id: crypto.randomUUID(),
@@ -306,10 +317,11 @@ export function useEditorActions(stageRef: StageRef, settings: Settings | null) 
         kinds
       )
     } catch (err) {
+      if (!isCurrent()) return
       useEditor.getState().setOcrError((err as Error).message || 'The OCR engine did not complete.')
       toast('error', 'Auto-redact failed', (err as Error).message)
     } finally {
-      useEditor.getState().setOcrBusy(false)
+      if (useEditor.getState().documentEpoch === epoch) useEditor.getState().setOcrBusy(false)
     }
   }, [])
 

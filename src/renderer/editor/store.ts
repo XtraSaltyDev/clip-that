@@ -63,6 +63,8 @@ interface EditorState {
   /** Derived image generation is asynchronous; exports wait for it to settle. */
   cutOutRendering: boolean
   ocrBusy: boolean
+  /** Invalidates asynchronous analysis even when the same capture is reopened. */
+  documentEpoch: number
   /** Last Context/OCR failure, shown alongside the preserved capture. */
   ocrError: string | null
   /** Word boxes from the last OCR pass — powers Live Text and the context panel. */
@@ -125,7 +127,7 @@ interface EditorState {
 
 const MAX_HISTORY = 100
 
-const clone = <T,>(value: T): T => JSON.parse(JSON.stringify(value)) as T
+const clone = <T>(value: T): T => JSON.parse(JSON.stringify(value)) as T
 
 function shapeTopLeft(shape: Shape): { x: number; y: number } {
   if ('points' in shape) {
@@ -156,8 +158,8 @@ function pastedShapes(
       copy.z = maxZ + 1 + index
       delete copy.clipRects
       if ('points' in copy) {
-        copy.points = copy.points.map((value, pointIndex) =>
-          value + (pointIndex % 2 === 0 ? translation.x : translation.y)
+        copy.points = copy.points.map(
+          (value, pointIndex) => value + (pointIndex % 2 === 0 ? translation.x : translation.y)
         )
       } else {
         copy.x += translation.x
@@ -175,8 +177,7 @@ const snapshot = (doc: ClipDocument): Snapshot => ({
   title: doc.title
 })
 
-const sameSnapshot = (a: Snapshot, b: Snapshot): boolean =>
-  JSON.stringify(a) === JSON.stringify(b)
+const sameSnapshot = (a: Snapshot, b: Snapshot): boolean => JSON.stringify(a) === JSON.stringify(b)
 
 export const useEditor = create<EditorState>((set, get) => ({
   doc: null,
@@ -196,6 +197,7 @@ export const useEditor = create<EditorState>((set, get) => ({
   cutOutEdge: 'straight',
   cutOutRendering: false,
   ocrBusy: false,
+  documentEpoch: 0,
   ocrError: null,
   ocr: null,
   rawOcr: null,
@@ -219,7 +221,8 @@ export const useEditor = create<EditorState>((set, get) => ({
   },
 
   setDoc: (doc, libraryId = null, exportPath = null) =>
-    set({
+    set((state) => ({
+      documentEpoch: state.documentEpoch + 1,
       doc: {
         ...doc,
         canvas: {
@@ -249,7 +252,7 @@ export const useEditor = create<EditorState>((set, get) => ({
       zoom: 1,
       autoFit: true,
       dirty: false
-    }),
+    })),
 
   setExportPath: (exportPath) =>
     set((s) =>
@@ -355,7 +358,9 @@ export const useEditor = create<EditorState>((set, get) => ({
     set((s) => {
       if (!s.doc) return s
       const geometryChanged = Object.values(patch).some((value) =>
-        Object.keys(value).some((key) => ['x', 'y', 'width', 'height', 'points', 'rotation', 'tail'].includes(key))
+        Object.keys(value).some((key) =>
+          ['x', 'y', 'width', 'height', 'points', 'rotation', 'tail'].includes(key)
+        )
       )
       return {
         doc: {
@@ -547,9 +552,7 @@ export const useEditor = create<EditorState>((set, get) => ({
 
   setTitle: (title) =>
     set((s) =>
-      s.doc
-        ? { doc: { ...s.doc, title, updatedAt: Date.now() }, future: [], dirty: true }
-        : s
+      s.doc ? { doc: { ...s.doc, title, updatedAt: Date.now() }, future: [], dirty: true } : s
     ),
   setOcrText: (ocrText) => set((s) => (s.doc ? { doc: { ...s.doc, ocrText } } : s)),
 
@@ -561,7 +564,12 @@ export const useEditor = create<EditorState>((set, get) => ({
       return {
         past: s.past.slice(0, -1),
         future: [...s.future, snapshot(s.doc)],
-        doc: { ...s.doc, ...previous, cutOuts: previous.cutOuts ? clone(previous.cutOuts) : undefined, updatedAt: Date.now() },
+        doc: {
+          ...s.doc,
+          ...previous,
+          cutOuts: previous.cutOuts ? clone(previous.cutOuts) : undefined,
+          updatedAt: Date.now()
+        },
         selectedIds: [],
         editingTextId: null,
         dirty: true,
@@ -577,7 +585,12 @@ export const useEditor = create<EditorState>((set, get) => ({
       return {
         future: s.future.slice(0, -1),
         past: [...s.past, snapshot(s.doc)],
-        doc: { ...s.doc, ...next, cutOuts: next.cutOuts ? clone(next.cutOuts) : undefined, updatedAt: Date.now() },
+        doc: {
+          ...s.doc,
+          ...next,
+          cutOuts: next.cutOuts ? clone(next.cutOuts) : undefined,
+          updatedAt: Date.now()
+        },
         selectedIds: [],
         editingTextId: null,
         dirty: true,
@@ -646,7 +659,13 @@ export function createShape(
         curve: style.arrowCurve
       }
     case 'line':
-      return { ...base, ...strokeStyle, ...shadow, type: 'line', points: [start.x, start.y, start.x, start.y] }
+      return {
+        ...base,
+        ...strokeStyle,
+        ...shadow,
+        type: 'line',
+        points: [start.x, start.y, start.x, start.y]
+      }
     case 'measure':
       return {
         ...base,
@@ -757,7 +776,15 @@ export function createShape(
 }
 
 /** Shapes that are defined by dragging a box. */
-export const BOX_TOOLS: ToolId[] = ['rect', 'ellipse', 'blur', 'pixelate', 'redact', 'spotlight', 'magnify']
+export const BOX_TOOLS: ToolId[] = [
+  'rect',
+  'ellipse',
+  'blur',
+  'pixelate',
+  'redact',
+  'spotlight',
+  'magnify'
+]
 export const LINE_TOOLS: ToolId[] = ['arrow', 'line', 'measure']
 export const FREEHAND_TOOLS: ToolId[] = ['pen', 'highlighter']
 export const CLICK_TOOLS: ToolId[] = ['step']

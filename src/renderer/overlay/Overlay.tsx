@@ -50,6 +50,7 @@ export default function Overlay(): React.ReactElement | null {
   const [cursor, setCursor] = useState({ x: -999, y: -999 })
   const [hex, setHex] = useState('#000000')
   const [windows, setWindows] = useState<WindowInfo[] | null>(null)
+  const [windowError, setWindowError] = useState<string | null>(null)
   const [editorVisibility, setEditorVisibility] = useState<CaptureEditorVisibility>(NO_EDITOR)
   const [editorBusy, setEditorBusy] = useState(false)
 
@@ -94,6 +95,7 @@ export default function Overlay(): React.ReactElement | null {
         setBox(null)
         setDragging(false)
         setWindows(null)
+        setWindowError(null)
         previewKnownRef.current.clear()
         previewInFlightRef.current.clear()
         previewOrderRef.current = []
@@ -156,11 +158,12 @@ export default function Overlay(): React.ReactElement | null {
   )
 
   const loadWindowPreview = useCallback(async (id: string) => {
+    const request = windowsRequestRef.current
     if (previewKnownRef.current.has(id) || previewInFlightRef.current.has(id)) return
     previewInFlightRef.current.add(id)
     try {
       const thumbnail = await api.capture.windowPreview(id)
-      if (!thumbnail) return
+      if (!thumbnail || request !== windowsRequestRef.current) return
       previewKnownRef.current.add(id)
       previewOrderRef.current = previewOrderRef.current.filter((item) => item !== id)
       previewOrderRef.current.push(id)
@@ -177,6 +180,8 @@ export default function Overlay(): React.ReactElement | null {
                 : win
           ) ?? null
       )
+    } catch (error) {
+      console.warn('[capture] window preview unavailable', (error as Error).message)
     } finally {
       previewInFlightRef.current.delete(id)
     }
@@ -208,22 +213,31 @@ export default function Overlay(): React.ReactElement | null {
   const refreshWindows = useCallback(async () => {
     const request = ++windowsRequestRef.current
     setWindows(null)
+    setWindowError(null)
     previewKnownRef.current.clear()
     previewInFlightRef.current.clear()
     previewOrderRef.current = []
     previewQueueRef.current = []
-    const items = await api.capture.windows()
-    if (request !== windowsRequestRef.current) return
-    setWindows(items)
-    previewKnownRef.current = new Set(items.filter((item) => item.thumbnail).map((item) => item.id))
-    // ScreenCaptureKit is stable when `screencapture -l` requests are serial. Fill
-    // the first visible row automatically so the picker is useful immediately, then
-    // retain hover/focus loading for the rest without creating a preview storm.
-    for (const item of items
-      .filter((item) => !item.thumbnail)
-      .slice(0, 4)
-      .reverse()) {
-      queueWindowPreview(item.id)
+    try {
+      const items = await api.capture.windows()
+      if (request !== windowsRequestRef.current) return
+      setWindows(items)
+      previewKnownRef.current = new Set(
+        items.filter((item) => item.thumbnail).map((item) => item.id)
+      )
+      // ScreenCaptureKit is stable when `screencapture -l` requests are serial. Fill
+      // the first visible row automatically so the picker is useful immediately, then
+      // retain hover/focus loading for the rest without creating a preview storm.
+      for (const item of items
+        .filter((item) => !item.thumbnail)
+        .slice(0, 4)
+        .reverse()) {
+        queueWindowPreview(item.id)
+      }
+    } catch (error) {
+      if (request !== windowsRequestRef.current) return
+      setWindows([])
+      setWindowError((error as Error).message || 'The window list could not be loaded.')
     }
   }, [queueWindowPreview])
 
@@ -436,6 +450,7 @@ export default function Overlay(): React.ReactElement | null {
         return
       }
       if (e.key === 'Enter') {
+        if ((e.target as HTMLElement | null)?.closest('button')) return
         e.preventDefault()
         if (box) commit()
         return
@@ -525,9 +540,20 @@ export default function Overlay(): React.ReactElement | null {
               <Icon name="close" />
             </button>
           </header>
-          {!windows && <div className="ov-loading">Looking for windows…</div>}
+          {!windows && (
+            <div className="ov-loading" role="status">
+              Looking for windows…
+            </div>
+          )}
           {windows && windows.length === 0 && (
-            <div className="ov-loading">No capturable windows were found.</div>
+            <div className="ov-loading" role={windowError ? 'alert' : 'status'}>
+              <span>
+                {windowError ?? 'No capturable windows were found. Open a window and try again.'}
+              </span>
+              <button className="btn" onClick={() => void refreshWindows()}>
+                Refresh windows
+              </button>
+            </div>
           )}
           <div className="ov-grid">
             {windows?.map((w) => (

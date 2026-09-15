@@ -10,6 +10,8 @@
     "sourceMap": false
   },
   "include": [
+    "src/renderer/shared/save-queue.ts",
+    "src/renderer/editor/ocr-source.ts",
     "src/main/ipc/validation.ts",
     "src/main/capture/failures.ts",
     "src/main/capture/geometry.ts",

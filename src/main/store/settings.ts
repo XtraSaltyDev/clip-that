@@ -40,14 +40,27 @@ class SettingsStore extends EventEmitter {
     // Canvas presets are the exception: sliders can emit many updates per second, so retain
     // the debounce for that nested object.
     if (Object.keys(patch).every((key) => key === 'canvasPreset')) this.scheduleWrite()
-    else this.flush()
+    else {
+      try {
+        this.flush(true)
+      } catch (error) {
+        this.data = current
+        throw error
+      }
+    }
     this.emit('changed', this.data)
     return this.data
   }
 
   reset(): Settings {
+    const previous = this.get()
     this.data = defaultSettings(defaultSaveDirectory())
-    this.flush()
+    try {
+      this.flush(true)
+    } catch (error) {
+      this.data = previous
+      throw error
+    }
     this.emit('changed', this.data)
     return this.data
   }
@@ -76,7 +89,7 @@ class SettingsStore extends EventEmitter {
     this.writeTimer = setTimeout(() => this.flush(), 250)
   }
 
-  flush(): void {
+  flush(throwOnError = false): void {
     if (this.writeTimer) {
       clearTimeout(this.writeTimer)
       this.writeTimer = null
@@ -89,6 +102,7 @@ class SettingsStore extends EventEmitter {
       renameSync(tmp, target)
     } catch (err) {
       console.error('[settings] write failed', err)
+      if (throwOnError) throw err
     }
   }
 }

@@ -3,7 +3,8 @@ import type { CaptureMode, GuideDocument, GuideStep } from '@shared/types'
 import { moveGuideStep, renumberGuideSteps } from '@shared/guides'
 import { api } from '../shared/api'
 import { Icon } from '../shared/icons'
-import { toast } from '../shared/ui'
+import { toast, useEvent } from '../shared/ui'
+import { SaveQueue } from '../shared/save-queue'
 
 type SaveState = 'Saved' | 'Saving' | 'Error'
 type GuideCaptureMode = Exclude<CaptureMode, 'scrolling'>
@@ -22,22 +23,68 @@ export default function GuideWorkspace(props: {
   const [undoStep, setUndoStep] = useState<{ step: GuideStep; index: number } | null>(null)
   const [draggedId, setDraggedId] = useState<string | null>(null)
   const saveTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
-  const revision = useRef(0)
+  const saving = useRef(
+    new SaveQueue<GuideDocument>(
+      (next) => api.guides.save(next),
+      (saved) => {
+        setGuide(saved)
+        setSaveState('Saved')
+      }
+    )
+  )
+  const onBack = useEvent(props.onBack)
+  const [working, setWorking] = useState(false)
+  const workingRef = useRef(false)
+
+  const flush = useCallback(async () => {
+    if (saveTimer.current) clearTimeout(saveTimer.current)
+    saveTimer.current = null
+    try {
+      await saving.current.flush()
+      return true
+    } catch (error) {
+      setSaveState('Error')
+      toast('error', 'Guide could not be saved', (error as Error).message)
+      return false
+    }
+  }, [])
+
+  const runAction = async (action: () => Promise<void>) => {
+    if (workingRef.current) return
+    workingRef.current = true
+    setWorking(true)
+    try {
+      if (await flush()) await action()
+    } catch (error) {
+      toast('error', 'Guide action could not finish', (error as Error).message)
+    } finally {
+      workingRef.current = false
+      setWorking(false)
+    }
+  }
 
   const load = useCallback(async () => {
-    const next = await api.guides.get(props.guideId)
-    if (!next) {
-      toast('error', 'Guide could not be opened')
-      props.onBack()
-      return
+    if (saving.current.dirty) return
+    const version = saving.current.version
+    try {
+      const next = await api.guides.get(props.guideId)
+      if (saving.current.dirty || saving.current.version !== version) return
+      if (!next) {
+        toast('error', 'Guide could not be opened')
+        onBack()
+        return
+      }
+      setGuide(next)
+      setSelectedId((current) =>
+        current && next.steps.some((step) => step.id === current)
+          ? current
+          : (next.steps[0]?.id ?? null)
+      )
+    } catch (error) {
+      toast('error', 'Guide could not be opened', (error as Error).message)
+      onBack()
     }
-    setGuide(next)
-    setSelectedId((current) =>
-      current && next.steps.some((step) => step.id === current)
-        ? current
-        : (next.steps[0]?.id ?? null)
-    )
-  }, [props.guideId, props.onBack])
+  }, [props.guideId, onBack])
 
   useEffect(() => {
     void load()
@@ -52,31 +99,40 @@ export default function GuideWorkspace(props: {
     return () => {
       off()
       offHotkey()
-      if (saveTimer.current) clearTimeout(saveTimer.current)
+      // Also flush on an unexpected unmount instead of discarding the last keystrokes.
+      void flush()
       void api.guides.setActive(null)
     }
-  }, [load, props.guideId])
+  }, [flush, load, props.guideId])
 
-  const queueSave = useCallback((next: GuideDocument) => {
-    const currentRevision = ++revision.current
-    setGuide(next)
-    setSaveState('Saving')
-    if (saveTimer.current) clearTimeout(saveTimer.current)
-    saveTimer.current = setTimeout(() => {
-      void api.guides
-        .save(next)
-        .then((saved) => {
-          if (revision.current !== currentRevision) return
-          setGuide(saved)
-          setSaveState('Saved')
-        })
-        .catch((error) => {
-          if (revision.current !== currentRevision) return
-          setSaveState('Error')
-          toast('error', 'Guide could not be saved', (error as Error).message)
-        })
-    }, 450)
-  }, [])
+  useEffect(() => {
+    let closing = false
+    const beforeUnload = (event: BeforeUnloadEvent) => {
+      if (closing || !saving.current.dirty) return
+      event.preventDefault()
+      event.returnValue = ''
+      void flush().then((ok) => {
+        if (!ok) return
+        closing = true
+        api.system.window('close')
+      })
+    }
+    window.addEventListener('beforeunload', beforeUnload)
+    return () => window.removeEventListener('beforeunload', beforeUnload)
+  }, [flush])
+
+  const queueSave = useCallback(
+    (next: GuideDocument) => {
+      saving.current.enqueue(next)
+      setGuide(next)
+      setSaveState('Saving')
+      if (saveTimer.current) clearTimeout(saveTimer.current)
+      saveTimer.current = setTimeout(() => {
+        void flush()
+      }, 450)
+    },
+    [flush]
+  )
 
   const selected = useMemo(
     () => guide?.steps.find((step) => step.id === selectedId) ?? null,
@@ -214,19 +270,30 @@ export default function GuideWorkspace(props: {
   return (
     <section className="guide-workspace" aria-label="Guide Builder">
       <header className="guide-top">
-        <button className="btn ghost icon" aria-label="Back to Guides" onClick={props.onBack}>
+        <button
+          className="btn ghost icon"
+          aria-label="Back to Guides"
+          disabled={working}
+          onClick={() => void runAction(async () => onBack())}
+        >
           <Icon name="chevronLeft" />
         </button>
         <input
           className="guide-title"
           value={guide.title}
           aria-label="Guide title"
+          disabled={working}
           onChange={(event) => updateGuide({ title: event.target.value })}
         />
         <span className={`guide-save-state ${saveState.toLowerCase()}`} role="status">
           {saveState === 'Saved' && <Icon name="check" size={13} />}
           {saveState}
         </span>
+        {saveState === 'Error' && (
+          <button className="btn sm" onClick={() => void flush()}>
+            Retry save
+          </button>
+        )}
         <div className="spacer" />
         <select
           className="field guide-capture-mode"
@@ -240,28 +307,49 @@ export default function GuideWorkspace(props: {
           <option value="fullscreen">All displays</option>
           <option value="lastRegion">Last region</option>
         </select>
-        <button className="btn primary" disabled={capturing} onClick={() => void capture()}>
+        <button
+          className="btn primary"
+          disabled={working || capturing || guide.steps.length >= 100}
+          onClick={() => void runAction(capture)}
+        >
           <Icon name="camera" size={14} /> {capturing ? 'Capturing…' : 'Capture next'}
         </button>
-        <button className="btn" onClick={() => void importStep()}>
+        <button
+          className="btn"
+          disabled={working || guide.steps.length >= 100}
+          onClick={() => void runAction(importStep)}
+        >
           <Icon name="plus" size={14} /> Add existing
         </button>
         <button
           className={`btn ${sessionActive ? 'danger' : ''}`}
           aria-pressed={sessionActive}
-          onClick={() => void toggleSession()}
+          disabled={working}
+          onClick={() => void runAction(toggleSession)}
         >
           <Icon name={sessionActive ? 'stop' : 'play'} size={13} />{' '}
           {sessionActive ? 'Stop session' : 'Start session'}
         </button>
         <div className="guide-export" aria-label="Export guide">
-          <button className="btn" onClick={() => void exportAs('markdown')}>
+          <button
+            className="btn"
+            disabled={working || !guide.steps.length}
+            onClick={() => void runAction(() => exportAs('markdown'))}
+          >
             Markdown
           </button>
-          <button className="btn" onClick={() => void exportAs('html')}>
+          <button
+            className="btn"
+            disabled={working || !guide.steps.length}
+            onClick={() => void runAction(() => exportAs('html'))}
+          >
             HTML
           </button>
-          <button className="btn" onClick={() => void exportAs('pdf')}>
+          <button
+            className="btn"
+            disabled={working || !guide.steps.length}
+            onClick={() => void runAction(() => exportAs('pdf'))}
+          >
             PDF
           </button>
         </div>
@@ -287,6 +375,7 @@ export default function GuideWorkspace(props: {
                     className={`guide-step ${selectedId === step.id ? 'selected' : ''}`}
                     aria-current={selectedId === step.id ? 'step' : undefined}
                     draggable
+                    disabled={working}
                     onDragStart={() => setDraggedId(step.id)}
                     onDragOver={(event) => event.preventDefault()}
                     onDrop={() => {
@@ -297,10 +386,12 @@ export default function GuideWorkspace(props: {
                     onKeyDown={(event) => {
                       if (event.key === 'ArrowUp' && index > 0) {
                         event.preventDefault()
+                        event.stopPropagation()
                         move(step.id, index - 1)
                       }
                       if (event.key === 'ArrowDown' && index < guide.steps.length - 1) {
                         event.preventDefault()
+                        event.stopPropagation()
                         move(step.id, index + 1)
                       }
                     }}
@@ -326,7 +417,7 @@ export default function GuideWorkspace(props: {
           )}
         </main>
 
-        <aside className="guide-inspector" aria-label="Step details">
+        <fieldset className="guide-inspector" aria-label="Step details" disabled={working}>
           {selected ? (
             <>
               <label>
@@ -349,14 +440,18 @@ export default function GuideWorkspace(props: {
               <div className="guide-step-actions">
                 <button
                   className="btn primary"
-                  onClick={() => void api.guides.editStep(guide.id, selected.id)}
+                  onClick={() =>
+                    void runAction(async () => {
+                      await api.guides.editStep(guide.id, selected.id)
+                    })
+                  }
                 >
                   <Icon name="edit" size={14} /> Annotate
                 </button>
-                <button className="btn" onClick={() => void recapture()}>
+                <button className="btn" onClick={() => void runAction(recapture)}>
                   <Icon name="refresh" size={14} /> Recapture
                 </button>
-                <button className="btn" onClick={duplicate}>
+                <button className="btn" disabled={guide.steps.length >= 100} onClick={duplicate}>
                   <Icon name="copy" size={14} /> Duplicate
                 </button>
                 <button
@@ -389,14 +484,14 @@ export default function GuideWorkspace(props: {
           <div className="guide-session-note">
             <Icon name="info" size={14} />
             <div>
-              <strong>Automatic click capture unavailable</strong>
+              <strong>Capture steps at your pace</strong>
               <span>
-                Manual capture and the configurable global shortcut work without monitoring clicks
-                or keys.
+                Use Capture next for each step, or start a session to capture with your configured
+                guide shortcut from another app.
               </span>
             </div>
           </div>
-        </aside>
+        </fieldset>
       </div>
 
       <footer className="guide-footer">
@@ -405,6 +500,7 @@ export default function GuideWorkspace(props: {
           <input
             className="field"
             value={guide.description}
+            disabled={working}
             onChange={(event) => updateGuide({ description: event.target.value })}
             placeholder="What will this guide help someone do?"
           />
@@ -412,17 +508,24 @@ export default function GuideWorkspace(props: {
         {undoStep && (
           <div className="guide-undo" role="status">
             Step deleted{' '}
-            <button className="btn sm" onClick={undoDelete}>
+            <button
+              className="btn sm"
+              disabled={working || guide.steps.length >= 100}
+              onClick={undoDelete}
+            >
               Undo
             </button>
           </div>
         )}
         <button
           className="btn ghost danger"
-          onClick={async () => {
-            if (!window.confirm(`Delete “${guide.title}”? This cannot be undone.`)) return
-            if (await api.guides.remove(guide.id)) props.onDeleted()
-          }}
+          disabled={working}
+          onClick={() =>
+            void runAction(async () => {
+              if (!window.confirm(`Delete “${guide.title}”? This cannot be undone.`)) return
+              if (await api.guides.remove(guide.id)) props.onDeleted()
+            })
+          }
         >
           Delete guide
         </button>

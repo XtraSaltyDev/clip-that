@@ -15,8 +15,8 @@
 
   --ink-0: #eef2f8;
   --ink-1: #aab4c4;
-  --ink-2: #7b8598;
-  --ink-3: #59616f;
+  --ink-2: #919db0;
+  --ink-3: #818da0;
 
   --danger: #ff5f56;
   --warn: #ffbd2e;
@@ -55,7 +55,7 @@
   --ink-0: #0f172a;
   --ink-1: #475569;
   --ink-2: #64748b;
-  --ink-3: #94a3b8;
+  --ink-3: #64748b;
 
   --shadow-1: 0 1px 2px #0f172a12, 0 4px 12px #0f172a0f;
   --shadow-2: 0 8px 32px #0f172a1f, 0 2px 8px #0f172a14;
@@ -122,6 +122,13 @@ button {
 button:focus-visible,
 [role='button']:focus-visible,
 summary:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+a:focus-visible,
+input:focus-visible,
+select:focus-visible,
+textarea:focus-visible {
   outline: 2px solid var(--accent);
   outline-offset: 2px;
 }
@@ -472,12 +479,15 @@ input[type='color']::-webkit-color-swatch {
   gap: 8px;
   z-index: 999;
   pointer-events: none;
+  width: min(480px, calc(100vw - 32px));
+  max-height: calc(100vh - 36px);
+  overflow-y: auto;
 }
 .toast {
   display: flex;
-  align-items: center;
+  align-items: flex-start;
   gap: 10px;
-  max-width: 460px;
+  width: 100%;
   padding: 10px 14px;
   border-radius: var(--radius);
   background: var(--bg-elevated);
@@ -486,11 +496,39 @@ input[type='color']::-webkit-color-swatch {
   animation: toast-in 200ms cubic-bezier(0.16, 1, 0.3, 1);
   pointer-events: auto;
 }
+.toast-copy {
+  flex: 1;
+  min-width: 0;
+  overflow-wrap: anywhere;
+  user-select: text;
+}
+.toast-detail {
+  margin-top: 4px;
+  max-height: 160px;
+  overflow-y: auto;
+  white-space: pre-wrap;
+}
+.toast > .btn {
+  flex: none;
+  margin: -4px -6px -4px 0;
+}
 .toast .dot {
+  margin-top: 6px;
   width: 7px;
   height: 7px;
   border-radius: 50%;
   flex: none;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
 }
 .toast.success .dot {
   background: var(--ok);
