@@ -5,6 +5,7 @@ import { Icon, type IconName } from '../shared/icons'
 import { MOD_KEY } from '../shared/platform'
 import { welcomeCaptureReady } from '@shared/onboarding'
 import { defaultSettings } from '@shared/defaults'
+import { normalizeHotkeyKey } from '@shared/hotkey-plan'
 import {
   ColorPicker,
   Segmented,
@@ -757,7 +758,7 @@ function HotkeyInput(props: {
       if (e.altKey) parts.push('Alt')
       if (e.shiftKey) parts.push('Shift')
 
-      const key = normalizeKey(e)
+      const key = normalizeHotkeyKey(e)
       // A bare modifier isn't a shortcut yet — wait for a real key.
       if (!key) return
       parts.push(key)
@@ -793,25 +794,6 @@ function HotkeyInput(props: {
       )}
     </div>
   )
-}
-
-function normalizeKey(e: KeyboardEvent): string | null {
-  const k = e.key
-  if (['Meta', 'Control', 'Alt', 'Shift'].includes(k)) return null
-  if (k === ' ') return 'Space'
-  if (k.length === 1) return k.toUpperCase()
-  const map: Record<string, string> = {
-    ArrowUp: 'Up',
-    ArrowDown: 'Down',
-    ArrowLeft: 'Left',
-    ArrowRight: 'Right',
-    Escape: 'Escape',
-    Enter: 'Return',
-    Backspace: 'Backspace',
-    Delete: 'Delete',
-    Tab: 'Tab'
-  }
-  return map[k] ?? (/^F\d{1,2}$/.test(k) ? k : k)
 }
 
 function prettify(accelerator: string): string {

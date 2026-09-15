@@ -392,6 +392,10 @@ export const RELEASE_NOTES = [
         body: 'Errors remain readable until dismissed, command search keeps focus inside the palette, and text-field shortcuts, layer controls, colour selections, and window selection behave more consistently.'
       },
       {
+        title: 'Native acceptance fixes',
+        body: 'Option-modified shortcuts retain their keyboard key names, windows with titles beginning with ClipThat remain capturable, and PDF exports fit the complete image onto one page without a trailing overflow page.'
+      },
+      {
         title: 'A steadier Library and Settings',
         body: 'Library searches ignore outdated responses, previews show the complete image, and the editor loads a bounded recent-capture strip. Settings serialize changes and report save failures.'
       },

@@ -20,8 +20,8 @@ export function imagePdfPageSize(width: number, height: number): { width: number
 export function imagePdfHtml(dataUrl: string, title: string): string {
   return `<!doctype html><meta charset="utf-8"><title>${escapeHtml(title)}</title><style>
     @page { margin: 0; }
-    html,body { margin:0; padding:0; background:#fff; }
-    img { display:block; width:100%; }
+    html,body { margin:0; padding:0; width:100%; height:100%; overflow:hidden; background:#fff; }
+    img { position:fixed; inset:0; display:block; width:100%; height:100%; object-fit:contain; }
   </style><img src="${dataUrl}" alt="">`
 }
 
