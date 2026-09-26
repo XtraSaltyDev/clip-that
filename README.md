@@ -73,7 +73,7 @@ link, and upload wherever you like, without ClipThat needing a cloud of its own.
 
 ### Capture
 
-- **Region** — frozen-frame selection with a pixel loupe, live dimensions in native pixels, and a hex eyedropper (`C` copies the colour under the cursor).
+- **Region** — frozen-frame selection with a pixel loupe, live dimensions in native pixels, and a hex eyedropper (`C` copies the colour under the cursor). The overlay follows macOS app/Space switches and re-freezes the new scene; `R` refreshes it explicitly.
 - **Window** — a visual picker with live thumbnails and app icons. On macOS the grab goes through `screencapture -l` for true native-resolution pixels.
 - **Screen / all screens** — multi-monitor captures composited in virtual-desktop space at the highest DPI present, so a Retina panel next to a 1080p one isn't downsampled.
 - **Repeat last region**, **delayed capture**, **paste from clipboard**, **scrolling capture**.
@@ -102,6 +102,8 @@ Screen, window, or selected region, 15–60 fps, microphone, a circular
 follows your cursor with a dead-zone, so recordings read like produced video instead of a
 raw screen dump. Floating controller with pause/resume, then a
 review step with trimming and export to **MP4 (H.264)**, **GIF** (two-pass palette), or **WebM**.
+The window source list refreshes when Window mode is selected or the recorder regains focus,
+and also exposes a manual refresh after apps or Spaces change.
 Library recordings open in ClipThat's video editor, where trim drafts persist, a selection can
 be played or looped, timecodes can be entered precisely, and exports remain non-destructive.
 On macOS 13 and later, recording can include native system audio without a virtual audio
@@ -142,7 +144,8 @@ The tables use macOS glyphs. The Windows preview shows and registers `Ctrl`, `Sh
 (`⇧` = 10px).
 
 **Capture overlay** — drag to select · `⌘A` whole screen · `C` copy colour under the cursor ·
-arrows nudge, `⌥`+arrows resize · `Enter` confirm · `Esc` cancel.
+`R` refresh the current app/Space · arrows nudge, `⌥`+arrows resize · `Enter` confirm · `Esc`
+cancel.
 
 **Library** — `⌘K` palette · `⌘F` search · arrows navigate · `Enter` open · `⌫` delete.
 
@@ -203,6 +206,8 @@ outside the library directory.
 
 ```bash
 npm run dev            # run the app
+# Run beside an installed ClipThat without sharing its Library, settings or lock:
+CLIPTHAT_DEV_USER_DATA=/tmp/clipthat-dev npm run dev
 npm run build          # lint + format check + typecheck + bundle
 npm run build:ffmpeg:mac # pinned LGPL-compatible Apple-silicon media tools
 npm run build:ffmpeg:win # pinned LGPL-compatible Windows x64 media tools (MSYS2 MINGW64)

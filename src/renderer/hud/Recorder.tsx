@@ -59,6 +59,7 @@ export default function Recorder(): React.ReactElement {
   } | null>(null)
   const [preflight, setPreflight] = useState<RecordingPreflight | null>(null)
   const [preflightBusy, setPreflightBusy] = useState(true)
+  const [sourcesBusy, setSourcesBusy] = useState(false)
   const [microphoneLevel, setMicrophoneLevel] = useState(0)
   const [microphoneMonitorError, setMicrophoneMonitorError] = useState<string | null>(null)
   const [devices, setDevices] = useState<{
@@ -90,6 +91,7 @@ export default function Recorder(): React.ReactElement {
   const pausedAt = useRef(0)
   const videoRef = useRef<HTMLVideoElement>(null)
   const countdownRun = useRef(0)
+  const sourcesRun = useRef(0)
 
   /* ---------- window sizing follows the phase ---------- */
 
@@ -102,16 +104,28 @@ export default function Recorder(): React.ReactElement {
   /* ---------- data ---------- */
 
   useEffect(() => {
-    void Promise.all([api.recording.sources(), api.settings.get()]).then(([sourceList, result]) => {
-      setSources(sourceList)
-      setOptions((current) =>
-        reconcileRecordingSources(
-          { ...current, ...result.settings.recording },
-          sourceList.displays,
-          sourceList.windows
+    let active = true
+    const run = ++sourcesRun.current
+    setSourcesBusy(true)
+    void Promise.all([api.recording.sources(), api.settings.get()])
+      .then(([sourceList, result]) => {
+        if (!active || run !== sourcesRun.current) return
+        setSources(sourceList)
+        setOptions((current) =>
+          reconcileRecordingSources(
+            { ...current, ...result.settings.recording },
+            sourceList.displays,
+            sourceList.windows
+          )
         )
-      )
-    })
+      })
+      .catch((err) => {
+        if (active && run === sourcesRun.current)
+          setError((err as Error).message || 'Recording sources could not be loaded')
+      })
+      .finally(() => {
+        if (active && run === sourcesRun.current) setSourcesBusy(false)
+      })
     void listDevices().then((next) => {
       setDevices(next)
       setOptions((current) => ({
@@ -124,7 +138,35 @@ export default function Recorder(): React.ReactElement {
       setRecoveries(items)
       if (items.length > 0) setPhase('recovery')
     })
+    return () => {
+      active = false
+    }
   }, [])
+
+  const refreshSources = useCallback(async () => {
+    const run = ++sourcesRun.current
+    setSourcesBusy(true)
+    try {
+      const sourceList = await api.recording.sources()
+      if (run !== sourcesRun.current) return
+      setSources(sourceList)
+      setOptions((current) =>
+        reconcileRecordingSources(current, sourceList.displays, sourceList.windows)
+      )
+    } catch (err) {
+      if (run === sourcesRun.current)
+        setError((err as Error).message || 'Recording sources could not be refreshed')
+    } finally {
+      if (run === sourcesRun.current) setSourcesBusy(false)
+    }
+  }, [])
+
+  useEffect(() => {
+    if (phase !== 'setup' || options.target !== 'window') return
+    const refreshOnFocus = () => void refreshSources()
+    window.addEventListener('focus', refreshOnFocus)
+    return () => window.removeEventListener('focus', refreshOnFocus)
+  }, [options.target, phase, refreshSources])
 
   useEffect(() => api.recording.onProgress(({ percent }) => setProgress(percent)), [])
 
@@ -724,7 +766,10 @@ export default function Recorder(): React.ReactElement {
               { value: 'window', label: 'Window' },
               { value: 'region', label: 'Region' }
             ]}
-            onChange={(target) => set({ target })}
+            onChange={(target) => {
+              set({ target })
+              if (target === 'window') void refreshSources()
+            }}
           />
         </div>
 
@@ -748,9 +793,22 @@ export default function Recorder(): React.ReactElement {
 
         {options.target === 'window' && (
           <div className="hud-field">
-            <span className="label">Window</span>
+            <div className="hud-field-heading">
+              <span className="label">Window</span>
+              <button
+                className="btn sm ghost icon"
+                type="button"
+                disabled={sourcesBusy}
+                aria-label="Refresh available windows"
+                title="Refresh available windows"
+                onClick={() => void refreshSources()}
+              >
+                <Icon name="refresh" size={13} className={sourcesBusy ? 'spin' : undefined} />
+              </button>
+            </div>
             <select
               className="field"
+              disabled={sourcesBusy && !sources}
               value={options.windowId ?? ''}
               onChange={(e) => set({ windowId: e.target.value })}
             >
@@ -761,6 +819,11 @@ export default function Recorder(): React.ReactElement {
                 </option>
               ))}
             </select>
+            <span className="tiny muted">
+              {sourcesBusy
+                ? 'Refreshing windows…'
+                : `${sources?.windows.length ?? 0} available — refresh after changing apps or Spaces`}
+            </span>
           </div>
         )}
 

@@ -1,3 +1,7 @@
+import { sameWindowSource } from '../../shared/window-source'
+
+export { nativeWindowSourceId, sameWindowSource } from '../../shared/window-source'
+
 /** Identify our windows by native ID; other apps can legitimately use the same title. */
 export function shouldIncludeWindowSource(
   sourceName: string,
@@ -6,12 +10,6 @@ export function shouldIncludeWindowSource(
   visibleEditorSourceIds: readonly string[]
 ): boolean {
   if (!sourceName.trim()) return false
-  const nativeId = /^window:(\d+):/.exec(sourceId)?.[1]
-  const matches = (candidate: string) => {
-    return (
-      candidate === sourceId ||
-      (nativeId !== undefined && /^window:(\d+):/.exec(candidate)?.[1] === nativeId)
-    )
-  }
+  const matches = (candidate: string) => sameWindowSource(candidate, sourceId)
   return !appSourceIds.some(matches) || visibleEditorSourceIds.some(matches)
 }

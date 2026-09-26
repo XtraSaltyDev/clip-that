@@ -8,7 +8,7 @@ import type { DisplaySnapshot, Rect, WindowInfo } from '@shared/types'
 import { editorWindows } from '../windows/manager'
 import { displayPixelSize, findDisplay, listDisplays } from './displays'
 import { displayForRect, validRect } from './geometry'
-import { shouldIncludeWindowSource } from './window-sources'
+import { nativeWindowSourceId, sameWindowSource, shouldIncludeWindowSource } from './window-sources'
 
 const IS_MAC = process.platform === 'darwin'
 const IS_WINDOWS = process.platform === 'win32'
@@ -51,6 +51,28 @@ interface WindowsWindowMeta {
   height: number
   title?: string
   appName?: string
+}
+
+interface MacWindowMeta {
+  id: number
+  x: number
+  y: number
+  width: number
+  height: number
+  owner?: string
+  title?: string
+  onScreen?: boolean
+}
+
+async function macWindowMetadata(): Promise<Map<string, MacWindowMeta>> {
+  try {
+    const raw = await run(windowInfoHelper(), ['--list'])
+    const parsed = JSON.parse(raw) as MacWindowMeta[]
+    return new Map(parsed.map((item) => [String(item.id), item]))
+  } catch (error) {
+    console.warn('[clipthat] macOS window metadata unavailable', (error as Error).message)
+    return new Map()
+  }
 }
 
 async function windowsWindowMetadata(
@@ -486,20 +508,46 @@ export async function listWindows(withPreview = true): Promise<WindowInfo[]> {
     // adds work to an already fragile ScreenCaptureKit enumeration and yields no icon.
     fetchWindowIcons: batchPreviews
   })
+  const macMetadata = IS_MAC ? await macWindowMetadata() : new Map<string, MacWindowMeta>()
   const windows: WindowInfo[] = sources
-    .filter((s) => shouldIncludeWindowSource(s.name, s.id, appSourceIds, visibleEditorSourceIds))
-    .map((s) => {
+    .map((s): WindowInfo | null => {
+      const nativeId = nativeWindowSourceId(s.id)
+      const meta = nativeId ? macMetadata.get(nativeId) : undefined
+      // Hidden and off-Space windows often have no usable compositor preview. Keep the
+      // picker limited to windows that can be captured from the current desktop.
+      if (IS_MAC && meta?.onScreen === false) return null
+      const sourceName = s.name.trim() || meta?.title?.trim() || meta?.owner?.trim() || ''
+      if (!shouldIncludeWindowSource(sourceName, s.id, appSourceIds, visibleEditorSourceIds)) {
+        return null
+      }
       // Electron reports "AppName — Document" on macOS and just the title elsewhere.
-      const [head, ...rest] = s.name.split(' — ')
+      const [head, ...rest] = sourceName.split(' — ')
       const icon = s.appIcon && !s.appIcon.isEmpty() ? s.appIcon.toDataURL() : undefined
-      return {
+      const result: WindowInfo = {
         id: s.id,
-        title: rest.length ? rest.join(' — ') : s.name,
-        appName: rest.length ? head : s.name,
+        title: meta?.title?.trim() || (rest.length ? rest.join(' — ') : sourceName),
+        appName: meta?.owner?.trim() || (rest.length ? head : sourceName),
         thumbnail: batchPreviews && !s.thumbnail.isEmpty() ? s.thumbnail.toDataURL() : undefined,
         icon
       }
+      if (meta) {
+        const bounds = { x: meta.x, y: meta.y, width: meta.width, height: meta.height }
+        if (validRect(bounds)) {
+          result.bounds = bounds
+          result.displayId = screen
+            .getAllDisplays()
+            .reduce<Electron.Display | undefined>((best, display) => {
+              if (!best || overlapArea(display.bounds, bounds) > overlapArea(best.bounds, bounds)) {
+                return display
+              }
+              return best
+            }, undefined)
+            ?.id.toString()
+        }
+      }
+      return result
     })
+    .filter((item): item is WindowInfo => item !== null)
   if (IS_WINDOWS) {
     const metadata = await windowsWindowMetadata(windows.map((item) => item.id))
     for (const item of windows) {
@@ -552,7 +600,7 @@ export async function windowPreview(windowId: string): Promise<string | undefine
     thumbnailSize: { width: 440, height: 248 },
     fetchWindowIcons: false
   })
-  const source = sources.find((item) => item.id === windowId)
+  const source = sources.find((item) => sameWindowSource(item.id, windowId))
   return source && !source.thumbnail.isEmpty() ? source.thumbnail.toDataURL() : undefined
 }
 
@@ -571,7 +619,7 @@ export async function captureWindow(
     thumbnailSize: { width: 0, height: 0 },
     fetchWindowIcons: false
   })
-  const meta = sources.find((s) => s.id === windowId)
+  const meta = sources.find((s) => sameWindowSource(s.id, windowId))
   const title = meta?.name ?? 'Window'
 
   if (IS_MAC) {
@@ -606,7 +654,7 @@ export async function captureWindow(
     types: ['window'],
     thumbnailSize: maxPx
   })
-  const source = full.find((s) => s.id === windowId)
+  const source = full.find((s) => sameWindowSource(s.id, windowId))
   if (!source || source.thumbnail.isEmpty()) return null
   const size = source.thumbnail.getSize()
   return { dataUrl: source.thumbnail.toDataURL(), width: size.width, height: size.height, title }

@@ -2,7 +2,9 @@ import assert from 'node:assert/strict'
 import test from 'node:test'
 import { load } from './helpers.mjs'
 
-const { shouldIncludeWindowSource } = await load('src/main/capture/window-sources.js')
+const { nativeWindowSourceId, sameWindowSource, shouldIncludeWindowSource } = await load(
+  'src/main/capture/window-sources.js'
+)
 const own = ['window:100:0', 'window:101:0', 'window:102:0']
 const editors = ['window:101:0']
 
@@ -22,6 +24,9 @@ test('internal windows are excluded by ID even if their titles do not identify t
 })
 
 test('native IDs match across Electron source suffixes without relying on shared titles', () => {
+  assert.equal(nativeWindowSourceId('window:100:87'), '100')
+  assert.equal(sameWindowSource('window:100:0', 'window:100:87'), true)
+  assert.equal(sameWindowSource('window:100:0', 'window:101:0'), false)
   assert.equal(shouldIncludeWindowSource('ClipThat', 'window:100:87', own, editors), false)
   assert.equal(shouldIncludeWindowSource('ClipThat', 'window:101:87', own, editors), true)
   assert.equal(shouldIncludeWindowSource('   ', 'window:900:0', own, editors), false)

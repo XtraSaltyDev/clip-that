@@ -1,8 +1,15 @@
-import { BrowserWindow, nativeImage, screen } from 'electron'
+import { app, BrowserWindow, nativeImage, screen } from 'electron'
+import { spawn, type ChildProcess } from 'node:child_process'
+import { join } from 'node:path'
 import { IPC } from '@shared/ipc'
-import type { CaptureEditorVisibility, CaptureOverlayUpdate, DisplaySnapshot, Rect } from '@shared/types'
+import type {
+  CaptureEditorVisibility,
+  CaptureOverlayUpdate,
+  DisplaySnapshot,
+  Rect
+} from '@shared/types'
 import { loadEntry, preloadPath } from './urls'
-import { beginOverlaySnapshots, snapshotAllDisplays } from '../capture/backend'
+import { beginOverlaySnapshots, captureDisplay, snapshotAllDisplays } from '../capture/backend'
 import { broadcast, editorWindows, hideAppWindows } from './manager'
 import { registerRendererWindow } from '../ipc/sender'
 
@@ -34,10 +41,14 @@ interface Pending {
   editors: BrowserWindow[]
   editorsVisible: boolean
   snapshotsReady: Promise<void>
+  refreshing: Promise<boolean> | null
+  sceneWatcher: ChildProcess | null
+  sceneRefreshTimer: NodeJS.Timeout | null
 }
 
 let pending: Pending | null = null
 let openingGeneration = 0
+let overlayOpening = false
 
 /** Snapshots from the overlay that just closed, held for the crop that follows. */
 let closedSnapshots: DisplaySnapshot[] = []
@@ -76,6 +87,61 @@ function publishOverlayUpdate(current: Pending): void {
   }
 }
 
+function windowInfoHelper(): string {
+  return app.isPackaged
+    ? join(process.resourcesPath, 'build', 'clipthat-window-info')
+    : join(app.getAppPath(), 'build', 'clipthat-window-info')
+}
+
+function stopSceneWatcher(current: Pending): void {
+  if (current.sceneRefreshTimer) clearTimeout(current.sceneRefreshTimer)
+  current.sceneRefreshTimer = null
+  const watcher = current.sceneWatcher
+  current.sceneWatcher = null
+  if (watcher && watcher.exitCode === null && watcher.signalCode === null) watcher.kill()
+}
+
+function startSceneWatcher(current: Pending): void {
+  if (!IS_MAC || current.mode === 'window') return
+  const watcher = spawn(windowInfoHelper(), ['--watch-scenes', app.getName()], {
+    stdio: ['ignore', 'pipe', 'pipe']
+  })
+  current.sceneWatcher = watcher
+  let output = ''
+  watcher.stdout?.setEncoding('utf8')
+  watcher.stdout?.on('data', (chunk: string) => {
+    output += chunk
+    const lines = output.split('\n')
+    output = lines.pop() ?? ''
+    for (const line of lines) {
+      if (line.trim() !== 'scene-changed' || pending !== current) continue
+      if (current.sceneRefreshTimer) clearTimeout(current.sceneRefreshTimer)
+      // Wait until the app switch or Space animation settles, then re-freeze once.
+      current.sceneRefreshTimer = setTimeout(() => {
+        current.sceneRefreshTimer = null
+        if (pending === current) void refreshOverlayScene()
+      }, 420)
+    }
+  })
+  watcher.stderr?.setEncoding('utf8')
+  watcher.stderr?.on('data', (chunk: string) => {
+    const detail = chunk.trim()
+    if (detail) console.warn(`[clipthat] scene watcher: ${detail}`)
+  })
+  watcher.once('error', (error) => {
+    if (pending === current) {
+      console.warn(`[clipthat] scene watcher unavailable — ${error.message}`)
+    }
+  })
+  watcher.once('exit', () => {
+    if (current.sceneWatcher === watcher) current.sceneWatcher = null
+  })
+}
+
+function finishOverlayOpening(generation: number): void {
+  if (openingGeneration === generation) overlayOpening = false
+}
+
 function completeSnapshotSet(
   reference: readonly DisplaySnapshot[],
   candidate: readonly DisplaySnapshot[]
@@ -103,7 +169,7 @@ function windowPickerBackdrop(display: Electron.Display): DisplaySnapshot {
 }
 
 export function isOverlayOpen(): boolean {
-  return pending !== null
+  return overlayOpening || pending !== null
 }
 
 export function isPendingOverlayWindow(win: BrowserWindow | null): boolean {
@@ -293,6 +359,7 @@ export function installOverlayPool(): void {
 
 export async function openOverlay(mode: OverlayMode): Promise<OverlaySelection | null> {
   if (pending) closeOverlay(null)
+  overlayOpening = true
   const generation = ++openingGeneration
   cancelPoolRetirement()
   // A new capture can never consume an older capture's frozen pixels.
@@ -313,13 +380,30 @@ export async function openOverlay(mode: OverlayMode): Promise<OverlaySelection |
   // display can be interactive during that work, but a later display must not capture
   // the library or capture controls when it is added to the overlay. Editors are the
   // exception: they remain exactly where the user placed them and are valid subjects.
-  const restoreAppWindows =
-    mode === 'window' ? () => {} : await hideAppWindows({ exclude: captureEditors })
-  const captured =
-    mode === 'window'
-      ? { initial: windowPickerBackdrop(cursorDisplay), remaining: Promise.resolve([] as DisplaySnapshot[]) }
-      : await beginOverlaySnapshots(String(cursorDisplay.id))
+  let restoreAppWindows: (keepHidden?: readonly BrowserWindow[]) => void = () => {}
+  let captured: Awaited<ReturnType<typeof beginOverlaySnapshots>>
+  try {
+    if (mode !== 'window') restoreAppWindows = await hideAppWindows({ exclude: captureEditors })
+    captured =
+      mode === 'window'
+        ? {
+            initial: windowPickerBackdrop(cursorDisplay),
+            remaining: Promise.resolve([] as DisplaySnapshot[])
+          }
+        : await beginOverlaySnapshots(String(cursorDisplay.id))
+  } catch (error) {
+    finishOverlayOpening(generation)
+    restoreAppWindows()
+    console.warn(`[clipthat] overlay: could not freeze the opening scene — ${(error as Error).message}`)
+    broadcast('system:toast', {
+      kind: 'error',
+      message: 'Capture could not start',
+      detail: 'The screen could not be frozen just now. Try again.'
+    })
+    return null
+  }
   if (generation !== openingGeneration) {
+    finishOverlayOpening(generation)
     restoreAppWindows()
     return null
   }
@@ -329,6 +413,7 @@ export async function openOverlay(mode: OverlayMode): Promise<OverlaySelection |
   const snapshots = captured.initial ? [captured.initial] : []
   const tSnap = Date.now()
   if (snapshots.length === 0) {
+    finishOverlayOpening(generation)
     // performCapture handles the missing-permission case; this is the transient one.
     broadcast('system:toast', {
       kind: 'error',
@@ -367,15 +452,35 @@ export async function openOverlay(mode: OverlayMode): Promise<OverlaySelection |
       displayCount: screen.getAllDisplays().length,
       editorVisibility: openingEditorVisibility
     })
-    if (cursorDisplay.id === display.id) win.show()
-    else win.showInactive()
     windows.push(win)
     windowsByDisplay.set(snap.displayId, win)
+    if (cursorDisplay.id === display.id) win.show()
+    else win.showInactive()
   }
   // Snapshot is already taken; showing the overlays cannot affect it.
-  await Promise.all(snapshots.map(showSnapshot))
+  try {
+    await Promise.all(snapshots.map(showSnapshot))
+  } catch (error) {
+    finishOverlayOpening(generation)
+    for (const win of windows) {
+      if (!win.isDestroyed()) {
+        win.webContents.send(IPC.captureOverlayRelease)
+        win.hide()
+      }
+    }
+    retireOverlayPoolAfterIdle()
+    restoreAppWindows()
+    console.warn(`[clipthat] overlay: windows could not be shown — ${(error as Error).message}`)
+    broadcast('system:toast', {
+      kind: 'error',
+      message: 'Capture could not open',
+      detail: 'Close the overlay and try the capture again.'
+    })
+    return null
+  }
 
   if (generation !== openingGeneration) {
+    finishOverlayOpening(generation)
     for (const win of windows) {
       if (!win.isDestroyed()) {
         win.webContents.send(IPC.captureOverlayRelease)
@@ -388,6 +493,7 @@ export async function openOverlay(mode: OverlayMode): Promise<OverlaySelection |
   }
 
   if (windows.length === 0) {
+    finishOverlayOpening(generation)
     restoreAppWindows()
     return null
   }
@@ -409,9 +515,14 @@ export async function openOverlay(mode: OverlayMode): Promise<OverlaySelection |
     hiddenSnapshots: null,
     editors: captureEditors,
     editorsVisible: true,
-    snapshotsReady: Promise.resolve()
+    snapshotsReady: Promise.resolve(),
+    refreshing: null,
+    sceneWatcher: null,
+    sceneRefreshTimer: null
   }
   pending = current
+  startSceneWatcher(current)
+  finishOverlayOpening(generation)
   // The other displays are still captured one at a time. They join the active overlay
   // as soon as each has an exact frozen image; this keeps multi-display selection while
   // removing their capture time from the cursor display's time-to-crosshair.
@@ -425,23 +536,78 @@ export async function openOverlay(mode: OverlayMode): Promise<OverlaySelection |
       }
     })
     .catch((error) => {
-      console.warn(`[clipthat] overlay: remaining display capture failed — ${(error as Error).message}`)
+      console.warn(
+        `[clipthat] overlay: remaining display capture failed — ${(error as Error).message}`
+      )
     })
     .finally(restoreAppWindows)
   void current.snapshotsReady
   return selection
 }
 
+/** Re-freeze the display under the pointer after the user changes apps or macOS Spaces. */
+export async function refreshOverlayScene(sender?: BrowserWindow | null): Promise<boolean> {
+  const current = pending
+  if (!current || current.mode === 'window' || (sender && !current.windows.includes(sender))) {
+    return false
+  }
+  if (current.refreshing) return current.refreshing
+
+  const refresh = (async () => {
+    await current.snapshotsReady.catch(() => {})
+    if (pending !== current) return false
+
+    const display = screen.getDisplayNearestPoint(screen.getCursorScreenPoint())
+    let restoreAppWindows: ((keepHidden?: readonly BrowserWindow[]) => void) | undefined
+    try {
+      restoreAppWindows = await hideAppWindows({
+        exclude: current.editorsVisible ? current.editors : []
+      })
+      const snapshot = await captureDisplay(String(display.id))
+      if (pending !== current || !snapshot) return false
+
+      const replace = (items: readonly DisplaySnapshot[]) => [
+        ...items.filter((item) => item.displayId !== snapshot.displayId),
+        snapshot
+      ]
+      current.snapshots = replace(current.snapshots)
+      current.visibleSnapshots = replace(current.visibleSnapshots)
+      if (!current.editorsVisible) current.hiddenSnapshots = replace(current.hiddenSnapshots ?? [])
+      publishOverlayUpdate(current)
+      console.log(
+        `[clipthat] overlay refresh: display ${snapshot.displayId} ${snapshot.pixelWidth}x${snapshot.pixelHeight}`
+      )
+      return true
+    } catch (error) {
+      console.warn(`[clipthat] overlay refresh failed — ${(error as Error).message}`)
+      return false
+    } finally {
+      restoreAppWindows?.(
+        pending === current ? (current.editorsVisible ? [] : current.editors) : current.windows
+      )
+    }
+  })()
+
+  current.refreshing = refresh
+  try {
+    return await refresh
+  } finally {
+    if (current.refreshing === refresh) current.refreshing = null
+  }
+}
+
 /** Called by the IPC layer when a renderer finishes or aborts a selection. */
 export function closeOverlay(selection: OverlaySelection | null): void {
   // Also cancels a snapshot that has started but has not shown its windows yet.
   openingGeneration++
+  overlayOpening = false
   const current = pending
   pending = null
   if (!current) {
     retireOverlayPoolAfterIdle()
     return
   }
+  stopSceneWatcher(current)
   // The selection is in the coordinate space of these exact images; whoever crops
   // next must use them, not a fresh photograph of a screen that has since changed.
   closedSnapshots =

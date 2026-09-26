@@ -6,6 +6,7 @@ export const IPC = {
   captureCancel: 'capture:cancel',
   captureOverlayRelease: 'capture:overlay-release',
   captureOverlayUpdate: 'capture:overlay-update',
+  captureOverlayRefresh: 'capture:overlay-refresh',
   captureEditorVisibility: 'capture:editor-visibility',
   captureWindows: 'capture:windows',
   captureWindowPreview: 'capture:window-preview',

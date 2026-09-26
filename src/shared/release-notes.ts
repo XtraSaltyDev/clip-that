@@ -404,6 +404,26 @@ export const RELEASE_NOTES = [
         body: 'Quick Access distinguishes success, cancellation, and failure, and older actions cannot dismiss a newer capture. Recording and scrolling failures offer clearer feedback while preserving recovery options.'
       }
     ]
+  },
+  {
+    version: '0.1.23',
+    title: 'Capture stays in step with your desktop',
+    summary:
+      'Keep the frozen capture current when you switch apps or Spaces, and make window recording sources easier to refresh.',
+    items: [
+      {
+        title: 'Capture follows app and Space switches',
+        body: 'Region and full-screen overlays refresh after you switch apps or Spaces. Press R to refresh the scene manually; if it fails, ClipThat keeps the previous view and explains how to retry.'
+      },
+      {
+        title: 'Window sources stay current',
+        body: 'The recording window list refreshes when you choose Window, return to the recorder, or use its refresh button. macOS window choices now stay matched when their capture identifiers change.'
+      },
+      {
+        title: 'Cleaner window choices on Mac',
+        body: 'The window picker leaves out hidden windows that cannot be captured from the current desktop.'
+      }
+    ]
   }
 ] as const satisfies readonly ReleaseNotes[]
 

@@ -1,5 +1,7 @@
 import { app, BrowserWindow, clipboard, protocol } from 'electron'
 import { promises as fs } from 'node:fs'
+import { mkdirSync } from 'node:fs'
+import { resolve } from 'node:path'
 import { IPC } from '@shared/ipc'
 import { installFileLogger, flushLog } from './log'
 import { settings } from './store/settings'
@@ -17,7 +19,12 @@ import {
   showLibraryWindow,
   showSettingsWindow
 } from './windows/manager'
-import { installOverlayPool, openOverlay, takeFrozenSnapshot } from './windows/overlay'
+import {
+  installOverlayPool,
+  isOverlayOpen,
+  openOverlay,
+  takeFrozenSnapshot
+} from './windows/overlay'
 import { performCapture, routeResult } from './capture/service'
 import { recording } from './recording/session'
 import { installDisplayMediaHandler } from './recording/display-media'
@@ -35,8 +42,17 @@ const IS_MAC = process.platform === 'darwin'
 // Keep the product name stable for unpackaged verification too.
 app.setName('ClipThat')
 
-/* A single instance owns the global hotkeys; a second launch just wakes the first. */
-if (!app.requestSingleInstanceLock()) {
+// A deliberately isolated development profile may run beside the installed app without
+// sharing its Library, settings, Chromium storage, or single-instance lock.
+const isolatedDevUserData = !app.isPackaged ? process.env['CLIPTHAT_DEV_USER_DATA'] : undefined
+if (isolatedDevUserData) {
+  const isolatedPath = resolve(isolatedDevUserData)
+  mkdirSync(isolatedPath, { recursive: true })
+  app.setPath('userData', isolatedPath)
+}
+
+/* A normal instance owns the global hotkeys; a deliberately isolated dev profile does not. */
+if (!isolatedDevUserData && !app.requestSingleInstanceLock()) {
   app.quit()
 } else {
   app.on('second-instance', () => {
@@ -135,11 +151,15 @@ app.whenReady().then(async () => {
 
   const s = settings.get()
   if (IS_MAC && !s.showInDock) app.dock?.hide()
-  app.setLoginItemSettings({ openAtLogin: s.launchAtLogin, openAsHidden: true })
 
   installAppMenu()
-  createTray()
-  registerHotkeys()
+  if (isolatedDevUserData) {
+    console.log(`[clipthat] isolated development profile: ${app.getPath('userData')}`)
+  } else {
+    app.setLoginItemSettings({ openAtLogin: s.launchAtLogin, openAsHidden: true })
+    createTray()
+    registerHotkeys()
+  }
   // Pre-warm the capture overlays so the first hotkey press isn't the slow one.
   installOverlayPool()
   // Screen permission and hotkey conflicts are the two things that make the app look
@@ -150,14 +170,16 @@ app.whenReady().then(async () => {
         `mic=${report.microphone} camera=${report.camera}`
     )
   })
-  const failed = hotkeyFailures()
-  console.log(
-    failed.length === 0
-      ? '[clipthat] all global shortcuts registered'
-      : `[clipthat] shortcuts already taken by another app: ${failed
-          .map((f) => `${f.action} (${f.accelerator})`)
-          .join(', ')}`
-  )
+  if (!isolatedDevUserData) {
+    const failed = hotkeyFailures()
+    console.log(
+      failed.length === 0
+        ? '[clipthat] all global shortcuts registered'
+        : `[clipthat] shortcuts already taken by another app: ${failed
+            .map((f) => `${f.action} (${f.accelerator})`)
+            .join(', ')}`
+    )
+  }
 
   emitter.on('start-recording', startRecordingFlow)
   emitter.on('stop-recording', stopRecordingFlow)
@@ -189,6 +211,7 @@ app.whenReady().then(async () => {
   }
 
   app.on('activate', () => {
+    if (isOverlayOpen()) return
     if (BrowserWindow.getAllWindows().length === 0 || !hasVisibleWindows()) {
       showLibraryWindow()
     }

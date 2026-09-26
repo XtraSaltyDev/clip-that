@@ -58,9 +58,11 @@ import {
   closeOverlay,
   isPendingOverlayWindow,
   openOverlay,
+  refreshOverlayScene,
   setOverlayEditorsVisible
 } from '../windows/overlay'
 import { listWindows, windowInfo, windowPreview } from '../capture/backend'
+import { sameWindowSource } from '../capture/window-sources'
 import { listDisplays } from '../capture/displays'
 import {
   broadcast,
@@ -250,6 +252,9 @@ export function registerIpcHandlers(): void {
       validate.booleanValue(visible, 'editor visibility')
     )
   })
+  secureHandle(IPC.captureOverlayRefresh, ['overlay'], (e) =>
+    refreshOverlayScene(BrowserWindow.fromWebContents(e.sender))
+  )
 
   secureHandle(IPC.captureClipboard, ['editor'], () => {
     const image = readImageFromClipboard()
@@ -658,9 +663,6 @@ export function registerIpcHandlers(): void {
   /* ---------------- recording ---------------- */
 
   secureHandle(IPC.recordSources, ['hud'], async () => {
-    // The setup screen gives this lookup time to finish before Start is pressed, without
-    // competing with unrelated screenshot work at application launch.
-    await recording.prewarmDisplaySources()
     const media = await bundledMediaCapabilities()
     return {
       displays: listDisplays(),
@@ -692,12 +694,14 @@ export function registerIpcHandlers(): void {
       const options = validate.recordingOptions(unsafeOptions)
       const [displays, windows, media] = await Promise.all([
         Promise.resolve(listDisplays()),
-        listWindows(false).catch(() => []),
+        options.target === 'window' ? listWindows(false).catch(() => []) : Promise.resolve([]),
         bundledMediaCapabilities()
       ])
       const selectedSource =
         options.target === 'window'
-          ? windows.find((item) => item.id === options.windowId)
+          ? windows.find((item) =>
+              options.windowId ? sameWindowSource(item.id, options.windowId) : false
+            )
           : displays.find((item) => item.id === options.displayId)
       const geometryReady =
         options.target !== 'window' ||

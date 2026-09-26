@@ -53,6 +53,8 @@ export default function Overlay(): React.ReactElement | null {
   const [windowError, setWindowError] = useState<string | null>(null)
   const [editorVisibility, setEditorVisibility] = useState<CaptureEditorVisibility>(NO_EDITOR)
   const [editorBusy, setEditorBusy] = useState(false)
+  const [sceneBusy, setSceneBusy] = useState(false)
+  const [sceneError, setSceneError] = useState<string | null>(null)
 
   const imageRef = useRef<HTMLImageElement | null>(null)
   const pixelsRef = useRef<CanvasRenderingContext2D | null>(null)
@@ -104,6 +106,8 @@ export default function Overlay(): React.ReactElement | null {
         setCursor({ x: -999, y: -999 })
         setEditorVisibility(next.editorVisibility ?? NO_EDITOR)
         setEditorBusy(false)
+        setSceneBusy(false)
+        setSceneError(null)
         dragStart.current = null
         moveRef.current = null
         setInit(next)
@@ -117,6 +121,11 @@ export default function Overlay(): React.ReactElement | null {
         setEditorVisibility(payload.editorVisibility)
         if (!payload.snapshot) return
         releaseSnapshot()
+        setBox(null)
+        setDragging(false)
+        dragStart.current = null
+        moveRef.current = null
+        setSceneError(null)
         setInit((current) =>
           current
             ? {
@@ -153,6 +162,8 @@ export default function Overlay(): React.ReactElement | null {
         setBox(null)
         setEditorVisibility(NO_EDITOR)
         setEditorBusy(false)
+        setSceneBusy(false)
+        setSceneError(null)
       }),
     [releaseSnapshot]
   )
@@ -440,6 +451,26 @@ export default function Overlay(): React.ReactElement | null {
     })
   }
 
+  const refreshScene = useCallback(async () => {
+    if (sceneBusy || init?.mode === 'window') return
+    setSceneBusy(true)
+    setSceneError(null)
+    try {
+      const refreshed = await api.capture.refreshOverlay()
+      if (!refreshed) {
+        setSceneError(
+          'Could not refresh the screen. The previous view is still active; press R to retry.'
+        )
+      }
+    } catch {
+      setSceneError(
+        'Could not refresh the screen. The previous view is still active; press R to retry.'
+      )
+    } finally {
+      setSceneBusy(false)
+    }
+  }, [init?.mode, sceneBusy])
+
   /* ---------- keyboard ---------- */
 
   useEffect(() => {
@@ -457,6 +488,11 @@ export default function Overlay(): React.ReactElement | null {
       }
       if (e.key.toLowerCase() === 'c' && !e.metaKey && !e.ctrlKey) {
         void navigator.clipboard.writeText(hex)
+        return
+      }
+      if (e.key.toLowerCase() === 'r' && !e.metaKey && !e.ctrlKey && !e.altKey) {
+        e.preventDefault()
+        void refreshScene()
         return
       }
       if (
@@ -496,7 +532,17 @@ export default function Overlay(): React.ReactElement | null {
     }
     window.addEventListener('keydown', onKey)
     return () => window.removeEventListener('keydown', onKey)
-  }, [box, cancel, commit, cssH, cssW, editorVisibility.available, hex, toggleEditors])
+  }, [
+    box,
+    cancel,
+    commit,
+    cssH,
+    cssW,
+    editorVisibility.available,
+    hex,
+    refreshScene,
+    toggleEditors
+  ])
 
   /* ---------- render ---------- */
 
@@ -692,6 +738,9 @@ export default function Overlay(): React.ReactElement | null {
           <span>
             <span className="kbd">C</span> copy colour
           </span>
+          <span>
+            <span className="kbd">R</span> {sceneBusy ? 'refreshing…' : 'refresh scene'}
+          </span>
           {editorVisibility.available && (
             <span>
               <span className="kbd">E</span> {editorVisibility.visible ? 'hide' : 'show'} editor
@@ -700,6 +749,15 @@ export default function Overlay(): React.ReactElement | null {
           <span>
             <span className="kbd">Esc</span> cancel
           </span>
+        </div>
+      )}
+      {(sceneBusy || sceneError) && (
+        <div
+          className={`ov-scene-status${sceneError ? ' is-error' : ''}`}
+          role="status"
+          aria-live="polite"
+        >
+          {sceneError ?? 'Refreshing the screen…'}
         </div>
       )}
     </div>
