@@ -52,6 +52,7 @@
     "src/shared/defaults.ts",
     "src/shared/hotkey-plan.ts",
     "src/shared/onboarding.ts",
+    "src/shared/window-source.ts",
     "src/shared/ocr-quality.ts",
     "src/shared/types.ts"
   ]

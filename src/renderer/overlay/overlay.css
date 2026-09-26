@@ -270,6 +270,28 @@
   border-color: #ffffff26;
   color: #dbe3ef;
 }
+.ov-scene-status {
+  position: absolute;
+  z-index: 40;
+  left: 50%;
+  bottom: 78px;
+  transform: translateX(-50%);
+  max-width: min(520px, calc(100vw - 32px));
+  padding: 8px 12px;
+  border: 1px solid #ffffff2b;
+  border-radius: 8px;
+  background: #12161dee;
+  color: #e5edf8;
+  font-size: 12px;
+  text-align: center;
+  box-shadow: 0 8px 24px #0008;
+  pointer-events: none;
+}
+.ov-scene-status.is-error {
+  border-color: #f8717170;
+  background: #35191fe8;
+  color: #fee2e2;
+}
 
 /* ---------- window picker ---------- */
 

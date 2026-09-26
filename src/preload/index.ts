@@ -72,6 +72,7 @@ const api = {
     cancel: () => ipcRenderer.send(IPC.captureCancel),
     setEditorsVisible: (visible: boolean): Promise<CaptureEditorVisibility> =>
       ipcRenderer.invoke(IPC.captureEditorVisibility, visible),
+    refreshOverlay: (): Promise<boolean> => ipcRenderer.invoke(IPC.captureOverlayRefresh),
     onOverlayInit: (handler: (payload: unknown) => void) => on(IPC.captureOverlayInit, handler),
     onOverlayUpdate: (handler: (payload: CaptureOverlayUpdate) => void) =>
       on(IPC.captureOverlayUpdate, handler),

@@ -85,6 +85,11 @@ test('persisted recording source never silently changes a vanished window or sta
   assert.equal(reconciled.displayId, 'primary')
   assert.equal(reconciled.windowId, undefined)
 
+  const suffixChanged = reconcileRecordingSources({ ...base, windowId: 'window:42:0' }, displays, [
+    { id: 'window:42:87', title: 'Live', appName: 'App' }
+  ])
+  assert.equal(suffixChanged.windowId, 'window:42:87')
+
   const region = reconcileRecordingSources({ ...base, target: 'region' }, displays, [])
   assert.equal(region.region, undefined)
 })

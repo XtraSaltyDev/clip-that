@@ -19,6 +19,7 @@ import { probeVideoMetadata, remuxWebmForPlayback, toGif, toMp4, toWebm } from '
 import { RecordingRecoveryStore } from './recovery-store'
 import { supportsSystemAudio } from './system-audio'
 import { recordingTransitionAllowed } from './state'
+import { sameWindowSource } from '../capture/window-sources'
 
 class RecordingSession extends EventEmitter {
   private state: RecordingState = 'idle'
@@ -66,7 +67,7 @@ class RecordingSession extends EventEmitter {
       // Never silently fall back to a display when the selected window disappeared.
       // That produces a plausible video of the wrong content and breaks window-relative
       // auto-zoom geometry.
-      return sources.find((source) => source.id === opts.windowId)
+      return sources.find((source) => sameWindowSource(source.id, opts.windowId!))
     }
 
     const sources = await this.getScreenSources()

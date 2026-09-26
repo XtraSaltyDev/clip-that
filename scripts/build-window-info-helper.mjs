@@ -10,6 +10,12 @@ const source = join(root, 'native', 'window-info.swift')
 const output = join(root, 'build', 'clipthat-window-info')
 
 mkdirSync(dirname(output), { recursive: true })
-execFileSync('/usr/bin/xcrun', ['swiftc', '-O', source, '-o', output], { stdio: 'inherit' })
+// Match electron-builder's macOS minimum so a newer Xcode SDK does not silently make
+// the capture helper require the OS version of the build machine.
+execFileSync(
+  '/usr/bin/xcrun',
+  ['swiftc', '-O', '-target', 'arm64-apple-macos12.0', source, '-o', output],
+  { stdio: 'inherit' }
+)
 chmodSync(output, 0o755)
 console.log(`built ${output}`)
