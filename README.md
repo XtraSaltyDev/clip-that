@@ -10,10 +10,31 @@ recognition and search all run offline. The sole automatic network request is an
 check against the public GitHub release channel; update bytes download only after an
 explicit click, and no capture or library content is sent.
 
-```bash
-npm install
-npm run dev
-```
+## Try ClipThat
+
+[Download for macOS on Apple silicon](https://github.com/XtraSaltyDev/clip-that/releases/latest)
+· [Report a bug or suggest a feature](https://github.com/XtraSaltyDev/clip-that/issues/new/choose)
+· [Questions and feedback](https://github.com/XtraSaltyDev/clip-that/discussions)
+· [Contribute](CONTRIBUTING.md)
+
+1. Open the latest release and download `ClipThat-<version>-arm64.dmg` from **Assets**.
+   The GitHub **Source code** archives are for developers; they are not installers.
+2. Open the DMG, drag **ClipThat** to **Applications**, and launch it from there.
+3. Follow the welcome screen to grant **Screen Recording** in macOS System Settings.
+   Quit ClipThat and reopen it after granting permission. Enable microphone or camera
+   access only if you use those recording features.
+4. Choose **Capture a region** on the welcome screen, or press `⌘⇧2`, then drag a box.
+   Annotate the result in the editor and find it again in the Library with `⌘⇧9`.
+
+The release ZIP is an alternative app download and the updater payload. Intel Macs are not a
+release target. Windows x64 remains an unsigned experimental preview; Linux has no verified
+runtime support. A packaging command or successful CI run does not establish platform support.
+
+OCR ships with English language data. Auto-redaction is a detection aid: review the exported
+image before sharing it. Editable `.clipthat` projects retain original capture data and are
+not safe substitutes for a flattened, reviewed image when concealing private information.
+
+Want to build from source? Start with [the contributor setup](CONTRIBUTING.md#development-setup).
 
 ---
 
@@ -51,7 +72,7 @@ Tuesday.
 | Library search is by filename and date                                               | **OCR-indexed library**, grouped as a timeline.                                                                                    |
 | Mouse-heavy UI                                                                       | **Keyboard-first**: `⌘K` command palette, single-key tools, a floating toolbar at the selection, alignment guides, arrow-nudge.    |
 | Scrolling capture is fragile                                                         | Frame stitching that matches two bands lifted from each frame, so sticky headers don't defeat it and a fast scroll still measures. |
-| Licensing and activation friction                                                    | A plain local app. Nothing phones home.                                                                                            |
+| Licensing and activation friction                                                    | No account or activation. Local processing, with a public GitHub update check.                                                     |
 
 ---
 
@@ -204,11 +225,16 @@ outside the library directory.
 
 ## Development
 
+Use Node.js 22.13 or later in the 22.x line (CI uses Node 22), `npm ci`, and Apple's Xcode
+command-line tools on Apple silicon. `npm run dev` compiles the Swift window helper before
+launching Electron. See [CONTRIBUTING.md](CONTRIBUTING.md) for setup, isolated test data, PRs,
+and the difference between source checks and desktop acceptance.
+
 ```bash
 npm run dev            # run the app
 # Run beside an installed ClipThat without sharing its Library, settings or lock:
 CLIPTHAT_DEV_USER_DATA=/tmp/clipthat-dev npm run dev
-npm run build          # lint + format check + typecheck + bundle
+npm run build          # native helper + provenance + quality + typecheck + tests + bundle
 npm run build:ffmpeg:mac # pinned LGPL-compatible Apple-silicon media tools
 npm run build:ffmpeg:win # pinned LGPL-compatible Windows x64 media tools (MSYS2 MINGW64)
 npm run build:mac      # Apple-silicon dmg + zip
@@ -242,9 +268,11 @@ Before a release, use the manual checklist in `RELEASE.md` against the installed
 build is source evidence; it is not a substitute for observing capture, editing, recording,
 export, library, and settings behavior in the actual interface.
 
-On macOS, `npm run install:mac` builds, signs (Developer ID if present), installs to
-/Applications and preserves the Screen Recording grant. See RELEASE.md for the full
-release flow and manual checklist.
+On macOS, `npm run install:mac` replaces `/Applications/ClipThat.app` and can quit a running
+copy. It signs with Developer ID when available; its ad-hoc fallback does not preserve the
+Screen Recording grant across rebuilds and is not a notarized release. Prepare the pinned
+media tools with `npm run build:ffmpeg:mac` first. See [RELEASE.md](RELEASE.md) for the release
+flow and manual checklist.
 
 To remove expanded package trees, older delivery files, and other generated build output
 while retaining the current and directly previous release packages, updater metadata, and
@@ -259,3 +287,14 @@ blockmaps, run `npm run clean:artifacts`.
   A single frame-to-frame jump larger than roughly 70% of the viewport can't be measured
   and is dropped rather than mis-stitched.
 - OCR is English-only as shipped; other Tesseract models drop into `src/renderer/public/ocr`.
+
+## Community and licenses
+
+Bug reports, feature ideas, documentation fixes, and focused PRs are welcome. Please include
+reproduction steps and your ClipThat version, and use synthetic captures when sharing examples.
+Read [CONTRIBUTING.md](CONTRIBUTING.md), the [community guidelines](CODE_OF_CONDUCT.md), and
+[security reporting instructions](SECURITY.md) before posting sensitive information.
+
+ClipThat's source is [MIT-licensed](LICENSE). Bundled media and OCR components have their own
+licenses and provenance; see [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md). Keep the matching
+third-party source archive and checksums with redistributed release binaries.

@@ -1,0 +1,74 @@
+name: Bug report
+description: Report a reproducible problem with capture, editing, recording, or the Library.
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Please search existing issues first. macOS on Apple silicon is the supported release
+        target; Windows x64 is experimental and Linux runtime support is unverified.
+        Use synthetic content for examples. For vulnerabilities, follow
+        [SECURITY.md](https://github.com/XtraSaltyDev/clip-that/security/policy) instead of posting details here.
+  - type: input
+    id: version
+    attributes:
+      label: ClipThat version or commit
+      description: Find the version in Settings → About. Include a commit SHA for a source build.
+      placeholder: e.g. 0.1.23
+    validations:
+      required: true
+  - type: dropdown
+    id: build
+    attributes:
+      label: How are you running ClipThat?
+      options:
+        - Official macOS release (DMG or ZIP)
+        - Development run (npm run dev)
+        - Local packaged build
+        - Unsigned Windows x64 preview (experimental)
+        - Linux build (runtime unverified)
+    validations:
+      required: true
+  - type: textarea
+    id: environment
+    attributes:
+      label: OS and hardware
+      description: Include OS version and architecture. For capture/recording, add display scaling/layout and relevant audio/camera devices or permission state.
+      placeholder: e.g. macOS version, Apple M-series chip, one Retina display
+    validations:
+      required: true
+  - type: textarea
+    id: reproduce
+    attributes:
+      label: Steps to reproduce
+      description: Use a small example and mention whether it happens every time. Avoid attaching your real Library or an editable project containing private originals.
+      placeholder: |
+        1. Open…
+        2. Choose…
+        3. Observe…
+    validations:
+      required: true
+  - type: textarea
+    id: expected
+    attributes:
+      label: Expected result
+    validations:
+      required: true
+  - type: textarea
+    id: actual
+    attributes:
+      label: Actual result
+      description: Include the error text or a screenshot made with synthetic content.
+    validations:
+      required: true
+  - type: textarea
+    id: diagnostics
+    attributes:
+      label: Additional evidence (optional)
+      description: Settings → About can export a support summary. Inspect it before attaching. Share only relevant, sanitized log excerpts; logs and editable projects can contain private information.
+  - type: checkboxes
+    id: privacy
+    attributes:
+      label: Before posting
+      options:
+        - label: I checked the report and attachments for private capture content, personal information, and credentials.
+          required: true
