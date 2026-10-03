@@ -3,14 +3,8 @@ name: CI
 on:
   push:
     branches: [main]
-    paths-ignore:
-      - '**/*.md'
-      - 'docs/**'
   pull_request:
     branches: [main]
-    paths-ignore:
-      - '**/*.md'
-      - 'docs/**'
   workflow_dispatch:
 
 permissions:
@@ -26,9 +20,34 @@ jobs:
     timeout-minutes: 10
     steps:
       - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+      # The protected branch requires "validate", including for documentation PRs.
+      # Keep that status present while avoiding an unnecessary source build.
+      - name: Decide whether source checks are needed
+        id: scope
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+          BASE_SHA: ${{ github.event.pull_request.base.sha || github.event.before }}
+        run: |
+          set -euo pipefail
+          if [[ "$EVENT_NAME" == "workflow_dispatch" || -z "$BASE_SHA" || "$BASE_SHA" =~ ^0+$ ]]; then
+            echo "build=true" >> "$GITHUB_OUTPUT"
+          else
+            git diff --no-renames --name-only "$BASE_SHA" HEAD > "$RUNNER_TEMP/clipthat-changed-files.txt"
+            if grep -qvE '(^docs/|\.md$)' "$RUNNER_TEMP/clipthat-changed-files.txt"; then
+              echo "build=true" >> "$GITHUB_OUTPUT"
+            else
+              echo "build=false" >> "$GITHUB_OUTPUT"
+              echo "Documentation-only change; required validate status succeeds without source checks."
+            fi
+          fi
       - uses: actions/setup-node@v7
+        if: steps.scope.outputs.build == 'true'
         with:
           node-version: 22
           cache: npm
       - run: npm ci
+        if: steps.scope.outputs.build == 'true'
       - run: npm run build
+        if: steps.scope.outputs.build == 'true'

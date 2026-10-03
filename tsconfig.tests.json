@@ -12,6 +12,7 @@
   "include": [
     "src/renderer/shared/save-queue.ts",
     "src/renderer/editor/ocr-source.ts",
+    "src/renderer/editor/save-snapshot.ts",
     "src/main/ipc/validation.ts",
     "src/main/capture/failures.ts",
     "src/main/capture/geometry.ts",
@@ -43,6 +44,10 @@
     "src/shared/platform-capabilities.ts",
     "src/shared/context-trust.ts",
     "src/shared/library-workbench.ts",
+    "src/shared/library-search.ts",
+    "src/shared/image-compare.ts",
+    "src/shared/annotation-layout.ts",
+    "src/shared/timecode.ts",
     "src/shared/recording-polish.ts",
     "src/shared/recording-capture.ts",
     "src/shared/file-clipboard.ts",

@@ -10,6 +10,11 @@ import { summarizeContextTrust } from '@shared/context-trust'
 import { imageFormatForPath } from '@shared/image-format'
 import { useEditor } from './store'
 import { encodeAs, flatten } from './exporting'
+import {
+  isSaveDocumentCurrent,
+  isSaveRevisionCurrent,
+  type EditorSaveSnapshot
+} from './save-snapshot'
 
 type StageRef = React.MutableRefObject<Konva.Stage | null>
 
@@ -25,12 +30,34 @@ export function useEditorActions(stageRef: StageRef, settings: Settings | null) 
   const format = settings?.imageFormat ?? 'png'
   const quality = (settings?.jpegQuality ?? 92) / 100
 
+  const output = useCallback(async (label: string, operation: () => Promise<void>) => {
+    if (useEditor.getState().outputBusy) return
+    useEditor.setState({ outputBusy: label })
+    try {
+      await operation()
+    } catch (error) {
+      toast('error', `${label} failed`, (error as Error).message)
+    } finally {
+      useEditor.setState({ outputBusy: null })
+    }
+  }, [])
+
   const render = useCallback(async () => {
     if (!(await waitForCutOutImage())) {
       toast('error', 'The Cut Out preview is still rendering')
       return null
     }
+    const current = useEditor.getState()
+    const epoch = current.documentEpoch
     const png = await flatten(stageRef.current)
+    if (useEditor.getState().documentEpoch !== epoch || useEditor.getState().doc !== current.doc) {
+      toast(
+        'info',
+        'The capture changed while rendering',
+        'Run the action again to use the latest edits.'
+      )
+      return null
+    }
     if (!png) {
       toast('error', 'Could not render the image')
       return null
@@ -39,15 +66,16 @@ export function useEditorActions(stageRef: StageRef, settings: Settings | null) 
   }, [stageRef])
 
   /** Flatten, then keep the library copy in sync so the browser never shows a stale thumbnail. */
-  const syncLibrary = useCallback(async (dataUrl: string) => {
+  const syncLibrary = useCallback(async (dataUrl: string, source?: EditorSaveSnapshot) => {
     const state = useEditor.getState()
-    const doc = state.doc
-    if (!doc) return
-    if (await api.guides.saveEditedStep(doc, dataUrl)) return
+    const doc = source?.doc ?? state.doc
+    if (!doc) return null
+    const saved = source ?? { doc, libraryId: state.libraryId, epoch: state.documentEpoch }
+    if (await api.guides.saveEditedStep(doc, dataUrl)) return doc
     const img = new Image()
-    await new Promise((r) => {
-      img.onload = r
-      img.onerror = r
+    await new Promise<void>((resolve, reject) => {
+      img.onload = () => resolve()
+      img.onerror = () => reject(new Error('The rendered capture could not be decoded.'))
       img.src = dataUrl
     })
     const item = await api.library.add({
@@ -57,13 +85,15 @@ export function useEditorActions(stageRef: StageRef, settings: Settings | null) 
       height: img.naturalHeight,
       project: doc,
       ocrText: doc.ocrText,
-      replaceId: state.libraryId ?? undefined
+      replaceId: saved.libraryId ?? undefined
     })
     await api.library.update(
       item.id,
       doc.exportPath ? { title: doc.title, exportPath: doc.exportPath } : { title: doc.title }
     )
-    useEditor.setState({ libraryId: item.id })
+    if (isSaveDocumentCurrent(useEditor.getState(), saved))
+      useEditor.setState({ libraryId: item.id })
+    return doc
   }, [])
 
   const copy = useCallback(async () => {
@@ -82,10 +112,15 @@ export function useEditorActions(stageRef: StageRef, settings: Settings | null) 
         const state = useEditor.getState()
         const doc = state.doc
         if (!doc) return
+        const saved: EditorSaveSnapshot = {
+          doc,
+          libraryId: state.libraryId,
+          epoch: state.documentEpoch
+        }
 
         if (await api.editor.guideContext()) {
           await api.guides.saveEditedStep(doc, png)
-          useEditor.getState().markSaved()
+          useEditor.getState().markSaved(doc)
           toast('success', 'Guide step saved')
           return
         }
@@ -106,11 +141,26 @@ export function useEditorActions(stageRef: StageRef, settings: Settings | null) 
         }
         savedPath = res.filePath
         const current = useEditor.getState()
-        if (saveAs && res.title) current.setTitle(res.title)
-        if (res.filePath) current.setExportPath(res.filePath)
-        await syncLibrary(png)
-        useEditor.getState().markSaved()
-        toast('success', 'Saved', res.filePath)
+        const sameRevision = isSaveRevisionCurrent(current, saved)
+        if (isSaveDocumentCurrent(current, saved)) {
+          if (sameRevision && saveAs && res.title) current.setTitle(res.title)
+          if (res.filePath) current.setExportPath(res.filePath)
+        }
+        const cleanCandidate = sameRevision ? useEditor.getState().doc : null
+        const savedDoc = {
+          ...doc,
+          title: saveAs && res.title ? res.title : doc.title,
+          exportPath: res.filePath ?? doc.exportPath
+        }
+        await syncLibrary(png, { ...saved, doc: savedDoc })
+        if (cleanCandidate) useEditor.getState().markSaved(cleanCandidate)
+        toast(
+          'success',
+          sameRevision && useEditor.getState().doc === cleanCandidate
+            ? 'Saved'
+            : 'Saved snapshot; newer edits remain unsaved',
+          res.filePath
+        )
       } catch (error) {
         toast(
           'error',
@@ -126,8 +176,14 @@ export function useEditorActions(stageRef: StageRef, settings: Settings | null) 
     async (target: 'png' | 'jpg' | 'webp' | 'pdf' | 'project') => {
       let exportedPath: string | undefined
       try {
-        const doc = useEditor.getState().doc
+        const initial = useEditor.getState()
+        const doc = initial.doc
         if (!doc) return
+        const saved: EditorSaveSnapshot = {
+          doc,
+          libraryId: initial.libraryId,
+          epoch: initial.documentEpoch
+        }
 
         if (target === 'project') {
           const res = await api.exports.saveProject(doc, true)
@@ -138,6 +194,15 @@ export function useEditorActions(stageRef: StageRef, settings: Settings | null) 
 
         const png = await render()
         if (!png) return
+
+        if (!isSaveRevisionCurrent(useEditor.getState(), saved)) {
+          toast(
+            'info',
+            'The capture changed while rendering',
+            'Run the export again to use the latest edits.'
+          )
+          return
+        }
 
         if (target === 'pdf') {
           const res = await api.exports.pdf(png, doc.title)
@@ -155,7 +220,7 @@ export function useEditorActions(stageRef: StageRef, settings: Settings | null) 
         })
         if (res.ok) {
           exportedPath = res.filePath
-          await syncLibrary(png)
+          await syncLibrary(png, saved)
           toast('success', `Exported as ${target.toUpperCase()}`, res.filePath)
         } else if (!res.canceled) {
           toast('error', 'Export failed', res.error)
@@ -326,14 +391,15 @@ export function useEditorActions(stageRef: StageRef, settings: Settings | null) 
   }, [])
 
   return {
-    copy,
-    save,
-    exportAs,
-    print,
-    dragOut,
+    copy: () => output('Copying', copy),
+    save: (saveAs: boolean) => output('Saving', () => save(saveAs)),
+    exportAs: (target: 'png' | 'jpg' | 'webp' | 'pdf' | 'project') =>
+      output('Exporting', () => exportAs(target)),
+    print: () => output('Printing', print),
+    dragOut: () => output('Preparing drag', dragOut),
     grabText,
     autoRedact,
-    pinToScreen,
+    pinToScreen: () => output('Pinning', pinToScreen),
     render,
     syncLibrary
   }

@@ -5,6 +5,35 @@
   background: var(--bg-0);
 }
 
+.annotation-arrange {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 4px;
+  margin: 12px 0 8px;
+}
+.editor-save-status {
+  flex: none;
+  color: var(--ink-2);
+}
+.video-preview-speed {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-bottom: 12px;
+}
+.video-preview-speed select {
+  width: 80px;
+}
+@media (max-width: 850px) {
+  .editor-save-status {
+    max-width: 60px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+}
+
 /* ---------- top bar ---------- */
 
 .topbar {

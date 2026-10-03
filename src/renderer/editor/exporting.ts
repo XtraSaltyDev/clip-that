@@ -2,6 +2,7 @@ import type Konva from 'konva'
 import { useEditor } from './store'
 
 const raf = () => new Promise<void>((r) => requestAnimationFrame(() => r()))
+const renderQueue = new WeakMap<Konva.Stage, Promise<string | null>>()
 
 /**
  * Flatten the current document to a data URL.
@@ -14,12 +15,27 @@ export async function flatten(
   options: { mimeType?: string; quality?: number } = {}
 ): Promise<string | null> {
   if (!stage) return null
+  const previous = renderQueue.get(stage) ?? Promise.resolve(null)
+  const pending = previous.catch(() => null).then(() => flattenStage(stage, options))
+  renderQueue.set(stage, pending)
+  try {
+    return await pending
+  } finally {
+    if (renderQueue.get(stage) === pending) renderQueue.delete(stage)
+  }
+}
 
+async function flattenStage(
+  stage: Konva.Stage,
+  options: { mimeType?: string; quality?: number }
+): Promise<string | null> {
   const state = useEditor.getState()
+  const epoch = state.documentEpoch
   const prevZoom = state.zoom
   const prevAutoFit = state.autoFit
   const prevSelection = state.selectedIds
   const prevTool = state.tool
+  const prevCropDraft = state.cropDraft
 
   state.select([])
   if (prevTool === 'crop') state.setTool('select')
@@ -40,9 +56,12 @@ export async function flatten(
     console.error('[export] toDataURL failed', err)
   }
 
-  state.setZoom(prevZoom, prevAutoFit)
-  state.select(prevSelection)
-  state.setTool(prevTool)
+  if (useEditor.getState().documentEpoch === epoch) {
+    state.setZoom(prevZoom, prevAutoFit)
+    state.setTool(prevTool)
+    state.setCropDraft(prevCropDraft)
+    state.select(prevSelection)
+  }
   await raf()
 
   return url

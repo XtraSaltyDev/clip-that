@@ -22,6 +22,7 @@ export default function TopBar({
   const future = useEditor((s) => s.future.length)
   const zoom = useEditor((s) => s.zoom)
   const dirty = useEditor((s) => s.dirty)
+  const outputBusy = useEditor((s) => s.outputBusy)
   const tool = useEditor((s) => s.tool)
   const cropDraft = useEditor((s) => s.cropDraft)
   const cutOutDraft = useEditor((s) => s.cutOutDraft)
@@ -211,8 +212,14 @@ export default function TopBar({
           onFocus={begin}
           onBlur={end}
           onChange={(e) => setTitle(e.target.value)}
+          maxLength={240}
+          onKeyDown={(event) => {
+            if (event.key === 'Enter') event.currentTarget.blur()
+          }}
         />
-        {dirty && <span className="dot-dirty" title="Unsaved changes" />}
+        <span className="editor-save-status tiny" role="status" aria-live="polite">
+          {outputBusy ? `${outputBusy}…` : dirty ? 'Unsaved' : 'Saved'}
+        </span>
       </div>
 
       <div className="topbar-right no-drag">
@@ -314,14 +321,19 @@ export default function TopBar({
         <button
           className="btn tip"
           data-tip={`Copy  ·  ${MOD_KEY}C`}
+          disabled={Boolean(outputBusy)}
           onClick={() => void actions.copy()}
         >
           <Icon name="copy" size={14} /> Copy
         </button>
 
         <div className="menu-anchor" ref={menu === 'export' ? menuRef : undefined}>
-          <button className="btn primary" onClick={() => void actions.save(false)}>
-            <Icon name="download" size={14} /> Save
+          <button
+            className="btn primary"
+            disabled={Boolean(outputBusy)}
+            onClick={() => void actions.save(false)}
+          >
+            <Icon name="download" size={14} /> {outputBusy === 'Saving' ? 'Saving…' : 'Save'}
           </button>
           <button
             className="btn primary split"
@@ -330,6 +342,7 @@ export default function TopBar({
             aria-expanded={menu === 'export'}
             onClick={() => setMenu(menu === 'export' ? null : 'export')}
             aria-label="More export options"
+            disabled={Boolean(outputBusy)}
           >
             <Icon name="chevronDown" size={13} />
           </button>

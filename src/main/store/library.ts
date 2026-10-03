@@ -23,8 +23,9 @@ import {
 import { isPathInside, isRealPathInside } from './path-guard'
 import { clipDocument } from '../ipc/validation'
 import { atomicFileWrite } from './atomic-file'
-import { buildLibraryWorkbench } from '@shared/library-workbench'
+import { buildLibraryWorkbench, indexLibraryLineage } from '@shared/library-workbench'
 import { aspectLabel } from '@shared/recording-polish'
+import { matchesLibrarySearch, parseLibrarySearch } from '@shared/library-search'
 import {
   discoverLibraryFiles,
   loadLibraryIndex,
@@ -176,24 +177,47 @@ class LibraryStore extends EventEmitter {
   }
 
   async list(query: LibraryQuery = {}): Promise<LibraryItemView[]> {
-    let items = [...this.load()].sort((a, b) => b.createdAt - a.createdAt)
+    let items = [...this.load()]
 
     if (query.kind) items = items.filter((i) => i.kind === query.kind)
     if (query.favorite) items = items.filter((i) => i.favorite)
     if (query.tag) items = items.filter((i) => i.tags.includes(query.tag!))
 
     if (query.search?.trim()) {
-      // Every term must appear somewhere in the title, tags or OCR'd text.
-      const terms = query.search.toLowerCase().split(/\s+/).filter(Boolean)
-      items = items.filter((i) => {
-        const haystack = `${i.title} ${i.tags.join(' ')} ${searchableOcrText(i)}`.toLowerCase()
-        return terms.every((t) => haystack.includes(t))
-      })
+      const terms = parseLibrarySearch(query.search)
+      items = items.filter((i) =>
+        matchesLibrarySearch(`${i.title} ${i.tags.join(' ')} ${searchableOcrText(i)}`, terms)
+      )
     }
+
+    items.sort((a, b) => {
+      const order =
+        query.sort === 'oldest'
+          ? a.createdAt - b.createdAt
+          : query.sort === 'title'
+            ? a.title.localeCompare(b.title, undefined, { numeric: true, sensitivity: 'base' })
+            : query.sort === 'size'
+              ? b.byteSize - a.byteSize
+              : b.createdAt - a.createdAt
+      return order || a.id.localeCompare(b.id)
+    })
 
     const offset = query.offset ?? 0
     const limit = query.limit ?? 500
-    return Promise.all(items.slice(offset, offset + limit).map((item) => this.view(item)))
+    const lineage = indexLibraryLineage(this.load())
+    const checks = new Map<string, ReturnType<LibraryStore['inspectPath']>>()
+    const inspect = (path: string, project = false) => {
+      const key = `${project}:${path}`
+      let check = checks.get(key)
+      if (!check) {
+        check = this.inspectPath(path, project)
+        checks.set(key, check)
+      }
+      return check
+    }
+    return Promise.all(
+      items.slice(offset, offset + limit).map((item) => this.view(item, lineage, inspect))
+    )
   }
 
   get(id: string): LibraryItem | undefined {
@@ -646,49 +670,48 @@ class LibraryStore extends EventEmitter {
     }
   }
 
-  private async view(item: LibraryItem): Promise<LibraryItemView> {
-    const sourcePathState = await this.inspectPath(item.filePath)
+  private async view(
+    item: LibraryItem,
+    lineage: ReturnType<typeof indexLibraryLineage>,
+    inspect: (path: string, project?: boolean) => ReturnType<LibraryStore['inspectPath']>
+  ): Promise<LibraryItemView> {
+    const [sourcePathState, projectState, exportState] = await Promise.all([
+      inspect(item.filePath),
+      item.projectPath ? inspect(item.projectPath, true) : undefined,
+      item.exportPath ? inspect(item.exportPath) : undefined
+    ])
     const sourceState =
       sourcePathState === 'available' &&
       (item.byteSize <= 0 || (item.kind === 'image' && !item.thumbnail))
         ? ('incomplete' as const)
         : sourcePathState
-    const projectState = item.projectPath
-      ? await this.inspectPath(item.projectPath, true)
-      : undefined
-    const exportState = item.exportPath ? await this.inspectPath(item.exportPath) : undefined
-    const allItems = this.load()
-    const sourceItem = item.derivedFromId
-      ? allItems.find((candidate) => candidate.id === item.derivedFromId)
-      : undefined
+    const sourceItem = item.derivedFromId ? lineage.byId.get(item.derivedFromId) : undefined
     const lineageSource = item.derivedFromId
       ? {
-          state: sourceItem ? await this.inspectPath(sourceItem.filePath) : ('missing' as const),
+          state: sourceItem ? await inspect(sourceItem.filePath) : ('missing' as const),
           itemId: item.derivedFromId,
           title: sourceItem?.title ?? 'Source recording',
           label: sourceItem ? 'Source recording' : 'Source recording missing'
         }
       : undefined
     const derived = await Promise.all(
-      allItems
-        .filter((candidate) => candidate.derivedFromId === item.id)
-        .map(async (candidate) => {
-          const state = await this.inspectPath(candidate.filePath)
-          const framing = candidate.derivedAspect
-            ? aspectLabel(candidate.derivedAspect)
-            : 'Original framing'
-          return {
-            state,
-            itemId: candidate.id,
-            title: candidate.title,
-            label:
-              state === 'available'
-                ? `${framing} export`
-                : state === 'missing'
-                  ? `${framing} export missing or moved`
-                  : `${framing} export unreadable`
-          }
-        })
+      (lineage.derived.get(item.id) ?? []).map(async (candidate) => {
+        const state = await inspect(candidate.filePath)
+        const framing = candidate.derivedAspect
+          ? aspectLabel(candidate.derivedAspect)
+          : 'Original framing'
+        return {
+          state,
+          itemId: candidate.id,
+          title: candidate.title,
+          label:
+            state === 'available'
+              ? `${framing} export`
+              : state === 'missing'
+                ? `${framing} export missing or moved`
+                : `${framing} export unreadable`
+        }
+      })
     )
 
     return {

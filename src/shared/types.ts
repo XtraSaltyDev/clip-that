@@ -487,6 +487,7 @@ export interface LibraryHealth {
 
 export interface LibraryQuery {
   search?: string
+  sort?: 'newest' | 'oldest' | 'title' | 'size'
   tag?: string
   favorite?: boolean
   kind?: 'image' | 'video'

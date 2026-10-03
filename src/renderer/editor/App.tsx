@@ -29,6 +29,15 @@ function loadImageDataUrl(dataUrl: string): Promise<HTMLImageElement> {
   })
 }
 
+async function waitForEditorOutput(): Promise<void> {
+  const started = Date.now()
+  while (useEditor.getState().outputBusy) {
+    if (Date.now() - started > 30_000)
+      throw new Error('Finish the current save or export dialog, then try again.')
+    await new Promise((resolve) => setTimeout(resolve, 50))
+  }
+}
+
 export default function App(): React.ReactElement {
   const settings = useTheme()
   const doc = useEditor((s) => s.doc)
@@ -187,14 +196,24 @@ export default function App(): React.ReactElement {
     const off = api.editor.onDocument((incoming) => {
       const handoff = documentHandoff.current.then(async () => {
         if (!alive) return
+        try {
+          await waitForEditorOutput()
+        } catch (error) {
+          toast('error', 'Could not switch captures', (error as Error).message)
+          return
+        }
         const current = useEditor.getState()
         if (current.doc && current.doc.id !== incoming.id && current.dirty) {
           try {
             toast('info', 'Saving the current capture before opening the new one…')
             const rendered = await actions.render()
             if (!rendered) return
-            await actions.syncLibrary(rendered)
-            useEditor.getState().markSaved()
+            const saved = await actions.syncLibrary(rendered)
+            if (saved) useEditor.getState().markSaved(saved)
+            if (useEditor.getState().dirty)
+              throw new Error(
+                'The capture changed during saving. Open the new capture from the Library after saving these edits.'
+              )
           } catch (error) {
             toast('error', 'Could not save the current Library item', (error as Error).message)
             return
@@ -226,13 +245,18 @@ export default function App(): React.ReactElement {
       closeSaving.current = true
       void (async () => {
         try {
+          await waitForEditorOutput()
           await videoDraftFlush.current?.()
           const current = useEditor.getState()
           if (current.dirty) {
             const rendered = await actions.render()
             if (!rendered) throw new Error('The edited image could not be rendered')
-            await actions.syncLibrary(rendered)
-            useEditor.getState().markSaved()
+            const saved = await actions.syncLibrary(rendered)
+            if (saved) useEditor.getState().markSaved(saved)
+            if (useEditor.getState().dirty)
+              throw new Error(
+                'Newer edits still need saving. Try closing again when editing is complete.'
+              )
           }
           await api.editor.confirmClose(true)
         } catch (error) {
@@ -435,6 +459,10 @@ export default function App(): React.ReactElement {
   }, [setDoc, settings])
 
   const openLibraryItem = async (item: LibraryItem): Promise<void> => {
+    if (useEditor.getState().outputBusy) {
+      toast('info', 'Finish the current save or export before switching captures')
+      return
+    }
     const activeId = videoItem?.id ?? useEditor.getState().libraryId
     if (openingLibraryId || item.id === activeId) return
     setOpeningLibraryId(item.id)
@@ -444,8 +472,12 @@ export default function App(): React.ReactElement {
         if (current.dirty) {
           const rendered = await actions.render()
           if (!rendered) return
-          await actions.syncLibrary(rendered)
-          current.markSaved()
+          const saved = await actions.syncLibrary(rendered)
+          if (saved) current.markSaved(saved)
+          if (useEditor.getState().dirty)
+            throw new Error(
+              'The capture changed during saving. Save the latest edits before switching.'
+            )
         }
         const opened = await api.editor.switchLibraryItem(item.id)
         if (!opened) toast('error', 'Could not open that recording')
@@ -456,8 +488,12 @@ export default function App(): React.ReactElement {
       if (current.dirty) {
         const rendered = await actions.render()
         if (!rendered) return
-        await actions.syncLibrary(rendered)
-        useEditor.getState().markSaved()
+        const saved = await actions.syncLibrary(rendered)
+        if (saved) useEditor.getState().markSaved(saved)
+        if (useEditor.getState().dirty)
+          throw new Error(
+            'The capture changed during saving. Save the latest edits before switching.'
+          )
       }
 
       const opened = await api.editor.switchLibraryItem(item.id)

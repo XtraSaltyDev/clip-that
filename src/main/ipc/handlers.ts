@@ -332,8 +332,12 @@ export function registerIpcHandlers(): void {
 
   /* ---------------- export ---------------- */
 
-  secureHandle(IPC.saveImage, ['editor'], async (_e, req: SaveImageRequest) =>
-    saveImage(validate.saveImageRequest(req))
+  secureHandle(IPC.saveImage, ['editor', 'library'], async (e, req: SaveImageRequest) =>
+    saveImage(
+      rendererRole(e) === 'library'
+        ? validate.comparisonExportRequest(req)
+        : validate.saveImageRequest(req)
+    )
   )
   secureHandle(IPC.copyImage, ['editor', 'library'], (_e, dataUrl: string) =>
     copyImageToClipboard(validate.imageDataUrl(dataUrl))

@@ -16,6 +16,8 @@ import {
   toast,
   useTheme
 } from '../shared/ui'
+import { useHotkeys } from '../shared/ui'
+import CommandPalette from '../shared/CommandPalette'
 import './settings.css'
 
 type SectionId =
@@ -31,6 +33,18 @@ const SECTIONS: Array<{ id: SectionId; label: string; icon: IconName }> = [
   { id: 'whats-new', label: "What's New", icon: 'sparkles' }
 ]
 
+const SECTION_KEYWORDS: Record<SectionId, string> = {
+  welcome: 'setup permissions screen microphone camera onboarding',
+  general:
+    'appearance theme dark light accent save folder directory image format jpeg quality startup launch login library update',
+  capture:
+    'clipboard cursor delay scroll scrolling pipeline ocr text recognition recording webcam audio fps',
+  hotkeys: 'keyboard shortcuts accelerators key bindings global',
+  annotation: 'drawing colour color stroke font canvas preset style beautify background padding',
+  about: 'version updates diagnostics support licenses privacy',
+  'whats-new': 'release notes changes history'
+}
+
 export default function App(): React.ReactElement {
   useTheme()
   const mainRef = useRef<HTMLElement>(null)
@@ -44,9 +58,11 @@ export default function App(): React.ReactElement {
   const [version, setVersion] = useState('')
   const [releaseNotes, setReleaseNotes] = useState<ReleaseNotesStatus | null>(null)
   const [failures, setFailures] = useState<Array<{ action: string; accelerator: string }>>([])
+  const [paletteOpen, setPaletteOpen] = useState(false)
   const [section, setSection] = useState<SectionId>(
-    (window.location.hash.replace('#', '') as SectionId) || 'general'
+    SECTIONS.find((item) => item.id === window.location.hash.slice(1))?.id ?? 'general'
   )
+  useHotkeys({ 'mod+k': () => setPaletteOpen((open) => !open) })
 
   const load = useCallback(async () => {
     try {
@@ -63,8 +79,13 @@ export default function App(): React.ReactElement {
 
   useEffect(() => {
     void load()
-    void api.releaseNotes.get().then(setReleaseNotes)
-    const offNavigate = api.settings.onNavigate((s) => setSection(s as SectionId))
+    void api.releaseNotes
+      .get()
+      .then(setReleaseNotes)
+      .catch(() => {})
+    const offNavigate = api.settings.onNavigate((s) => {
+      if (SECTIONS.some((item) => item.id === s)) setSection(s as SectionId)
+    })
     const offReleaseNotes = api.releaseNotes.onChanged(setReleaseNotes)
     const offSettings = api.settings.onChanged((next) => {
       if (completed.current === revision.current) setSettings(next)
@@ -79,9 +100,12 @@ export default function App(): React.ReactElement {
   useEffect(() => {
     if (section !== 'whats-new') return
     let active = true
-    void api.releaseNotes.markSeen().then((next) => {
-      if (active) setReleaseNotes(next)
-    })
+    void api.releaseNotes
+      .markSeen()
+      .then((next) => {
+        if (active) setReleaseNotes(next)
+      })
+      .catch(() => {})
     return () => {
       active = false
     }
@@ -159,6 +183,9 @@ export default function App(): React.ReactElement {
           </span>
           ClipThat
         </div>
+        <button className="btn ghost set-search no-drag" onClick={() => setPaletteOpen(true)}>
+          <Icon name="search" size={14} /> Find a setting <span className="kbd">{MOD_KEY}K</span>
+        </button>
         <div className="no-drag">
           {SECTIONS.map((s) => (
             <button
@@ -202,6 +229,19 @@ export default function App(): React.ReactElement {
       </main>
 
       <ToastHost />
+      <CommandPalette
+        open={paletteOpen}
+        onClose={() => setPaletteOpen(false)}
+        placeholder="Find theme, shortcuts, OCR, recording…"
+        commands={SECTIONS.map((item) => ({
+          id: `settings.${item.id}`,
+          title: item.label,
+          group: 'Settings',
+          icon: item.icon,
+          keywords: SECTION_KEYWORDS[item.id],
+          run: () => setSection(item.id)
+        }))}
+      />
     </div>
   )
 }

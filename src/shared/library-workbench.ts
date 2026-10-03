@@ -1,5 +1,19 @@
 import type { LibraryItem, LibraryWorkbench } from './types'
 
+/** Build once per page request, rather than rescanning the entire Library for every card. */
+export function indexLibraryLineage(items: readonly LibraryItem[]) {
+  const byId = new Map<string, LibraryItem>()
+  const derived = new Map<string, LibraryItem[]>()
+  for (const item of items) {
+    byId.set(item.id, item)
+    if (!item.derivedFromId) continue
+    const children = derived.get(item.derivedFromId) ?? []
+    children.push(item)
+    derived.set(item.derivedFromId, children)
+  }
+  return { byId, derived }
+}
+
 export type LibraryPathState = 'available' | 'missing' | 'unreadable' | 'incomplete'
 
 export interface LibraryLineageLink {
