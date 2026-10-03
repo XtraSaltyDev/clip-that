@@ -1,0 +1,11 @@
+blank_issues_enabled: true
+contact_links:
+  - name: Questions and feedback
+    url: https://github.com/XtraSaltyDev/clip-that/discussions
+    about: Ask how to use ClipThat or discuss an idea before opening a focused issue.
+  - name: Security reporting
+    url: https://github.com/XtraSaltyDev/clip-that/security/policy
+    about: Read the reporting instructions before sharing vulnerability details or private data.
+  - name: Download ClipThat
+    url: https://github.com/XtraSaltyDev/clip-that/releases/latest
+    about: Get the macOS Apple-silicon app and read the release notes.

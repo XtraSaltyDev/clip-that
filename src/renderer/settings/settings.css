@@ -415,3 +415,10 @@ body.mac .set-side {
     margin-left: auto;
   }
 }
+.set-search {
+  width: calc(100% - 16px);
+  margin: 0 8px 12px;
+  justify-content: flex-start;
+  font-size: 11px;
+  flex-wrap: wrap;
+}

@@ -556,9 +556,17 @@ export function saveImageRequest(value: unknown): SaveImageRequest {
 
 export function libraryQuery(value: unknown): LibraryQuery {
   const input = value === undefined ? {} : record(value, 'library query')
-  rejectUnknown(input, ['search', 'tag', 'favorite', 'kind', 'limit', 'offset'], 'library query')
+  rejectUnknown(
+    input,
+    ['search', 'sort', 'tag', 'favorite', 'kind', 'limit', 'offset'],
+    'library query'
+  )
   return {
     search: optionalString(input.search, 'search', 1_000),
+    sort:
+      input.sort === undefined
+        ? undefined
+        : enumValue(input.sort, 'library sort', ['newest', 'oldest', 'title', 'size'] as const),
     tag: optionalString(input.tag, 'tag', 120),
     favorite: input.favorite === undefined ? undefined : booleanValue(input.favorite, 'favorite'),
     kind:
@@ -568,6 +576,21 @@ export function libraryQuery(value: unknown): LibraryQuery {
     limit: input.limit === undefined ? undefined : finite(input.limit, 'limit', 0, 1_000),
     offset: input.offset === undefined ? undefined : finite(input.offset, 'offset', 0, 10_000_000)
   }
+}
+
+/** Library comparison exports always use a dialog and cannot overwrite an internal asset. */
+export function comparisonExportRequest(value: unknown): SaveImageRequest {
+  const request = saveImageRequest(value)
+  if (
+    request.format !== 'png' ||
+    request.saveAs !== true ||
+    request.targetPath !== undefined ||
+    request.project !== undefined
+  )
+    throw new TypeError(
+      'Comparison exports require a new PNG destination chosen in the save dialog'
+    )
+  return request
 }
 
 export function libraryPatch(value: unknown): LibraryItemPatch {

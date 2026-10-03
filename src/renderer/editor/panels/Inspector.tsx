@@ -1,16 +1,11 @@
 import React, { useState } from 'react'
-import type {
-  ArrowShape,
-  BoxShape,
-  CanvasStyle,
-  Shape,
-  StepShape,
-  TextShape
-} from '@shared/types'
+import type { ArrowShape, BoxShape, CanvasStyle, Shape, StepShape, TextShape } from '@shared/types'
 import { BEAUTIFY_CANVAS, DEFAULT_CANVAS } from '@shared/defaults'
 import { ColorPicker, Segmented, Slider, Toggle } from '../../shared/ui'
 import { Icon } from '../../shared/icons'
 import { useEditor } from '../store'
+import { arrangeAnnotations, type ArrangeAction } from '@shared/annotation-layout'
+import { annotationPaintedBounds } from '../canvas/annotation-bounds'
 
 type SectionKey = 'style' | 'canvas' | 'info'
 
@@ -82,7 +77,7 @@ function Section(props: {
 }): React.ReactElement {
   return (
     <section className={`insp-section ${props.open ? 'open' : ''}`}>
-      <button className="insp-head" onClick={props.onToggle}>
+      <button className="insp-head" aria-expanded={props.open} onClick={props.onToggle}>
         <Icon name={props.icon} size={14} />
         <span>{props.title}</span>
         <span className="spacer" />
@@ -165,7 +160,11 @@ function DefaultStyle({
         onChange={(fillEnabled) => setStyle({ fillEnabled })}
       />
       <Toggle label="Dashed" checked={style.dashed} onChange={(dashed) => setStyle({ dashed })} />
-      <Toggle label="Drop shadow" checked={style.shadow} onChange={(shadow) => setStyle({ shadow })} />
+      <Toggle
+        label="Drop shadow"
+        checked={style.shadow}
+        onChange={(shadow) => setStyle({ shadow })}
+      />
       <p className="tiny muted" style={{ margin: '8px 0 0' }}>
         These apply to the next shape you draw. Select an existing shape to restyle it.
       </p>
@@ -431,7 +430,10 @@ function ShapeStyle({ shape }: { shape: Shape }): React.ReactElement {
           onChange={(on) =>
             patch({
               dash: on
-                ? [(shape as { strokeWidth: number }).strokeWidth * 3, (shape as { strokeWidth: number }).strokeWidth * 2]
+                ? [
+                    (shape as { strokeWidth: number }).strokeWidth * 3,
+                    (shape as { strokeWidth: number }).strokeWidth * 2
+                  ]
                 : undefined
             } as Partial<Shape>)
           }
@@ -499,10 +501,20 @@ function ShapeStyle({ shape }: { shape: Shape }): React.ReactElement {
       <div className="divider" />
 
       <div className="row" style={{ gap: 4 }}>
-        <button className="btn sm ghost tip" data-tip="Bring to front" aria-label="Bring to front" onClick={() => reorder(shape.id, 'front')}>
+        <button
+          className="btn sm ghost tip"
+          data-tip="Bring to front"
+          aria-label="Bring to front"
+          onClick={() => reorder(shape.id, 'front')}
+        >
           <Icon name="chevronDown" size={13} style={{ transform: 'rotate(180deg)' }} />
         </button>
-        <button className="btn sm ghost tip" data-tip="Send to back" aria-label="Send to back" onClick={() => reorder(shape.id, 'back')}>
+        <button
+          className="btn sm ghost tip"
+          data-tip="Send to back"
+          aria-label="Send to back"
+          onClick={() => reorder(shape.id, 'back')}
+        >
           <Icon name="chevronDown" size={13} />
         </button>
         <button
@@ -516,7 +528,11 @@ function ShapeStyle({ shape }: { shape: Shape }): React.ReactElement {
           {shape.locked ? 'Locked' : 'Lock'}
         </button>
         <span className="spacer" />
-        <button className="btn sm danger" aria-label="Delete annotation" onClick={() => removeShapes([shape.id])}>
+        <button
+          className="btn sm danger"
+          aria-label="Delete annotation"
+          onClick={() => removeShapes([shape.id])}
+        >
           <Icon name="trash" size={13} />
         </button>
       </div>
@@ -530,6 +546,7 @@ function MultiSelection({ shapes }: { shapes: Shape[] }): React.ReactElement {
   const applyColour = (color: string) => {
     const patch: Record<string, Partial<Shape>> = {}
     for (const s of shapes) {
+      if (s.locked || s.hidden) continue
       patch[s.id] =
         s.type === 'text' || s.type === 'callout'
           ? ({ color } as Partial<Shape>)
@@ -538,6 +555,33 @@ function MultiSelection({ shapes }: { shapes: Shape[] }): React.ReactElement {
             : ({ stroke: color } as Partial<Shape>)
     }
     updateShapes(patch)
+  }
+
+  const movable = shapes.filter((shape) => !shape.locked && !shape.hidden)
+  const arrange = (action: ArrangeAction) => {
+    const bounds = Object.fromEntries(
+      shapes.flatMap((shape) => {
+        const bound = annotationPaintedBounds(shape)
+        return bound
+          ? [
+              [
+                shape.id,
+                {
+                  x: bound.left,
+                  y: bound.top,
+                  width: bound.right - bound.left,
+                  height: bound.bottom - bound.top
+                }
+              ]
+            ]
+          : []
+      })
+    )
+    const patch = arrangeAnnotations(shapes, bounds, action)
+    if (Object.keys(patch).length === 0) return
+    begin()
+    updateShapes(patch)
+    end()
   }
 
   return (
@@ -553,6 +597,47 @@ function MultiSelection({ shapes }: { shapes: Shape[] }): React.ReactElement {
           onChange={applyColour}
         />
       </Row>
+      <div className="annotation-arrange" role="group" aria-label="Align selected annotations">
+        {(
+          [
+            ['left', 'Left'],
+            ['center', 'Centre'],
+            ['right', 'Right'],
+            ['top', 'Top'],
+            ['middle', 'Middle'],
+            ['bottom', 'Bottom']
+          ] as const
+        ).map(([action, label]) => (
+          <button
+            key={action}
+            className="btn sm"
+            disabled={movable.length < 2}
+            onClick={() => arrange(action)}
+            title={`Align ${label.toLowerCase()} edges or centres`}
+          >
+            {label}
+          </button>
+        ))}
+      </div>
+      <div className="row" role="group" aria-label="Distribute selected annotations">
+        <button
+          className="btn sm"
+          disabled={movable.length < 3}
+          onClick={() => arrange('horizontal')}
+        >
+          Space horizontally
+        </button>
+        <button
+          className="btn sm"
+          disabled={movable.length < 3}
+          onClick={() => arrange('vertical')}
+        >
+          Space vertically
+        </button>
+      </div>
+      {movable.length !== shapes.length && (
+        <p className="tiny muted">Hidden and locked annotations stay in place.</p>
+      )}
       <div className="divider" />
       <button className="btn sm danger" onClick={() => removeShapes(shapes.map((s) => s.id))}>
         <Icon name="trash" size={13} /> Delete all
@@ -580,16 +665,10 @@ function CanvasStyleEditor(): React.ReactElement {
   return (
     <>
       <div className="row" style={{ gap: 6 }}>
-        <button
-          className="btn sm primary"
-          onClick={() => changeCanvas(BEAUTIFY_CANVAS)}
-        >
+        <button className="btn sm primary" onClick={() => changeCanvas(BEAUTIFY_CANVAS)}>
           <Icon name="sparkles" size={13} /> Beautify
         </button>
-        <button
-          className="btn sm ghost"
-          onClick={() => changeCanvas(DEFAULT_CANVAS)}
-        >
+        <button className="btn sm ghost" onClick={() => changeCanvas(DEFAULT_CANVAS)}>
           Reset
         </button>
       </div>

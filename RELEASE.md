@@ -23,12 +23,16 @@ The log lives at `<userData>/logs/clipthat.log` (shown in Settings → About).
 ## macOS
 
 ```bash
-npm run install:mac      # build → sign → /Applications, keeps the TCC grant
+npm run build:ffmpeg:mac # prepare pinned media tools for a fresh checkout
+npm run install:mac      # build → sign → replace /Applications/ClipThat.app
 ```
 
 - **Signing is not optional.** Screen Recording permission is keyed to the code identity;
   an ad-hoc signed build loses the grant on every rebuild while System Settings still
   shows it as on. The script auto-detects a `Developer ID Application` certificate.
+  `install:mac` can quit a running copy and replaces the installed app. Its ad-hoc fallback
+  is for local development and does not establish release signing or notarization. Ordinary
+  contributors should use an isolated `npm run dev` profile from [CONTRIBUTING.md](CONTRIBUTING.md).
 - **Production release** (signing, notarization, stapling, and verification):
 
   ```bash
@@ -89,8 +93,10 @@ Configure these repository secrets before the first hosted release:
 | `APPLE_TEAM_ID`               | Apple Developer team identifier                            |
 
 Routine CI deliberately does not package desktop applications. It runs one capped Linux job for
-pull requests and pushes to `main`, skips documentation-only changes, cancels superseded runs, and
-runs lint, formatting, typechecking, unit tests, provenance checks, and the production bundle.
+pull requests and pushes to `main`, cancels superseded runs, and runs lint, formatting,
+typechecking, unit tests, provenance checks, and the production bundle. Documentation-only
+changes still report the protected branch's required `validate` status, but skip dependency
+installation and source checks.
 
 ## Unsigned Windows preview / unsupported Linux candidates
 
@@ -111,9 +117,10 @@ npm run build:linux      # AppImage, deb, rpm (unsigned development artifacts)
 ```
 
 **Windows and Linux are not supported release targets and have not been runtime-tested in this checkout.** The capture paths are written and typed
-(`desktopCapturer` on both; portal picker on Wayland; loopback system audio), and CI
-builds them, but before calling a Windows or Linux build releasable someone must run the
-end-to-end checklist below on real hardware.
+(`desktopCapturer` on both; portal picker on Wayland; loopback system audio). Routine CI
+checks the source bundle, and the manual Windows candidate workflow packages Windows; no Linux
+runtime acceptance is established by either workflow. Before calling a Windows or Linux build
+releasable someone must run the end-to-end checklist below on real hardware.
 
 ## Manual checklist before tagging
 

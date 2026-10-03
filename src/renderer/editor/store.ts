@@ -52,6 +52,8 @@ interface EditorState {
   zoom: number
   autoFit: boolean
   dirty: boolean
+  /** Serialize output actions and expose a readable status in the editor chrome. */
+  outputBusy: string | null
   past: Snapshot[]
   future: Snapshot[]
   /** Pending crop rectangle while the crop tool is active. */
@@ -118,7 +120,7 @@ interface EditorState {
 
   undo: () => void
   redo: () => void
-  markSaved: () => void
+  markSaved: (expected?: ClipDocument) => void
 
   nextStepIndex: () => number
   contentSize: () => { width: number; height: number }
@@ -189,6 +191,7 @@ export const useEditor = create<EditorState>((set, get) => ({
   zoom: 1,
   autoFit: true,
   dirty: false,
+  outputBusy: null,
   past: [],
   future: [],
   cropDraft: null,
@@ -357,11 +360,6 @@ export const useEditor = create<EditorState>((set, get) => ({
   updateShapes: (patch) =>
     set((s) => {
       if (!s.doc) return s
-      const geometryChanged = Object.values(patch).some((value) =>
-        Object.keys(value).some((key) =>
-          ['x', 'y', 'width', 'height', 'points', 'rotation', 'tail'].includes(key)
-        )
-      )
       return {
         doc: {
           ...s.doc,
@@ -369,7 +367,12 @@ export const useEditor = create<EditorState>((set, get) => ({
             patch[sh.id]
               ? (() => {
                   const next = { ...sh, ...patch[sh.id] } as Shape
-                  if (geometryChanged) delete next.clipRects
+                  if (
+                    Object.keys(patch[sh.id]).some((key) =>
+                      ['x', 'y', 'width', 'height', 'points', 'rotation', 'tail'].includes(key)
+                    )
+                  )
+                    delete next.clipRects
                   return next
                 })()
               : sh
@@ -598,7 +601,8 @@ export const useEditor = create<EditorState>((set, get) => ({
       }
     }),
 
-  markSaved: () => set({ dirty: false }),
+  markSaved: (expected) =>
+    set((state) => (expected && state.doc !== expected ? state : { dirty: false })),
 
   nextStepIndex: () => {
     const doc = get().doc

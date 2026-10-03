@@ -409,7 +409,7 @@ export default function Overlay(): React.ReactElement | null {
   /* ---------- commit / cancel ---------- */
 
   const commit = useCallback(() => {
-    if (!init || !box || box.w < 2 || box.h < 2) return
+    if (!init || !box || box.w < 2 || box.h < 2 || sceneBusy || editorBusy) return
     api.capture.submitSelection({
       displayId: init.snapshot.displayId,
       // Selection is in CSS pixels; the snapshot is native pixels.
@@ -422,7 +422,7 @@ export default function Overlay(): React.ReactElement | null {
       },
       mode: init.mode
     })
-  }, [box, init, scale])
+  }, [box, init, scale, sceneBusy, editorBusy])
 
   const cancel = useCallback(() => api.capture.cancel(), [])
 
@@ -475,6 +475,7 @@ export default function Overlay(): React.ReactElement | null {
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
+      if (e.defaultPrevented || e.isComposing) return
       if (e.key === 'Escape') {
         e.preventDefault()
         cancel()
@@ -720,7 +721,7 @@ export default function Overlay(): React.ReactElement | null {
             <Icon name="close" size={14} /> Cancel
           </button>
           <div className="ov-actions-sep" />
-          <button className="btn sm primary" onClick={commit}>
+          <button className="btn sm primary" disabled={sceneBusy || editorBusy} onClick={commit}>
             <Icon name={init.mode === 'scrolling' ? 'scroll' : 'check'} size={14} />
             {init.mode === 'scrolling' ? 'Start' : 'Capture'}
           </button>

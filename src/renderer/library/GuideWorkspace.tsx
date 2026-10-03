@@ -3,8 +3,10 @@ import type { CaptureMode, GuideDocument, GuideStep } from '@shared/types'
 import { moveGuideStep, renumberGuideSteps } from '@shared/guides'
 import { api } from '../shared/api'
 import { Icon } from '../shared/icons'
-import { toast, useEvent } from '../shared/ui'
+import { toast, useEvent, useHotkeys } from '../shared/ui'
 import { SaveQueue } from '../shared/save-queue'
+import ConfirmDialog from '../shared/ConfirmDialog'
+import { MOD_KEY } from '../shared/platform'
 
 type SaveState = 'Saved' | 'Saving' | 'Error'
 type GuideCaptureMode = Exclude<CaptureMode, 'scrolling'>
@@ -34,6 +36,7 @@ export default function GuideWorkspace(props: {
   )
   const onBack = useEvent(props.onBack)
   const [working, setWorking] = useState(false)
+  const [deleteOpen, setDeleteOpen] = useState(false)
   const workingRef = useRef(false)
 
   const flush = useCallback(async () => {
@@ -48,6 +51,8 @@ export default function GuideWorkspace(props: {
       return false
     }
   }, [])
+
+  useHotkeys({ 'mod+s': () => void flush() }, !working && !deleteOpen)
 
   const runAction = async (action: () => Promise<void>) => {
     if (workingRef.current) return
@@ -282,6 +287,7 @@ export default function GuideWorkspace(props: {
           className="guide-title"
           value={guide.title}
           aria-label="Guide title"
+          maxLength={240}
           disabled={working}
           onChange={(event) => updateGuide({ title: event.target.value })}
         />
@@ -289,6 +295,14 @@ export default function GuideWorkspace(props: {
           {saveState === 'Saved' && <Icon name="check" size={13} />}
           {saveState}
         </span>
+        <button
+          className="btn ghost sm"
+          disabled={working || saveState === 'Saved'}
+          title={`Save guide now · ${MOD_KEY}S`}
+          onClick={() => void flush()}
+        >
+          Save now
+        </button>
         {saveState === 'Error' && (
           <button className="btn sm" onClick={() => void flush()}>
             Retry save
@@ -517,19 +531,28 @@ export default function GuideWorkspace(props: {
             </button>
           </div>
         )}
-        <button
-          className="btn ghost danger"
-          disabled={working}
-          onClick={() =>
+        <button className="btn ghost danger" disabled={working} onClick={() => setDeleteOpen(true)}>
+          Delete guide
+        </button>
+      </footer>
+      {deleteOpen && (
+        <ConfirmDialog
+          title="Delete this guide?"
+          confirmLabel="Delete guide"
+          busy={working}
+          onCancel={() => setDeleteOpen(false)}
+          onConfirm={() =>
             void runAction(async () => {
-              if (!window.confirm(`Delete “${guide.title}”? This cannot be undone.`)) return
               if (await api.guides.remove(guide.id)) props.onDeleted()
             })
           }
         >
-          Delete guide
-        </button>
-      </footer>
+          <p>
+            “{guide.title}” and all {guide.steps.length} steps will be permanently removed. Exported
+            copies remain in their folders.
+          </p>
+        </ConfirmDialog>
+      )}
     </section>
   )
 }

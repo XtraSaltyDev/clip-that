@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import React, { lazy, Suspense, useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import type {
   AppUpdateStatus,
   LibraryHealth,
@@ -26,6 +26,13 @@ import {
 import CommandPalette, { type Command } from '../shared/CommandPalette'
 import { groupLibraryItems, libraryEmptyState, libraryGridColumns } from './layout'
 import GuideWorkspace from './GuideWorkspace'
+import { useDebouncedValue, useSurfacePreference } from '../shared/preferences'
+import ConfirmDialog from '../shared/ConfirmDialog'
+
+const CompareWorkspace = lazy(() => import('./CompareWorkspace'))
+const PAGE_SIZE = 120
+const VIEWS = ['grid', 'list'] as const
+const SORTS = ['newest', 'oldest', 'title', 'size'] as const
 import './library.css'
 
 type Filter = 'all' | 'image' | 'video' | 'favorite'
@@ -38,10 +45,19 @@ export default function App(): React.ReactElement {
   const [openGuideId, setOpenGuideId] = useState<string | null>(null)
   const [tags, setTags] = useState<string[]>([])
   const [search, setSearch] = useState('')
+  const settledSearch = useDebouncedValue(search)
   const [filter, setFilter] = useState<Filter>('all')
   const [tag, setTag] = useState<string | null>(null)
   const [selected, setSelected] = useState<string[]>([])
-  const [view, setView] = useState<'grid' | 'list'>('grid')
+  const [view, setView] = useSurfacePreference('library.view', VIEWS, 'grid')
+  const [sort, setSort] = useSurfacePreference('library.sort', SORTS, 'newest')
+  const [hasMore, setHasMore] = useState(false)
+  const [loadingMore, setLoadingMore] = useState(false)
+  const moreInFlight = useRef(false)
+  const [comparison, setComparison] = useState<[LibraryItem, LibraryItem] | null>(null)
+  const [deleteItems, setDeleteItems] = useState<LibraryItem[]>([])
+  const [deleting, setDeleting] = useState(false)
+  const deleteInFlight = useRef(false)
   const [loading, setLoading] = useState(true)
   const [loadError, setLoadError] = useState<string | null>(null)
   const [paletteOpen, setPaletteOpen] = useState(false)
@@ -61,19 +77,28 @@ export default function App(): React.ReactElement {
   const guideRequestId = useRef(0)
   const [mainRef, mainSize] = useSize<HTMLElement>()
 
-  const refresh = useCallback(async () => {
-    const request = ++requestId.current
-    const query = {
-      search: search.trim() || undefined,
+  const query = useMemo(
+    () => ({
+      search: settledSearch.trim() || undefined,
+      sort,
       kind: filter === 'image' || filter === 'video' ? filter : undefined,
       favorite: filter === 'favorite' || undefined,
-      tag: tag ?? undefined
-    }
+      tag: tag ?? undefined,
+      limit: PAGE_SIZE
+    }),
+    [settledSearch, sort, filter, tag]
+  )
+
+  const refresh = useCallback(async () => {
+    const request = ++requestId.current
+    setLoading(true)
     try {
       const [list, allTags] = await Promise.all([api.library.list(query), api.library.tags()])
       if (request !== requestId.current) return
       setItems(list)
-      setSelected((current) => current.filter((id) => list.some((item) => item.id === id)))
+      const ids = new Set(list.map((item) => item.id))
+      setSelected((current) => current.filter((id) => ids.has(id)))
+      setHasMore(list.length === PAGE_SIZE)
       setTags(allTags)
       setLoadError(null)
     } catch (error) {
@@ -82,7 +107,30 @@ export default function App(): React.ReactElement {
     } finally {
       if (request === requestId.current) setLoading(false)
     }
-  }, [search, filter, tag])
+  }, [query])
+
+  const loadMore = useCallback(async () => {
+    if (moreInFlight.current || loading || !hasMore) return
+    const request = requestId.current
+    moreInFlight.current = true
+    setLoadingMore(true)
+    try {
+      const page = await api.library.list({ ...query, offset: items.length })
+      if (request !== requestId.current) return
+      setItems((current) => {
+        const ids = new Set(current.map((item) => item.id))
+        return [...current, ...page.filter((item) => !ids.has(item.id))]
+      })
+      setHasMore(page.length === PAGE_SIZE)
+      setLoadError(null)
+    } catch (error) {
+      if (request === requestId.current)
+        toast('error', 'Could not load more captures', (error as Error).message)
+    } finally {
+      moreInFlight.current = false
+      setLoadingMore(false)
+    }
+  }, [query, items.length, loading, hasMore])
 
   useEffect(() => {
     void refresh()
@@ -96,23 +144,30 @@ export default function App(): React.ReactElement {
   const refreshGuides = useCallback(async () => {
     const request = ++guideRequestId.current
     try {
-      const next = await api.guides.list(showGuides ? search : '')
+      const next = await api.guides.list(showGuides ? settledSearch : '')
       if (request === guideRequestId.current) setGuides(next)
     } catch (error) {
       if (request === guideRequestId.current)
         toast('error', 'Could not load Guides', (error as Error).message)
     }
-  }, [search, showGuides])
+  }, [settledSearch, showGuides])
 
   useEffect(() => {
     void refreshGuides()
-    return api.guides.onChanged(() => void refreshGuides())
+    const off = api.guides.onChanged(() => void refreshGuides())
+    return () => {
+      guideRequestId.current++
+      off()
+    }
   }, [refreshGuides])
 
   useEffect(() => api.library.onSnagitProgress(setSnagitProgress), [])
 
   useEffect(() => {
-    void api.library.health().then(setHealth)
+    void api.library
+      .health()
+      .then(setHealth)
+      .catch((error) => toast('error', 'Could not check Library storage', (error as Error).message))
     return api.library.onIssue((next) => {
       setHealth(next)
       if (next.status !== 'ok') {
@@ -123,9 +178,12 @@ export default function App(): React.ReactElement {
 
   useEffect(() => {
     let active = true
-    void api.releaseNotes.get().then((status) => {
-      if (active) setReleaseNotes(status)
-    })
+    void api.releaseNotes
+      .get()
+      .then((status) => {
+        if (active) setReleaseNotes(status)
+      })
+      .catch(() => {})
     const unsubscribe = api.releaseNotes.onChanged((status) => {
       if (active) setReleaseNotes(status)
     })
@@ -256,23 +314,55 @@ export default function App(): React.ReactElement {
 
   // Captures arrive constantly, so a flat wall of thumbnails stops being navigable fast.
   // Day buckets give the library the shape of a timeline.
-  const groups = useMemo(() => groupLibraryItems(items), [items])
+  const groups = useMemo(
+    () =>
+      sort === 'title' || sort === 'size'
+        ? [{ label: sort === 'title' ? 'By title' : 'Largest first', items }]
+        : groupLibraryItems(items),
+    [items, sort]
+  )
+  const selectedSet = useMemo(() => new Set(selected), [selected])
+  const selectedItems = useMemo(
+    () => items.filter((item) => selectedSet.has(item.id)),
+    [items, selectedSet]
+  )
+  const comparable =
+    selectedItems.length === 2 &&
+    selectedItems.every(
+      (item) => item.kind === 'image' && item.workbench.source.state === 'available'
+    )
+  const compare = useCallback(() => {
+    if (!comparable) return
+    const pair = [...selectedItems].sort((a, b) => a.createdAt - b.createdAt)
+    setComparison([pair[0], pair[1]])
+  }, [comparable, selectedItems])
   const emptyState = libraryEmptyState(search, filter, tag ?? '')
   const actionableUpdate =
     update?.state === 'available' || update?.state === 'downloading' || update?.state === 'ready'
       ? update
       : null
 
-  const remove = useCallback(async () => {
+  const remove = useCallback(() => {
     if (selected.length === 0) return
+    setDeleteItems(items.filter((item) => selected.includes(item.id)))
+  }, [items, selected])
+
+  const confirmDelete = useCallback(async () => {
+    if (deleteItems.length === 0 || deleteInFlight.current) return
+    deleteInFlight.current = true
+    setDeleting(true)
     try {
-      await api.library.remove(selected)
+      await api.library.remove(deleteItems.map((item) => item.id))
       setSelected([])
-      toast('success', `Deleted ${selected.length} item${selected.length === 1 ? '' : 's'}`)
+      setDeleteItems([])
+      toast('success', `Deleted ${deleteItems.length} item${deleteItems.length === 1 ? '' : 's'}`)
     } catch (error) {
       toast('error', 'Could not delete the selected items', (error as Error).message)
+    } finally {
+      deleteInFlight.current = false
+      setDeleting(false)
     }
-  }, [selected])
+  }, [deleteItems])
 
   const copy = useCallback(async (item: LibraryItem) => {
     if (item.kind !== 'image') {
@@ -314,7 +404,10 @@ export default function App(): React.ReactElement {
   // Match the real responsive grid so up/down navigation remains stable with the inspector open.
   const perRow = view === 'list' ? 1 : libraryGridColumns(mainSize.width)
 
-  useHotkeys({ 'mod+k': () => setPaletteOpen((o) => !o) }, !openGuideId && !importOpen)
+  useHotkeys(
+    { 'mod+k': () => setPaletteOpen((o) => !o) },
+    !openGuideId && !importOpen && !comparison && !deleteItems.length
+  )
 
   useHotkeys(
     {
@@ -330,7 +423,7 @@ export default function App(): React.ReactElement {
       arrowup: () => step(-perRow),
       ' ': () => active && void api.library.open(active.id)
     },
-    !paletteOpen && !showGuides && !openGuideId && !importOpen
+    !paletteOpen && !showGuides && !openGuideId && !importOpen && !comparison && !deleteItems.length
   )
 
   const commands = useMemo<Command[]>(
@@ -500,6 +593,16 @@ export default function App(): React.ReactElement {
         }
       },
       {
+        id: 'item.compare',
+        title: 'Compare two captures',
+        hint: 'select two images in the Library',
+        group: 'Selection',
+        icon: 'layers',
+        keywords: 'before after difference diff changes wipe',
+        disabled: !comparable,
+        run: compare
+      },
+      {
         id: 'item.delete',
         title: 'Delete selection',
         group: 'Selection',
@@ -515,7 +618,7 @@ export default function App(): React.ReactElement {
         run: () => api.system.window('settings')
       }
     ],
-    [active, beginSnagitImport, copy, refresh, remove, selected.length, tags]
+    [active, beginSnagitImport, copy, refresh, remove, selected.length, tags, comparable, compare]
   )
 
   const toggleSelect = (id: string, e: React.MouseEvent) => {
@@ -539,6 +642,29 @@ export default function App(): React.ReactElement {
     } catch (error) {
       toast('error', 'Could not create a guide', (error as Error).message)
     }
+  }
+
+  if (comparison) {
+    return (
+      <>
+        <Suspense
+          fallback={
+            <div className="empty" role="status">
+              Opening comparison…
+            </div>
+          }
+        >
+          <CompareWorkspace
+            items={comparison}
+            onBack={() => {
+              setComparison(null)
+              requestAnimationFrame(() => searchRef.current?.focus())
+            }}
+          />
+        </Suspense>
+        <ToastHost />
+      </>
+    )
   }
 
   if (openGuideId) {
@@ -571,6 +697,10 @@ export default function App(): React.ReactElement {
           <input
             ref={searchRef}
             className="lib-search-input"
+            aria-label={showGuides ? 'Search guides' : 'Search the Library'}
+            title={
+              'Use words, "exact phrases", or -words to exclude. Search includes text inside captures.'
+            }
             placeholder={
               showGuides
                 ? 'Search guides and steps…'
@@ -591,6 +721,19 @@ export default function App(): React.ReactElement {
         </div>
         <div className="spacer" />
         <div className="lib-toolbar no-drag row">
+          {!showGuides && (
+            <select
+              className="field lib-sort"
+              aria-label="Sort captures"
+              value={sort}
+              onChange={(event) => setSort(event.target.value as typeof sort)}
+            >
+              <option value="newest">Newest first</option>
+              <option value="oldest">Oldest first</option>
+              <option value="title">Title A–Z</option>
+              <option value="size">Largest first</option>
+            </select>
+          )}
           {!showGuides && (
             <Segmented
               value={view}
@@ -775,7 +918,8 @@ export default function App(): React.ReactElement {
               `${guides.length} guide${guides.length === 1 ? '' : 's'}`
             ) : (
               <>
-                {items.length} item{items.length === 1 ? '' : 's'}
+                {items.length}
+                {hasMore ? '+' : ''} item{items.length === 1 ? '' : 's'} loaded
                 <br />
                 {formatBytes(items.reduce((sum, i) => sum + i.byteSize, 0))}
               </>
@@ -786,6 +930,7 @@ export default function App(): React.ReactElement {
         <main
           ref={mainRef}
           className={`lib-main ${view}`}
+          aria-busy={loading || loadingMore || search !== settledSearch}
           onMouseDown={(e) => {
             if (e.target === e.currentTarget) setSelected([])
           }}
@@ -797,6 +942,11 @@ export default function App(): React.ReactElement {
               <button className="btn ghost sm" onClick={() => void refresh()}>
                 Retry
               </button>
+            </div>
+          )}
+          {!showGuides && items.length > 0 && (loading || search !== settledSearch) && (
+            <div className="lib-query-status" role="status">
+              Updating results…
             </div>
           )}
           {showGuides ? (
@@ -870,7 +1020,7 @@ export default function App(): React.ReactElement {
                     key={item.id}
                     item={item}
                     view={view}
-                    selected={selected.includes(item.id)}
+                    selected={selectedSet.has(item.id)}
                     cardRef={(node) => {
                       if (node) cardRefs.current.set(item.id, node)
                       else cardRefs.current.delete(item.id)
@@ -884,6 +1034,18 @@ export default function App(): React.ReactElement {
                 ))}
               </React.Fragment>
             ))
+          )}
+          {!showGuides && hasMore && (
+            <div className="lib-more">
+              <button
+                className="btn"
+                disabled={loadingMore || loading || search !== settledSearch}
+                onClick={() => void loadMore()}
+              >
+                {loadingMore ? 'Loading…' : 'Load more captures'}
+              </button>
+              <span className="tiny muted">{items.length} loaded · more available</span>
+            </div>
           )}
         </main>
 
@@ -902,6 +1064,18 @@ export default function App(): React.ReactElement {
       {selected.length > 1 && (
         <div className="lib-selection">
           {selected.length} selected
+          <button
+            className="btn sm"
+            disabled={!comparable}
+            title={
+              comparable
+                ? 'Compare these two captures'
+                : 'Select exactly two available images to compare'
+            }
+            onClick={compare}
+          >
+            <Icon name="layers" size={13} /> Compare
+          </button>
           <button className="btn sm danger" onClick={() => void remove()}>
             <Icon name="trash" size={13} /> Delete
           </button>
@@ -917,6 +1091,29 @@ export default function App(): React.ReactElement {
         onClose={() => setPaletteOpen(false)}
         placeholder="Search captures, filters and actions…"
       />
+
+      {deleteItems.length > 0 && (
+        <ConfirmDialog
+          title={`Delete ${deleteItems.length === 1 ? 'this capture' : `${deleteItems.length} captures`}?`}
+          confirmLabel="Delete permanently"
+          busy={deleting}
+          onCancel={() => setDeleteItems([])}
+          onConfirm={() => void confirmDelete()}
+        >
+          <p>
+            This permanently removes these Library items, their capture files, and linked editable
+            projects. External exports remain in their folders.
+          </p>
+          <ul>
+            {deleteItems.slice(0, 10).map((item) => (
+              <li className="truncate" key={item.id}>
+                {item.title}
+              </li>
+            ))}
+          </ul>
+          {deleteItems.length > 10 && <p>And {deleteItems.length - 10} more.</p>}
+        </ConfirmDialog>
+      )}
 
       {snagitPreview && (
         <div className="snagit-scrim" role="presentation">

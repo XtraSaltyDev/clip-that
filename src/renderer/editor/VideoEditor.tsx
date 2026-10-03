@@ -19,36 +19,10 @@ import { api } from '../shared/api'
 import { Icon } from '../shared/icons'
 import { Segmented, ToastHost, formatBytes, formatDuration, toast } from '../shared/ui'
 import LibraryStrip from './panels/LibraryStrip'
+import { formatTimecode as timecode, parseTimecode } from '@shared/timecode'
 
 const FILMSTRIP_FRAMES = 10
 const MIN_TRIM_MS = 200
-
-function timecode(ms: number): string {
-  const tenths = Math.max(0, Math.round(ms / 100))
-  const hours = Math.floor(tenths / 36_000)
-  const minutes = Math.floor((tenths % 36_000) / 600)
-  const seconds = Math.floor((tenths % 600) / 10)
-  const decimal = tenths % 10
-  return `${hours ? `${String(hours).padStart(2, '0')}:` : ''}${String(minutes).padStart(2, '0')}:${String(seconds).padStart(2, '0')}.${decimal}`
-}
-
-function parseTimecode(value: string): number | null {
-  const parts = value.trim().split(':')
-  if (parts.length < 2 || parts.length > 3 || parts.some((part) => part.trim() === '')) return null
-  const seconds = Number(parts.at(-1))
-  const minutes = Number(parts.at(-2))
-  const hours = parts.length === 3 ? Number(parts[0]) : 0
-  if (
-    ![seconds, minutes, hours].every(Number.isFinite) ||
-    seconds < 0 ||
-    seconds >= 60 ||
-    minutes < 0 ||
-    minutes >= 60 ||
-    hours < 0
-  )
-    return null
-  return (hours * 3600 + minutes * 60 + seconds) * 1000
-}
 
 function itemTrim(item: LibraryItem, duration: number): [number, number] {
   const end = Math.max(0, duration || item.durationMs || 0)
@@ -193,7 +167,12 @@ export default function VideoEditor(props: {
   const [playbackError, setPlaybackError] = useState<string | null>(null)
   const [playingSelection, setPlayingSelection] = useState(false)
   const [loopSelection, setLoopSelection] = useState(false)
+  const [playbackRate, setPlaybackRate] = useState(1)
   const mediaUrl = api.library.fileUrl(item.filePath)
+
+  useEffect(() => {
+    if (videoRef.current) videoRef.current.playbackRate = playbackRate
+  }, [playbackRate])
 
   useEffect(() => {
     draftReady.current = false
@@ -519,6 +498,7 @@ export default function VideoEditor(props: {
               }}
               onLoadedMetadata={(event) => {
                 setPlaybackError(null)
+                event.currentTarget.playbackRate = playbackRate
                 const ms = Number.isFinite(event.currentTarget.duration)
                   ? event.currentTarget.duration * 1000
                   : (item.durationMs ?? 0)
@@ -550,6 +530,21 @@ export default function VideoEditor(props: {
             </div>
           )}
           <section className="video-trimmer" aria-label="Trim recording">
+            <label className="video-preview-speed tiny">
+              Preview speed{' '}
+              <select
+                className="field"
+                value={playbackRate}
+                onChange={(event) => setPlaybackRate(Number(event.target.value))}
+              >
+                {[0.5, 1, 1.5, 2, 3].map((speed) => (
+                  <option value={speed} key={speed}>
+                    {speed}×
+                  </option>
+                ))}
+              </select>
+              <span className="muted">Exports keep the original speed</span>
+            </label>
             <div className="video-trim-heading">
               <div>
                 <Icon name="scissors" size={14} />
@@ -652,11 +647,14 @@ export default function VideoEditor(props: {
                   key={`start-${Math.round(trim[0])}`}
                   className="video-timecode mono"
                   aria-label="Trim start timecode"
+                  title="Seconds, M:SS, or H:MM:SS; decimals are supported"
                   defaultValue={timecode(trim[0])}
                   onBlur={(event) => {
                     const value = parseTimecode(event.currentTarget.value)
-                    if (value === null) event.currentTarget.value = timecode(trim[0])
-                    else updateTrimPoint('start', value)
+                    if (value === null) {
+                      event.currentTarget.value = timecode(trim[0])
+                      toast('info', 'Use seconds, M:SS, or H:MM:SS for the trim time')
+                    } else updateTrimPoint('start', value)
                   }}
                   onKeyDown={(event) => {
                     if (event.key === 'Enter') event.currentTarget.blur()
@@ -685,11 +683,14 @@ export default function VideoEditor(props: {
                   key={`end-${Math.round(trim[1])}`}
                   className="video-timecode mono"
                   aria-label="Trim end timecode"
+                  title="Seconds, M:SS, or H:MM:SS; decimals are supported"
                   defaultValue={timecode(trim[1])}
                   onBlur={(event) => {
                     const value = parseTimecode(event.currentTarget.value)
-                    if (value === null) event.currentTarget.value = timecode(trim[1])
-                    else updateTrimPoint('end', value)
+                    if (value === null) {
+                      event.currentTarget.value = timecode(trim[1])
+                      toast('info', 'Use seconds, M:SS, or H:MM:SS for the trim time')
+                    } else updateTrimPoint('end', value)
                   }}
                   onKeyDown={(event) => {
                     if (event.key === 'Enter') event.currentTarget.blur()

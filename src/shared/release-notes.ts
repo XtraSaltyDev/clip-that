@@ -424,6 +424,30 @@ export const RELEASE_NOTES = [
         body: 'The window picker leaves out hidden windows that cannot be captured from the current desktop.'
       }
     ]
+  },
+  {
+    version: '0.1.24',
+    title: 'Compare captures and refine your workflow',
+    summary:
+      'Compare saved images, find captures more easily, and work with clearer editing and output controls.',
+    items: [
+      {
+        title: 'Compare two saved captures',
+        body: 'Select two Library images to review a wipe, overlay, or pixel difference, adjust tolerance, inspect changed regions, and export a PNG comparison report.'
+      },
+      {
+        title: 'Find and browse more of your Library',
+        body: 'Search quoted phrases and exclude terms, sort captures, load more results, and keep your preferred grid or list view between sessions.'
+      },
+      {
+        title: 'Arrange annotations and protect newer edits',
+        body: 'Align and distribute selected annotations while locked and hidden layers stay in place. Output actions avoid duplicate operations, and finishing a save preserves newer unsaved edits.'
+      },
+      {
+        title: 'More convenient review and settings',
+        body: 'Enter precise recording trim times, adjust preview speed, save guide edits explicitly, find Settings sections from search, and review named items before deletion.'
+      }
+    ]
   }
 ] as const satisfies readonly ReleaseNotes[]
 

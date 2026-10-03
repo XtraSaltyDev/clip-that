@@ -1,0 +1,231 @@
+.compare-workspace {
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+  background: var(--bg-0);
+}
+.compare-top {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px;
+  min-height: 60px;
+  padding: 12px;
+  border-bottom: 1px solid var(--line);
+  background: var(--bg-1);
+}
+body.mac .compare-top {
+  padding-left: 82px;
+}
+.compare-local {
+  color: var(--ink-2);
+}
+.compare-controls {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  align-items: center;
+  padding: 12px;
+  border-bottom: 1px solid var(--line);
+}
+.compare-layout {
+  flex: 1;
+  min-height: 0;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 264px;
+}
+.compare-main {
+  min-width: 0;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  padding: 16px;
+  gap: 12px;
+}
+.compare-labels {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 16px;
+}
+.compare-labels > div {
+  min-width: 0;
+  display: grid;
+  gap: 4px;
+}
+.compare-labels span {
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: var(--ink-2);
+}
+.compare-labels small {
+  color: var(--ink-2);
+}
+.compare-stage {
+  flex: 1;
+  min-height: 100px;
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  overflow: auto;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-lg);
+  background-color: var(--bg-2);
+  background-image:
+    linear-gradient(45deg, var(--bg-3) 25%, transparent 25%),
+    linear-gradient(-45deg, var(--bg-3) 25%, transparent 25%),
+    linear-gradient(45deg, transparent 75%, var(--bg-3) 75%),
+    linear-gradient(-45deg, transparent 75%, var(--bg-3) 75%);
+  background-size: 20px 20px;
+  background-position:
+    0 0,
+    0 10px,
+    10px -10px,
+    -10px 0;
+}
+.compare-stage canvas {
+  display: block;
+  max-width: 100%;
+  max-height: 100%;
+  object-fit: contain;
+  touch-action: none;
+}
+.compare-stage.actual {
+  display: block;
+}
+.compare-stage.actual canvas {
+  max-width: none;
+  max-height: none;
+}
+.compare-slider {
+  display: flex;
+  gap: 12px;
+  align-items: center;
+  font-size: 12px;
+}
+.compare-slider input {
+  flex: 1;
+  min-width: 60px;
+  accent-color: var(--accent);
+}
+.compare-slider output {
+  min-width: 36px;
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+}
+.compare-note {
+  margin: 0;
+  font-size: 11px;
+  color: var(--ink-2);
+  line-height: 1.5;
+}
+.compare-summary {
+  min-height: 0;
+  overflow: auto;
+  border-left: 1px solid var(--line);
+  padding: 16px;
+  background: var(--bg-1);
+}
+.compare-summary-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.compare-percent {
+  font-size: 40px;
+  font-weight: 650;
+  margin-top: 16px;
+  font-variant-numeric: tabular-nums;
+  letter-spacing: -0.04em;
+  color: var(--ink-0);
+}
+.compare-tolerance {
+  display: grid;
+  gap: 8px;
+  margin: 24px 0;
+}
+.compare-tolerance > span {
+  display: flex;
+  justify-content: space-between;
+}
+.compare-tolerance input {
+  width: 100%;
+  accent-color: var(--accent);
+}
+.compare-tolerance small {
+  font-size: 11px;
+  color: var(--ink-2);
+  line-height: 1.5;
+}
+.compare-region-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+.compare-regions {
+  margin: 12px 0 0;
+  padding: 0;
+  list-style: none;
+  display: grid;
+  gap: 8px;
+}
+.compare-region {
+  display: grid;
+  grid-template-columns: 1fr auto;
+  gap: 4px;
+  text-align: left;
+  width: 100%;
+  padding: 8px;
+  border: 1px solid var(--line);
+  background: var(--bg-2);
+  border-radius: var(--radius);
+}
+.compare-region.active {
+  border-color: var(--accent);
+  background: color-mix(in srgb, var(--accent) 12%, var(--bg-2));
+}
+.compare-region span,
+.compare-region small {
+  font-size: 11px;
+  color: var(--ink-2);
+}
+.compare-region small {
+  grid-column: 1 / -1;
+}
+.compare-error {
+  color: var(--danger);
+  font-size: 12px;
+}
+@media (max-width: 850px) {
+  .compare-layout {
+    grid-template-columns: minmax(0, 1fr) 224px;
+  }
+  .compare-main {
+    padding: 12px;
+  }
+  .compare-local {
+    display: none;
+  }
+}
+@media (max-width: 620px) {
+  .compare-layout {
+    display: flex;
+    flex-direction: column;
+    overflow: auto;
+  }
+  .compare-main {
+    flex: none;
+    min-height: 400px;
+  }
+  .compare-stage {
+    height: 250px;
+    flex: none;
+  }
+  .compare-summary {
+    overflow: visible;
+    border-left: 0;
+    border-top: 1px solid var(--line);
+  }
+}
