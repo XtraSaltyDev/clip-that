@@ -428,6 +428,8 @@ export interface LibraryItem {
   contentHash?: string
   /** Set when startup recovery rebuilt this record from an on-disk capture. */
   recovered?: boolean
+  /** Main-owned Trash marker. Files and metadata stay intact until explicit permanent deletion. */
+  deletedAt?: number
 }
 
 export type LibraryWorkbenchState =
@@ -486,6 +488,7 @@ export interface LibraryHealth {
 }
 
 export interface LibraryQuery {
+  trashed?: boolean
   search?: string
   sort?: 'newest' | 'oldest' | 'title' | 'size'
   tag?: string

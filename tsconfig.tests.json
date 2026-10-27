@@ -24,6 +24,7 @@
     "src/main/recording/ffmpeg-errors.ts",
     "src/main/recording/state.ts",
     "src/main/store/library-index.ts",
+    "src/main/store/library-trash.ts",
     "src/main/store/library-ocr.ts",
     "src/main/store/path-guard.ts",
     "src/main/store/guide-files.ts",

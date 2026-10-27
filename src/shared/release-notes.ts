@@ -448,6 +448,26 @@ export const RELEASE_NOTES = [
         body: 'Enter precise recording trim times, adjust preview speed, save guide edits explicitly, find Settings sections from search, and review named items before deletion.'
       }
     ]
+  },
+  {
+    version: '0.1.25',
+    title: 'A second chance for deleted captures',
+    summary:
+      'Library Trash keeps deleted captures and editable projects recoverable until you choose to remove them permanently.',
+    items: [
+      {
+        title: 'Move captures to Trash',
+        body: 'Deleting Library images or recordings now moves them to a persistent Trash. Capture files, editable projects, tags, favourites, text indexes and recording edit drafts stay together.'
+      },
+      {
+        title: 'Search and restore deleted work',
+        body: 'Open Trash from the Library sidebar or command palette, search deleted captures, select a batch and restore them to the Library with their original dates and metadata.'
+      },
+      {
+        title: 'Choose when to delete permanently',
+        body: 'Review named Trash items before permanently deleting their internal files. External exports remain in their folders. Interrupted deletions stay in Trash so they can be retried.'
+      }
+    ]
   }
 ] as const satisfies readonly ReleaseNotes[]
 

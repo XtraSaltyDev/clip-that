@@ -51,6 +51,8 @@ export const IPC = {
   libraryAdd: 'library:add',
   libraryUpdate: 'library:update',
   libraryDelete: 'library:delete',
+  libraryRestore: 'library:restore',
+  libraryPurge: 'library:purge',
   libraryOpen: 'library:open',
   libraryTags: 'library:tags',
   libraryChanged: 'library:changed',

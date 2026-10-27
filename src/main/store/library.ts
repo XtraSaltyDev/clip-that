@@ -40,6 +40,8 @@ import {
   withTrustedOcr
 } from './library-ocr'
 
+import { isTrashed, LibraryTrash } from './library-trash'
+
 const THUMB_MAX = 480
 
 interface AddImageInput {
@@ -85,6 +87,20 @@ class LibraryStore extends EventEmitter {
   private startupHealth: LibraryHealth | null = null
   private runtimeHealth: LibraryHealth | null = null
   private initialized = false
+  private imageWrites = new Set<string>()
+  private trashStore(): LibraryTrash {
+    return (this.trash ??= new LibraryTrash(
+      () => this.load(),
+      (items) => this.commit(items),
+      {
+        captures: capturesDir(),
+        recordings: recordingsDir(),
+        projects: projectsDir(),
+        thumbs: thumbsDir()
+      }
+    ))
+  }
+  private trash: LibraryTrash | undefined
 
   private load(): LibraryItem[] {
     if (this.items) return this.items
@@ -177,7 +193,7 @@ class LibraryStore extends EventEmitter {
   }
 
   async list(query: LibraryQuery = {}): Promise<LibraryItemView[]> {
-    let items = [...this.load()]
+    let items = this.load().filter((item) => isTrashed(item) === Boolean(query.trashed))
 
     if (query.kind) items = items.filter((i) => i.kind === query.kind)
     if (query.favorite) items = items.filter((i) => i.favorite)
@@ -191,20 +207,22 @@ class LibraryStore extends EventEmitter {
     }
 
     items.sort((a, b) => {
+      const aTime = query.trashed ? a.deletedAt! : a.createdAt
+      const bTime = query.trashed ? b.deletedAt! : b.createdAt
       const order =
         query.sort === 'oldest'
-          ? a.createdAt - b.createdAt
+          ? aTime - bTime
           : query.sort === 'title'
             ? a.title.localeCompare(b.title, undefined, { numeric: true, sensitivity: 'base' })
             : query.sort === 'size'
               ? b.byteSize - a.byteSize
-              : b.createdAt - a.createdAt
+              : bTime - aTime
       return order || a.id.localeCompare(b.id)
     })
 
     const offset = query.offset ?? 0
     const limit = query.limit ?? 500
-    const lineage = indexLibraryLineage(this.load())
+    const lineage = indexLibraryLineage(this.load().filter((item) => !isTrashed(item)))
     const checks = new Map<string, ReturnType<LibraryStore['inspectPath']>>()
     const inspect = (path: string, project = false) => {
       const key = `${project}:${path}`
@@ -221,7 +239,7 @@ class LibraryStore extends EventEmitter {
   }
 
   get(id: string): LibraryItem | undefined {
-    return this.load().find((i) => i.id === id)
+    return this.load().find((i) => i.id === id && !isTrashed(i))
   }
 
   contentHashes(): Set<string> {
@@ -233,7 +251,11 @@ class LibraryStore extends EventEmitter {
   }
 
   ocrUpgradeBatch(limit: number, excludedIds: ReadonlySet<string> = new Set()): LibraryItem[] {
-    return nextOcrUpgradeBatch(this.load(), limit, excludedIds)
+    return nextOcrUpgradeBatch(
+      this.load().filter((item) => !isTrashed(item)),
+      limit,
+      excludedIds
+    )
   }
 
   updateOcrIndex(id: string, text: string): LibraryItem | undefined {
@@ -246,7 +268,7 @@ class LibraryStore extends EventEmitter {
 
   allTags(): string[] {
     const set = new Set<string>()
-    for (const i of this.load()) for (const t of i.tags) set.add(t)
+    for (const i of this.load()) if (!isTrashed(i)) for (const t of i.tags) set.add(t)
     return [...set].sort()
   }
 
@@ -414,26 +436,56 @@ class LibraryStore extends EventEmitter {
     ocrText?: string
   ): Promise<LibraryItem | undefined> {
     const current = this.get(id)
-    if (!current) return undefined
-    const image = nativeImage.createFromDataURL(dataUrl)
-    await atomicFileWrite(current.filePath, image.toPNG())
-    const item = { ...current }
-    if (project) {
-      item.projectPath ??= join(projectsDir(), `${id}.clipthat`)
-      await atomicFileWrite(item.projectPath, JSON.stringify(project))
+    if (!current) {
+      if (this.load().some((item) => item.id === id && isTrashed(item)))
+        throw new Error('This capture is in Trash. Restore it before saving again.')
+      return undefined
     }
-    item.thumbnail = await this.writeThumb(id, image)
-    const size = image.getSize()
-    item.width = size.width
-    item.height = size.height
-    item.updatedAt = Date.now()
-    if (ocrText !== undefined) item.ocrText = ocrText
-    delete item.ocrVersion
-    const stat = await fs.stat(item.filePath).catch(() => null)
-    item.byteSize = stat?.size ?? item.byteSize
-    this.commit(this.load().map((candidate) => (candidate.id === id ? item : candidate)))
-    this.emit('ocr-stale', item)
-    return publicLibraryItem(item)
+    if (this.imageWrites.has(id))
+      throw new Error('This capture is still being saved. Try again when saving finishes.')
+    this.imageWrites.add(id)
+    try {
+      const image = nativeImage.createFromDataURL(dataUrl)
+      await atomicFileWrite(current.filePath, image.toPNG())
+      const item = { ...current }
+      if (project) {
+        item.projectPath ??= join(projectsDir(), `${id}.clipthat`)
+        await atomicFileWrite(item.projectPath, JSON.stringify(project))
+      }
+      item.thumbnail = await this.writeThumb(id, image)
+      const size = image.getSize()
+      item.width = size.width
+      item.height = size.height
+      item.updatedAt = Date.now()
+      if (ocrText !== undefined) item.ocrText = ocrText
+      delete item.ocrVersion
+      const stat = await fs.stat(item.filePath).catch(() => null)
+      item.byteSize = stat?.size ?? item.byteSize
+      // Keep metadata changes and a Trash marker made while the image write was pending.
+      // The completed edit belongs to the same record; it must not become a new capture.
+      const latest = this.load().find((candidate) => candidate.id === id)
+      if (!latest) throw new Error('This capture is no longer in the Library.')
+      const saved = {
+        ...latest,
+        projectPath: item.projectPath,
+        thumbnail: item.thumbnail,
+        width: item.width,
+        height: item.height,
+        updatedAt: item.updatedAt,
+        byteSize: item.byteSize,
+        ocrText: item.ocrText
+      }
+      delete saved.ocrVersion
+      this.commit(this.load().map((candidate) => (candidate.id === id ? saved : candidate)))
+      this.emit('ocr-stale', saved)
+      if (isTrashed(saved))
+        throw new Error(
+          'This capture was moved to Trash while saving. Restore it before saving again.'
+        )
+      return publicLibraryItem(saved)
+    } finally {
+      this.imageWrites.delete(id)
+    }
   }
 
   update(id: string, patch: LibraryItemPatch): LibraryItem | undefined {
@@ -481,47 +533,17 @@ class LibraryStore extends EventEmitter {
   }
 
   async remove(ids: string[]): Promise<void> {
-    const set = new Set(ids)
-    const items = this.load()
-    const removed = items.filter((i) => set.has(i.id))
-    const next = items.filter((i) => !set.has(i.id))
+    this.trashStore().move(ids)
+  }
 
-    // Make the removal durable before deleting files. A failed index write leaves every
-    // asset and the old index intact, so the user can safely retry.
-    this.commit(next)
+  restore(ids: string[]): void {
+    this.trashStore().restore(ids)
+  }
 
-    const failures = (
-      await Promise.all(
-        removed.flatMap((i) => [
-          isPathInside(capturesDir(), i.filePath) || isPathInside(recordingsDir(), i.filePath)
-            ? fs.rm(i.filePath, { force: true }).then(
-                () => null,
-                (error) => error as Error
-              )
-            : Promise.resolve(null),
-          i.projectPath && isPathInside(projectsDir(), i.projectPath)
-            ? fs.rm(i.projectPath, { force: true }).then(
-                () => null,
-                (error) => error as Error
-              )
-            : Promise.resolve(null),
-          i.thumbnail
-            ? fs.rm(join(thumbsDir(), basename(i.thumbnail)), { force: true }).then(
-                () => null,
-                (error) => error as Error
-              )
-            : Promise.resolve(null)
-        ])
-      )
-    ).filter((error): error is Error => error instanceof Error)
-    if (failures.length > 0) {
-      this.runtimeHealth = {
-        status: 'warning',
-        message: 'Some deleted Library files could not be removed',
-        detail: failures[0].message
-      }
-      this.emit('issue', this.health())
-    }
+  async purge(ids: string[]): Promise<void> {
+    if (ids.some((id) => this.imageWrites.has(id)))
+      throw new Error('A selected capture is still being saved. Wait for saving to finish.')
+    await this.trashStore().purge(ids)
   }
 
   async loadProject(id: string): Promise<ClipDocument | null> {
@@ -567,6 +589,12 @@ class LibraryStore extends EventEmitter {
     let repairedMetadata = 0
 
     for (const item of items) {
+      // Retain tombstones even after an interrupted permanent deletion or missing file.
+      // They also reserve their paths so discovery cannot revive them as new captures.
+      if (isTrashed(item)) {
+        valid.push(item)
+        continue
+      }
       const root = item.kind === 'image' ? capturesDir() : recordingsDir()
       const owned =
         isPathInside(root, item.filePath) && (await isRealPathInside(root, item.filePath))

@@ -418,6 +418,19 @@ export function registerIpcHandlers(): void {
     await library.remove(validate.idList(ids))
     return true
   })
+  secureHandle(IPC.libraryRestore, ['library'], (_e, ids: string[]) => {
+    library.restore(validate.idList(ids))
+    return true
+  })
+  secureHandle(IPC.libraryPurge, ['library'], async (_e, ids: string[]) => {
+    const selected = validate.idList(ids)
+    if (editorWindows().length > 0)
+      throw new Error(
+        'Close editor windows before permanently deleting captures to protect work in progress.'
+      )
+    await library.purge(selected)
+    return true
+  })
   secureHandle(IPC.libraryLoadProject, ['library'], async (_e, id: string) =>
     library.loadProject(validate.idValue(id))
   )
