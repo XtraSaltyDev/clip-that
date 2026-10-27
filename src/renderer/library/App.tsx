@@ -30,6 +30,7 @@ import { useDebouncedValue, useSurfacePreference } from '../shared/preferences'
 import ConfirmDialog from '../shared/ConfirmDialog'
 
 const CompareWorkspace = lazy(() => import('./CompareWorkspace'))
+const TrashWorkspace = lazy(() => import('./TrashWorkspace'))
 const PAGE_SIZE = 120
 const VIEWS = ['grid', 'list'] as const
 const SORTS = ['newest', 'oldest', 'title', 'size'] as const
@@ -42,6 +43,7 @@ export default function App(): React.ReactElement {
   const [items, setItems] = useState<LibraryItemView[]>([])
   const [guides, setGuides] = useState<GuideSummary[]>([])
   const [showGuides, setShowGuides] = useState(false)
+  const [showTrash, setShowTrash] = useState(false)
   const [openGuideId, setOpenGuideId] = useState<string | null>(null)
   const [tags, setTags] = useState<string[]>([])
   const [search, setSearch] = useState('')
@@ -355,9 +357,12 @@ export default function App(): React.ReactElement {
       await api.library.remove(deleteItems.map((item) => item.id))
       setSelected([])
       setDeleteItems([])
-      toast('success', `Deleted ${deleteItems.length} item${deleteItems.length === 1 ? '' : 's'}`)
+      toast(
+        'success',
+        `Moved ${deleteItems.length} item${deleteItems.length === 1 ? '' : 's'} to Trash`
+      )
     } catch (error) {
-      toast('error', 'Could not delete the selected items', (error as Error).message)
+      toast('error', 'Could not move the selected items to Trash', (error as Error).message)
     } finally {
       deleteInFlight.current = false
       setDeleting(false)
@@ -406,7 +411,7 @@ export default function App(): React.ReactElement {
 
   useHotkeys(
     { 'mod+k': () => setPaletteOpen((o) => !o) },
-    !openGuideId && !importOpen && !comparison && !deleteItems.length
+    !showTrash && !openGuideId && !importOpen && !comparison && !deleteItems.length
   )
 
   useHotkeys(
@@ -423,7 +428,13 @@ export default function App(): React.ReactElement {
       arrowup: () => step(-perRow),
       ' ': () => active && void api.library.open(active.id)
     },
-    !paletteOpen && !showGuides && !openGuideId && !importOpen && !comparison && !deleteItems.length
+    !paletteOpen &&
+      !showGuides &&
+      !showTrash &&
+      !openGuideId &&
+      !importOpen &&
+      !comparison &&
+      !deleteItems.length
   )
 
   const commands = useMemo<Command[]>(
@@ -470,6 +481,17 @@ export default function App(): React.ReactElement {
         group: 'Capture',
         icon: 'record',
         run: () => api.system.window('record')
+      },
+      {
+        id: 'library.trash',
+        title: 'Open Trash',
+        group: 'Library',
+        icon: 'trash',
+        keywords: 'restore recover deleted captures',
+        run: () => {
+          setShowTrash(true)
+          setPaletteOpen(false)
+        }
       },
       {
         id: 'library.import-snagit',
@@ -604,7 +626,7 @@ export default function App(): React.ReactElement {
       },
       {
         id: 'item.delete',
-        title: 'Delete selection',
+        title: 'Move selection to Trash',
         group: 'Selection',
         icon: 'trash',
         disabled: selected.length === 0,
@@ -642,6 +664,28 @@ export default function App(): React.ReactElement {
     } catch (error) {
       toast('error', 'Could not create a guide', (error as Error).message)
     }
+  }
+
+  if (showTrash) {
+    return (
+      <>
+        <Suspense
+          fallback={
+            <div className="empty" role="status">
+              Opening Trash…
+            </div>
+          }
+        >
+          <TrashWorkspace
+            onBack={() => {
+              setShowTrash(false)
+              requestAnimationFrame(() => searchRef.current?.focus())
+            }}
+          />
+        </Suspense>
+        <ToastHost />
+      </>
+    )
   }
 
   if (comparison) {
@@ -864,6 +908,15 @@ export default function App(): React.ReactElement {
             >
               <Icon name="step" size={15} /> Guides
             </button>
+            <button
+              className="lib-nav"
+              onClick={() => {
+                setShowTrash(true)
+                setSelected([])
+              }}
+            >
+              <Icon name="trash" size={15} /> Trash
+            </button>
             {(
               [
                 ['all', 'All captures', 'layers'],
@@ -1077,7 +1130,7 @@ export default function App(): React.ReactElement {
             <Icon name="layers" size={13} /> Compare
           </button>
           <button className="btn sm danger" onClick={() => void remove()}>
-            <Icon name="trash" size={13} /> Delete
+            <Icon name="trash" size={13} /> Move to Trash
           </button>
           <button className="btn sm ghost" onClick={() => setSelected([])}>
             Clear
@@ -1094,15 +1147,16 @@ export default function App(): React.ReactElement {
 
       {deleteItems.length > 0 && (
         <ConfirmDialog
-          title={`Delete ${deleteItems.length === 1 ? 'this capture' : `${deleteItems.length} captures`}?`}
-          confirmLabel="Delete permanently"
+          title={`Move ${deleteItems.length === 1 ? 'this capture' : `${deleteItems.length} captures`} to Trash?`}
+          confirmLabel="Move to Trash"
           busy={deleting}
           onCancel={() => setDeleteItems([])}
           onConfirm={() => void confirmDelete()}
         >
           <p>
-            This permanently removes these Library items, their capture files, and linked editable
-            projects. External exports remain in their folders.
+            These captures and their editable projects will stay in Trash until you permanently
+            delete them. Open Trash from the Library to restore them. External exports remain in
+            their folders.
           </p>
           <ul>
             {deleteItems.slice(0, 10).map((item) => (
@@ -1613,7 +1667,7 @@ function Details(props: {
           <Icon name="folder" size={14} /> Reveal
         </button>
         <button className="btn danger" onClick={props.onDelete}>
-          <Icon name="trash" size={14} /> Delete
+          <Icon name="trash" size={14} /> Move to Trash
         </button>
       </div>
     </aside>

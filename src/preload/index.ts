@@ -137,6 +137,8 @@ const api = {
     update: (id: string, patch: LibraryItemPatch): Promise<LibraryItem | undefined> =>
       ipcRenderer.invoke(IPC.libraryUpdate, id, patch),
     remove: (ids: string[]): Promise<boolean> => ipcRenderer.invoke(IPC.libraryDelete, ids),
+    restore: (ids: string[]): Promise<boolean> => ipcRenderer.invoke(IPC.libraryRestore, ids),
+    purge: (ids: string[]): Promise<boolean> => ipcRenderer.invoke(IPC.libraryPurge, ids),
     open: (id: string): Promise<boolean> => ipcRenderer.invoke(IPC.libraryOpen, id),
     loadProject: (id: string): Promise<ClipDocument | null> =>
       ipcRenderer.invoke(IPC.libraryLoadProject, id),

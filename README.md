@@ -140,8 +140,16 @@ keyboard navigation, and its own `⌘K` palette.
 
 The Library now loads in explicit pages instead of silently stopping at 500 captures. Choose
 newest/oldest, title, or file-size sorting; Grid/List and sorting are remembered. Search supports
-quoted phrases and exclusions, for example `invoice "marcus bell" -draft`. Deletion reviews the
-selected items before permanently removing internal files.
+quoted phrases and exclusions, for example `invoice "marcus bell" -draft`.
+
+Deleting captures moves them to **Trash**, where they stay until you choose to permanently delete
+them. Open Trash from the sidebar or command palette, search or select a batch, and choose
+**Restore selected** to bring back captures with their original dates, tags, favourites, OCR cache,
+editable projects and recording edit drafts. **Delete permanently…** reviews the named items before
+removing internal files; external exports stay in their folders. Close editor windows before
+permanent deletion. Trash does not automatically expire items or free disk space.
+
+See the [0.1.25 review checklist](docs/library-trash-v1.md) for recovery and deletion acceptance.
 
 ### Compare captures
 

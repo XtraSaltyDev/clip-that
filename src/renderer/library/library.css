@@ -1123,3 +1123,73 @@ body.mac .lib-top {
     padding: 0;
   }
 }
+
+.trash-title {
+  font-size: 14px;
+  margin: 0 12px 0 0;
+}
+.trash-main {
+  overflow-y: auto;
+  padding: 16px;
+  flex: 1;
+  min-height: 0;
+}
+.trash-explainer {
+  margin: 0 0 16px;
+  max-width: 680px;
+  color: var(--ink-2);
+  line-height: 1.6;
+}
+.trash-actions {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px;
+  padding: 8px 0 16px;
+}
+.trash-list {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.trash-item {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 12px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  cursor: pointer;
+}
+.trash-item.selected {
+  border-color: var(--accent);
+  background: var(--bg-2);
+}
+.trash-item input,
+.trash-actions input {
+  accent-color: var(--accent);
+  width: 18px;
+  height: 18px;
+  flex-shrink: 0;
+}
+.trash-thumb {
+  width: 64px;
+  height: 48px;
+  display: grid;
+  place-items: center;
+  flex-shrink: 0;
+  background: var(--bg-2);
+  border-radius: var(--radius);
+  overflow: hidden;
+}
+.trash-thumb img {
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+}
+.trash-item-info {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  min-width: 0;
+}

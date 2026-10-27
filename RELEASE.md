@@ -140,6 +140,9 @@ an unsigned experimental preview until every required hardware row passes.
 - [ ] Scrolling capture on a real browser page
 - [ ] Context panel: table copy, link open, blur-all
 - [ ] Library search finds text inside a capture
+- [ ] Library Trash: move, quit/relaunch, search, restore metadata and editable work; cancel and
+      confirm permanent deletion on disposable items, preserving external exports
+      ([focused checklist](docs/library-trash-v1.md))
 - [ ] Settings → hotkey rebinding, theme switch, save-folder change
 - [ ] Fresh-machine first run: permission flow reads correctly
 

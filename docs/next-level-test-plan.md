@@ -49,8 +49,9 @@ nearby pixels, rather than claiming semantic understanding of the screenshot.
 3. Quit/relaunch the isolated app: Grid/List and sort should persist. Try light/dark themes and
    a compact window. Search, sort, view controls, selection actions, and Load more must remain usable.
 4. Press Delete on a disposable sample. Review the named items, cancel using Escape, then repeat
-   and confirm. Cancel must preserve the item. Confirm should remove its internal files but leave
-   an external export intact. Never use your normal Library for deletion tests.
+   and confirm. Cancel must preserve the item. Confirm should move it to Trash and preserve its
+   internal files. Restore it from Trash, then follow the [Trash checklist](library-trash-v1.md)
+   for permanent deletion. Never use your normal Library for deletion tests.
 
 ## Editor and output
 

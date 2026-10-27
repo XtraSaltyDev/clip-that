@@ -558,10 +558,11 @@ export function libraryQuery(value: unknown): LibraryQuery {
   const input = value === undefined ? {} : record(value, 'library query')
   rejectUnknown(
     input,
-    ['search', 'sort', 'tag', 'favorite', 'kind', 'limit', 'offset'],
+    ['search', 'sort', 'tag', 'favorite', 'kind', 'limit', 'offset', 'trashed'],
     'library query'
   )
   return {
+    trashed: input.trashed === undefined ? undefined : booleanValue(input.trashed, 'trashed'),
     search: optionalString(input.search, 'search', 1_000),
     sort:
       input.sort === undefined

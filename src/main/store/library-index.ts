@@ -77,6 +77,10 @@ function isLibraryItem(value: unknown): value is LibraryItem {
     (item.ocrText === undefined || typeof item.ocrText === 'string') &&
     (item.importedFrom === undefined || item.importedFrom === 'snagit') &&
     (item.recovered === undefined || typeof item.recovered === 'boolean') &&
+    (item.deletedAt === undefined ||
+      (typeof item.deletedAt === 'number' &&
+        Number.isFinite(item.deletedAt) &&
+        item.deletedAt > 0)) &&
     (item.contentHash === undefined ||
       (typeof item.contentHash === 'string' && /^[0-9a-f]{64}$/i.test(item.contentHash))) &&
     (item.durationMs === undefined ||
