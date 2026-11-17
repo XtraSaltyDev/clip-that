@@ -2,6 +2,10 @@ import React, { lazy, Suspense, useCallback, useEffect, useMemo, useRef, useStat
 import type {
   AppUpdateStatus,
   LibraryHealth,
+  LibraryBatchPatch,
+  LibraryCollection,
+  LibraryCollectionInput,
+  LibraryCollectionQuery,
   LibraryItem,
   LibraryItemView,
   GuideSummary,
@@ -26,6 +30,7 @@ import {
 import CommandPalette, { type Command } from '../shared/CommandPalette'
 import { groupLibraryItems, libraryEmptyState, libraryGridColumns } from './layout'
 import GuideWorkspace from './GuideWorkspace'
+import CollectionDialog from './CollectionDialog'
 import { useDebouncedValue, useSurfacePreference } from '../shared/preferences'
 import ConfirmDialog from '../shared/ConfirmDialog'
 
@@ -46,6 +51,12 @@ export default function App(): React.ReactElement {
   const [showTrash, setShowTrash] = useState(false)
   const [openGuideId, setOpenGuideId] = useState<string | null>(null)
   const [tags, setTags] = useState<string[]>([])
+  const [collections, setCollections] = useState<LibraryCollection[]>([])
+  const [collectionError, setCollectionError] = useState<string | null>(null)
+  const [collectionDraft, setCollectionDraft] = useState<LibraryCollectionInput | null>(null)
+  const [batchTag, setBatchTag] = useState('')
+  const [batchBusy, setBatchBusy] = useState(false)
+  const batchInFlight = useRef(false)
   const [search, setSearch] = useState('')
   const settledSearch = useDebouncedValue(search)
   const [filter, setFilter] = useState<Filter>('all')
@@ -142,6 +153,36 @@ export default function App(): React.ReactElement {
   }, [refresh])
 
   useEffect(() => api.library.onChanged(() => void refresh()), [refresh])
+
+  const refreshCollections = useCallback(async () => {
+    try {
+      setCollections(await api.library.collections())
+      setCollectionError(null)
+    } catch (error) {
+      setCollectionError((error as Error).message || 'Saved collections could not be loaded.')
+    }
+  }, [])
+
+  useEffect(() => {
+    void refreshCollections()
+    return api.library.onChanged(() => void refreshCollections())
+  }, [refreshCollections])
+
+  const collectionQuery = useMemo<LibraryCollectionQuery>(
+    () => ({ search: search.trim() || undefined, sort, filter, tag: tag ?? undefined }),
+    [search, sort, filter, tag]
+  )
+  const openCollection = useCallback(
+    (collection: LibraryCollection) => {
+      setShowGuides(false)
+      setSearch(collection.query.search ?? '')
+      setSort(collection.query.sort ?? 'newest')
+      setFilter(collection.query.filter)
+      setTag(collection.query.tag ?? null)
+      setSelected([])
+    },
+    [setSort]
+  )
 
   const refreshGuides = useCallback(async () => {
     const request = ++guideRequestId.current
@@ -328,6 +369,31 @@ export default function App(): React.ReactElement {
     () => items.filter((item) => selectedSet.has(item.id)),
     [items, selectedSet]
   )
+  const batchUpdate = useCallback(
+    async (patch: LibraryBatchPatch) => {
+      if (batchInFlight.current || !selected.length) return
+      batchInFlight.current = true
+      setBatchBusy(true)
+      try {
+        const changed = await api.library.updateBatch([...selected], patch)
+        toast(
+          'success',
+          changed
+            ? `Updated ${changed} capture${changed === 1 ? '' : 's'}`
+            : 'Captures already match this action'
+        )
+        setBatchTag('')
+        await refresh()
+      } catch (error) {
+        toast('error', 'Could not update the selected captures', (error as Error).message)
+      } finally {
+        batchInFlight.current = false
+        setBatchBusy(false)
+      }
+    },
+    [selected, refresh]
+  )
+
   const comparable =
     selectedItems.length === 2 &&
     selectedItems.every(
@@ -411,7 +477,12 @@ export default function App(): React.ReactElement {
 
   useHotkeys(
     { 'mod+k': () => setPaletteOpen((o) => !o) },
-    !showTrash && !openGuideId && !importOpen && !comparison && !deleteItems.length
+    !showTrash &&
+      !openGuideId &&
+      !importOpen &&
+      !comparison &&
+      !deleteItems.length &&
+      !collectionDraft
   )
 
   useHotkeys(
@@ -434,7 +505,8 @@ export default function App(): React.ReactElement {
       !openGuideId &&
       !importOpen &&
       !comparison &&
-      !deleteItems.length
+      !deleteItems.length &&
+      !collectionDraft
   )
 
   const commands = useMemo<Command[]>(
@@ -632,6 +704,21 @@ export default function App(): React.ReactElement {
         disabled: selected.length === 0,
         run: () => void remove()
       },
+      ...collections.map((collection) => ({
+        id: `collection.${collection.id}`,
+        title: collection.name,
+        group: 'Collections',
+        icon: 'search' as const,
+        run: () => openCollection(collection)
+      })),
+      {
+        id: 'collection.save',
+        title: 'Save current search as a collection',
+        group: 'Collections',
+        icon: 'plus',
+        disabled: showGuides || Boolean(collectionError),
+        run: () => setCollectionDraft({ name: '', query: collectionQuery })
+      },
       {
         id: 'app.settings',
         title: 'Open settings',
@@ -640,7 +727,22 @@ export default function App(): React.ReactElement {
         run: () => api.system.window('settings')
       }
     ],
-    [active, beginSnagitImport, copy, refresh, remove, selected.length, tags, comparable, compare]
+    [
+      active,
+      beginSnagitImport,
+      copy,
+      refresh,
+      remove,
+      selected.length,
+      tags,
+      comparable,
+      compare,
+      collections,
+      openCollection,
+      collectionQuery,
+      showGuides,
+      collectionError
+    ]
   )
 
   const toggleSelect = (id: string, e: React.MouseEvent) => {
@@ -743,7 +845,7 @@ export default function App(): React.ReactElement {
             className="lib-search-input"
             aria-label={showGuides ? 'Search guides' : 'Search the Library'}
             title={
-              'Use words, "exact phrases", or -words to exclude. Search includes text inside captures.'
+              'Use words, "phrases", -exclusions, title:, tag:, text:, type:image, type:video, is:favorite, after:YYYY-MM-DD or before:YYYY-MM-DD.'
             }
             placeholder={
               showGuides
@@ -941,6 +1043,54 @@ export default function App(): React.ReactElement {
             ))}
           </div>
 
+          {!showGuides && (
+            <div className="lib-side-group lib-collections">
+              <div className="label lib-side-heading">Collections</div>
+              {collections.map((collection) => {
+                const activeCollection =
+                  collection.query.search === collectionQuery.search &&
+                  (collection.query.sort ?? 'newest') === sort &&
+                  collection.query.filter === filter &&
+                  collection.query.tag === collectionQuery.tag
+                return (
+                  <div className="lib-collection-row" key={collection.id}>
+                    <button
+                      className={`lib-nav ${activeCollection ? 'active' : ''}`}
+                      aria-current={activeCollection ? 'page' : undefined}
+                      title={collection.name}
+                      onClick={() => openCollection(collection)}
+                    >
+                      <Icon name="search" size={15} />{' '}
+                      <span className="truncate">{collection.name}</span>
+                    </button>
+                    <button
+                      className="btn ghost icon sm"
+                      aria-label={`Edit collection ${collection.name}`}
+                      onClick={() => setCollectionDraft(collection)}
+                    >
+                      <Icon name="pen" size={13} />
+                    </button>
+                  </div>
+                )
+              })}
+              <button
+                className="lib-nav"
+                disabled={Boolean(collectionError)}
+                onClick={() => setCollectionDraft({ name: '', query: collectionQuery })}
+              >
+                <Icon name="plus" size={15} /> Save collection
+              </button>
+              {collectionError && (
+                <div className="lib-collection-warning" role="alert">
+                  <span>{collectionError}</span>
+                  <button className="btn sm" onClick={() => void refreshCollections()}>
+                    Retry collections
+                  </button>
+                </div>
+              )}
+            </div>
+          )}
+
           {!showGuides && tags.length > 0 && (
             <>
               <div className="label" style={{ padding: '14px 12px 6px' }}>
@@ -997,6 +1147,33 @@ export default function App(): React.ReactElement {
               </button>
             </div>
           )}
+          {!showGuides && (
+            <details className="lib-search-help small">
+              <summary>Search tips</summary>
+              <p>
+                Combine words, “quoted phrases” and -exclusions. Fields can also be excluded with a
+                leading minus.
+              </p>
+              <ul>
+                <li>
+                  <code>title:invoice tag:"client work"</code> matches a title and an exact tag.
+                </li>
+                <li>
+                  <code>text:"marcus bell"</code> searches confidence-qualified text inside
+                  captures.
+                </li>
+                <li>
+                  <code>type:image</code>, <code>type:video</code> and <code>is:favorite</code>{' '}
+                  narrow the results.
+                </li>
+                <li>
+                  <code>after:2026-01-01 before:2027-01-01</code> includes the first date and ends
+                  before the second, using local capture dates.
+                </li>
+              </ul>
+            </details>
+          )}
+
           {!showGuides && items.length > 0 && (loading || search !== settledSearch) && (
             <div className="lib-query-status" role="status">
               Updating results…
@@ -1114,12 +1291,58 @@ export default function App(): React.ReactElement {
         )}
       </div>
 
-      {selected.length > 1 && (
-        <div className="lib-selection">
-          {selected.length} selected
+      {!showGuides && selected.length > 0 && (
+        <div
+          className="lib-selection"
+          role="region"
+          aria-label="Selected capture actions"
+          aria-busy={batchBusy}
+        >
+          <span>{selected.length} selected</span>
           <button
             className="btn sm"
-            disabled={!comparable}
+            disabled={batchBusy}
+            onClick={() =>
+              void batchUpdate({ favorite: !selectedItems.every((item) => item.favorite) })
+            }
+          >
+            <Icon name="star" size={13} />
+            {selectedItems.every((item) => item.favorite) ? 'Remove favourites' : 'Add favourites'}
+          </button>
+          <form
+            className="lib-batch-tags"
+            onSubmit={(event) => {
+              event.preventDefault()
+              if (batchTag.trim())
+                void batchUpdate({ tag: { action: 'add', value: batchTag.trim() } })
+            }}
+          >
+            <input
+              className="field"
+              aria-label="Tag for selected captures"
+              placeholder="Tag…"
+              maxLength={120}
+              value={batchTag}
+              disabled={batchBusy}
+              onChange={(event) => setBatchTag(event.target.value)}
+            />
+            <button className="btn sm" type="submit" disabled={batchBusy || !batchTag.trim()}>
+              Add tag
+            </button>
+            <button
+              className="btn sm"
+              type="button"
+              disabled={batchBusy || !batchTag.trim()}
+              onClick={() =>
+                void batchUpdate({ tag: { action: 'remove', value: batchTag.trim() } })
+              }
+            >
+              Remove tag
+            </button>
+          </form>
+          <button
+            className="btn sm"
+            disabled={!comparable || batchBusy}
             title={
               comparable
                 ? 'Compare these two captures'
@@ -1129,10 +1352,10 @@ export default function App(): React.ReactElement {
           >
             <Icon name="layers" size={13} /> Compare
           </button>
-          <button className="btn sm danger" onClick={() => void remove()}>
+          <button className="btn sm danger" disabled={batchBusy} onClick={() => void remove()}>
             <Icon name="trash" size={13} /> Move to Trash
           </button>
-          <button className="btn sm ghost" onClick={() => setSelected([])}>
+          <button className="btn sm ghost" disabled={batchBusy} onClick={() => setSelected([])}>
             Clear
           </button>
         </div>
@@ -1144,6 +1367,14 @@ export default function App(): React.ReactElement {
         onClose={() => setPaletteOpen(false)}
         placeholder="Search captures, filters and actions…"
       />
+
+      {collectionDraft && (
+        <CollectionDialog
+          draft={collectionDraft}
+          onSaved={() => void refreshCollections()}
+          onClose={() => setCollectionDraft(null)}
+        />
+      )}
 
       {deleteItems.length > 0 && (
         <ConfirmDialog

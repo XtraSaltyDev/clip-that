@@ -498,6 +498,28 @@ export interface LibraryQuery {
   offset?: number
 }
 
+/** A selection-wide metadata operation, committed by main in one transaction. */
+export interface LibraryBatchPatch {
+  favorite?: boolean
+  tag?: { action: 'add' | 'remove'; value: string }
+}
+
+export type LibraryCollectionQuery = Pick<LibraryQuery, 'search' | 'sort' | 'tag'> & {
+  filter: 'all' | 'image' | 'video' | 'favorite'
+}
+
+export interface LibraryCollection {
+  id: string
+  name: string
+  query: LibraryCollectionQuery
+}
+
+export interface LibraryCollectionInput {
+  id?: string
+  name: string
+  query: LibraryCollectionQuery
+}
+
 export type SnagitImportCategory =
   'supported' | 'duplicates' | 'nativeProjects' | 'unsupported' | 'unreadable'
 

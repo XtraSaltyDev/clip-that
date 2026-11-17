@@ -140,7 +140,20 @@ keyboard navigation, and its own `⌘K` palette.
 
 The Library now loads in explicit pages instead of silently stopping at 500 captures. Choose
 newest/oldest, title, or file-size sorting; Grid/List and sorting are remembered. Search supports
-quoted phrases and exclusions, for example `invoice "marcus bell" -draft`.
+quoted phrases and exclusions, for example `invoice "marcus bell" -draft`. Narrow searches with
+`title:invoice`, `tag:"client work"`, `text:"marcus bell"`, `type:image`, `type:video` and
+`is:favorite`. Use `after:2026-01-01 before:2027-01-01` for local capture dates from the first
+date through the day before the second. Prefix a field with `-` to exclude matches.
+
+Choose **Save collection** to keep the current search, filter, tag and sort order. Collections
+appear in the sidebar and command palette, work offline and include new matching captures
+automatically. Their rename and remove controls manage the saved search. To change its criteria,
+open the collection, adjust the search or filters and save a new collection.
+
+Select captures to add or remove a tag or update favourites together. Batch changes preserve
+each capture's other tags and editable work, and commit the selection in one durable operation.
+Cmd/Ctrl+A selects the currently loaded captures. Use **Load more** to extend that selection's
+available results before selecting again.
 
 Deleting captures moves them to **Trash**, where they stay until you choose to permanently delete
 them. Open Trash from the sidebar or command palette, search or select a batch, and choose

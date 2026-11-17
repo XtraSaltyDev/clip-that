@@ -468,6 +468,26 @@ export const RELEASE_NOTES = [
         body: 'Review named Trash items before permanently deleting their internal files. External exports remain in their folders. Interrupted deletions stay in Trash so they can be retried.'
       }
     ]
+  },
+  {
+    version: '0.2.0',
+    title: 'A Library organized around your work',
+    summary:
+      'Save collections, organize captures in batches and search precisely across your local Library.',
+    items: [
+      {
+        title: 'Saved collections',
+        body: 'Save a named search with its filters and sort order, open it from the sidebar or command palette, and find new matching captures automatically. Collections remain available offline across restarts.'
+      },
+      {
+        title: 'Organize a selection at once',
+        body: 'Add or remove a tag and update favourites for selected images and recordings. Each batch saves in one transaction and preserves existing tags, projects, OCR text and export links.'
+      },
+      {
+        title: 'More precise Library search',
+        body: 'Combine title, exact-tag, trusted-text, capture-type, favourite and local-date fields with phrases and exclusions. Search tips in the Library show the supported syntax.'
+      }
+    ]
   }
 ] as const satisfies readonly ReleaseNotes[]
 

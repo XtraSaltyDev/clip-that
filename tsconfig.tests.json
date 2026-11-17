@@ -46,6 +46,8 @@
     "src/shared/context-trust.ts",
     "src/shared/library-workbench.ts",
     "src/shared/library-search.ts",
+    "src/shared/library-batch.ts",
+    "src/main/store/library-collections.ts",
     "src/shared/image-compare.ts",
     "src/shared/annotation-layout.ts",
     "src/shared/timecode.ts",
