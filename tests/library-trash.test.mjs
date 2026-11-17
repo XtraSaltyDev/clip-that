@@ -390,3 +390,79 @@ test('Trash orders by deletion time while restored items keep their capture date
     ['new-capture', 'old-capture']
   )
 })
+
+test('production batch updates persist once, survive restart and remain searchable', async (t) => {
+  const f = await fixture(t)
+  const store = await productionStore(f)
+  await store.initialize()
+  let changes = 0
+  store.on('changed', () => changes++)
+  assert.equal(
+    store.updateBatch(['capture', 'capture'], {
+      tag: { action: 'add', value: 'client work' },
+      favorite: false
+    }),
+    1
+  )
+  assert.equal(changes, 1)
+  assert.equal(store.updateBatch(['capture'], { tag: { action: 'add', value: 'client work' } }), 0)
+  assert.equal(changes, 1)
+  assert.deepEqual(
+    (
+      await store.list({
+        search: 'title:invoice tag:"client work" text:"marcus bell" -is:favorite'
+      })
+    ).map((item) => item.id),
+    ['capture']
+  )
+  const restarted = await productionStore(f)
+  await restarted.initialize()
+  assert.equal(restarted.get('capture').favorite, false)
+  assert.deepEqual(restarted.get('capture').tags, ['invoice', 'client work'])
+  assert.equal(restarted.get('capture').projectPath, f.item.projectPath)
+  assert.equal(restarted.get('capture').ocrVersion, f.item.ocrVersion)
+  await restarted.remove(['capture'])
+  assert.throws(() => restarted.updateBatch(['capture'], { favorite: true }), /no longer available/)
+  assert.equal((await restarted.list({ trashed: true, search: 'tag:"client work"' })).length, 1)
+})
+
+test('production batch write failure preserves memory and the index with no change event', async (t) => {
+  const f = await fixture(t)
+  const store = await productionStore(f)
+  await store.initialize()
+  const before = await fs.readFile(f.primary, 'utf8')
+  const item = structuredClone(store.get('capture'))
+  let changes = 0
+  store.on('changed', () => changes++)
+  await fs.mkdir(`${f.primary}.tmp`)
+  assert.throws(() =>
+    store.updateBatch(['capture'], { favorite: false, tag: { action: 'add', value: 'failed' } })
+  )
+  assert.deepEqual(store.get('capture'), item)
+  assert.equal(await fs.readFile(f.primary, 'utf8'), before)
+  assert.equal(changes, 0)
+  await fs.rm(`${f.primary}.tmp`, { recursive: true })
+  assert.equal(store.updateBatch(['capture'], { favorite: false }), 1)
+  assert.equal(changes, 1)
+})
+
+test('an asynchronous editor save preserves a concurrent batch metadata change', async (t) => {
+  const f = await fixture(t)
+  const store = await productionStore(f)
+  let release
+  const gate = new Promise((resolve) => {
+    release = resolve
+  })
+  const stat = fs.stat.bind(fs)
+  const stub = t.mock.method(fs, 'stat', async (...args) => {
+    await gate
+    return stat(...args)
+  })
+  const saving = store.replaceImage('capture', 'data:image/png;base64,AA==')
+  store.updateBatch(['capture'], { favorite: false, tag: { action: 'add', value: 'during save' } })
+  release()
+  await saving
+  stub.mock.restore()
+  assert.equal(store.get('capture').favorite, false)
+  assert.deepEqual(store.get('capture').tags, ['invoice', 'during save'])
+})

@@ -26,7 +26,8 @@ import { quickCache, showQuickAccessItem } from '../windows/quick'
 import { openResultInEditor } from '../capture/service'
 import { formatFilename } from '@shared/defaults'
 import { settings } from '../store/settings'
-import { recordingsDir } from '../store/paths'
+import { recordingsDir, userData } from '../store/paths'
+import { LibraryCollections } from '../store/library-collections'
 import { releaseNotesStore } from '../store/release-notes'
 import { PRODUCT_VERSION } from '../product-version'
 import { library } from '../store/library'
@@ -122,6 +123,9 @@ import {
 } from '../library/open-policy'
 
 let cursorFeed: NodeJS.Timeout | null = null
+const libraryCollections = new LibraryCollections(() =>
+  join(userData(), 'library-collections.json')
+)
 const videoExportControllers = new Map<number, AbortController>()
 const recordingExportControllers = new Map<number, AbortController>()
 let annotationClipboard: Shape[] = []
@@ -378,6 +382,20 @@ export function registerIpcHandlers(): void {
   secureHandle(IPC.libraryList, ['editor', 'library'], (_e, query: LibraryQuery) =>
     library.list(validate.libraryQuery(query))
   )
+  secureHandle(IPC.libraryBatchUpdate, ['library'], (_e, ids, patch) =>
+    library.updateBatch(validate.idList(ids), validate.libraryBatchPatch(patch))
+  )
+  secureHandle(IPC.libraryCollectionsList, ['library'], () => libraryCollections.list())
+  secureHandle(IPC.libraryCollectionsSave, ['library'], async (_e, input) => {
+    const result = await libraryCollections.save(validate.libraryCollectionInput(input))
+    broadcast(IPC.libraryChanged)
+    return result
+  })
+  secureHandle(IPC.libraryCollectionsRemove, ['library'], async (_e, id) => {
+    const result = await libraryCollections.remove(validate.idValue(id))
+    broadcast(IPC.libraryChanged)
+    return result
+  })
   secureHandle(IPC.libraryTags, ['library'], () => library.allTags())
   secureHandle(IPC.libraryHealth, ['editor', 'library'], () => library.health())
   secureHandle(

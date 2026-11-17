@@ -16,6 +16,9 @@ import type {
   LibraryItemView,
   LibraryHealth,
   LibraryItemPatch,
+  LibraryBatchPatch,
+  LibraryCollection,
+  LibraryCollectionInput,
   LibraryQuery,
   GuideDocument,
   GuideExportFormat,
@@ -136,6 +139,13 @@ const api = {
     }): Promise<LibraryItem> => ipcRenderer.invoke(IPC.libraryAdd, payload),
     update: (id: string, patch: LibraryItemPatch): Promise<LibraryItem | undefined> =>
       ipcRenderer.invoke(IPC.libraryUpdate, id, patch),
+    updateBatch: (ids: string[], patch: LibraryBatchPatch): Promise<number> =>
+      ipcRenderer.invoke(IPC.libraryBatchUpdate, ids, patch),
+    collections: (): Promise<LibraryCollection[]> => ipcRenderer.invoke(IPC.libraryCollectionsList),
+    saveCollection: (input: LibraryCollectionInput): Promise<LibraryCollection[]> =>
+      ipcRenderer.invoke(IPC.libraryCollectionsSave, input),
+    removeCollection: (id: string): Promise<LibraryCollection[]> =>
+      ipcRenderer.invoke(IPC.libraryCollectionsRemove, id),
     remove: (ids: string[]): Promise<boolean> => ipcRenderer.invoke(IPC.libraryDelete, ids),
     restore: (ids: string[]): Promise<boolean> => ipcRenderer.invoke(IPC.libraryRestore, ids),
     purge: (ids: string[]): Promise<boolean> => ipcRenderer.invoke(IPC.libraryPurge, ids),

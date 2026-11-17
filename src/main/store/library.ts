@@ -6,6 +6,7 @@ import { nativeImage } from 'electron'
 import type {
   ClipDocument,
   LibraryHealth,
+  LibraryBatchPatch,
   LibraryItem,
   LibraryItemView,
   LibraryItemPatch,
@@ -25,7 +26,7 @@ import { clipDocument } from '../ipc/validation'
 import { atomicFileWrite } from './atomic-file'
 import { buildLibraryWorkbench, indexLibraryLineage } from '@shared/library-workbench'
 import { aspectLabel } from '@shared/recording-polish'
-import { matchesLibrarySearch, parseLibrarySearch } from '@shared/library-search'
+import { matchesLibraryItemSearch, parseLibrarySearch } from '@shared/library-search'
 import {
   discoverLibraryFiles,
   loadLibraryIndex,
@@ -40,6 +41,7 @@ import {
   withTrustedOcr
 } from './library-ocr'
 
+import { applyLibraryBatch } from '@shared/library-batch'
 import { isTrashed, LibraryTrash } from './library-trash'
 
 const THUMB_MAX = 480
@@ -201,9 +203,7 @@ class LibraryStore extends EventEmitter {
 
     if (query.search?.trim()) {
       const terms = parseLibrarySearch(query.search)
-      items = items.filter((i) =>
-        matchesLibrarySearch(`${i.title} ${i.tags.join(' ')} ${searchableOcrText(i)}`, terms)
-      )
+      items = items.filter((i) => matchesLibraryItemSearch(i, searchableOcrText(i), terms))
     }
 
     items.sort((a, b) => {
@@ -512,6 +512,14 @@ class LibraryStore extends EventEmitter {
     this.commit(this.load().map((candidate) => (candidate.id === id ? item : candidate)))
     if (patch.ocrText !== undefined) this.emit('ocr-stale', item)
     return publicLibraryItem(item)
+  }
+
+  updateBatch(ids: string[], patch: LibraryBatchPatch): number {
+    const current = this.load()
+    const next = applyLibraryBatch(current, ids, patch)
+    const changed = next.filter((item, index) => item !== current[index]).length
+    if (changed) this.commit(next)
+    return changed
   }
 
   /** Deterministic timeline seeding for the development-only visual harness. */

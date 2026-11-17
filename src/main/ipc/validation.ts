@@ -6,6 +6,8 @@ import type {
   Hotkeys,
   GuideDocument,
   LibraryItemPatch,
+  LibraryBatchPatch,
+  LibraryCollectionInput,
   LibraryQuery,
   OcrResult,
   Settings,
@@ -576,6 +578,45 @@ export function libraryQuery(value: unknown): LibraryQuery {
         : enumValue(input.kind, 'library kind', ['image', 'video'] as const),
     limit: input.limit === undefined ? undefined : finite(input.limit, 'limit', 0, 1_000),
     offset: input.offset === undefined ? undefined : finite(input.offset, 'offset', 0, 10_000_000)
+  }
+}
+
+export function libraryBatchPatch(value: unknown): LibraryBatchPatch {
+  const input = record(value, 'batch patch')
+  rejectUnknown(input, ['favorite', 'tag'], 'batch patch')
+  const patch: LibraryBatchPatch = {}
+  if (input.favorite !== undefined) patch.favorite = booleanValue(input.favorite, 'favorite')
+  if (input.tag !== undefined) {
+    const tag = record(input.tag, 'batch tag')
+    rejectUnknown(tag, ['action', 'value'], 'batch tag')
+    const text = stringValue(tag.value, 'tag', 120).trim()
+    if (!text) throw new TypeError('Enter a tag')
+    patch.tag = { action: enumValue(tag.action, 'tag action', ['add', 'remove']), value: text }
+  }
+  if (patch.favorite === undefined && patch.tag === undefined)
+    throw new TypeError('Choose a batch action')
+  return patch
+}
+
+export function libraryCollectionInput(value: unknown): LibraryCollectionInput {
+  const input = record(value, 'collection')
+  rejectUnknown(input, ['id', 'name', 'query'], 'collection')
+  const name = stringValue(input.name, 'collection name', 80).trim()
+  if (!name) throw new TypeError('Enter a collection name')
+  const query = record(input.query, 'collection query')
+  rejectUnknown(query, ['search', 'sort', 'tag', 'filter'], 'collection query')
+  const safe = libraryQuery({ search: query.search, sort: query.sort, tag: query.tag })
+  const id = input.id === undefined ? undefined : idValue(input.id)
+  if (id !== undefined && !id.trim()) throw new TypeError('Collection identity is invalid')
+  return {
+    id,
+    name,
+    query: {
+      search: safe.search,
+      sort: safe.sort,
+      tag: safe.tag,
+      filter: enumValue(query.filter, 'collection filter', ['all', 'image', 'video', 'favorite'])
+    }
   }
 }
 
