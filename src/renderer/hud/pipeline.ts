@@ -1,6 +1,7 @@
 import type { RecordingOptions, RecordingPreflightItem, Rect } from '@shared/types'
-import { displayCapturePlan } from '@shared/recording-capture'
+import { displayCapturePlan } from '../../shared/recording-capture'
 import { api } from '../shared/api'
+import { createRecordingAudioMixer, type RecordingMicrophoneStatus } from './recording-audio'
 import {
   DEFAULT_CAMERA_CONFIG,
   initialCamera,
@@ -310,7 +311,8 @@ async function getDisplayStream(options: RecordingOptions): Promise<MediaStream>
 export async function startCapture(
   options: RecordingOptions,
   region: Rect | undefined,
-  persistChunk: PersistChunk
+  persistChunk: PersistChunk,
+  onMicrophoneStatus: (status: RecordingMicrophoneStatus) => void
 ): Promise<CaptureHandles> {
   const display = await getDisplayStream(options)
 
@@ -527,31 +529,16 @@ export async function startCapture(
 
   /* ---------- audio ---------- */
 
-  const audioSources = [
-    ...(options.systemAudio ? display.getAudioTracks() : []),
-    ...(mic ? mic.getAudioTracks() : [])
-  ]
-
-  let audioContext: AudioContext | null = null
-  let audioTracks: MediaStreamTrack[] = []
-
-  if (audioSources.length === 1) {
-    audioTracks = audioSources
-  } else if (audioSources.length > 1) {
-    // Two sources have to be summed into one track or MediaRecorder drops all but the first.
-    audioContext = new AudioContext()
-    const destination = audioContext.createMediaStreamDestination()
-    for (const track of audioSources) {
-      const source = audioContext.createMediaStreamSource(new MediaStream([track]))
-      source.connect(destination)
-    }
-    audioTracks = destination.stream.getAudioTracks()
-  }
-
-  const stream = new MediaStream([videoTrack, ...audioTracks])
-
+  const systemTracks = options.systemAudio ? display.getAudioTracks() : []
+  let audioMixer: ReturnType<typeof createRecordingAudioMixer> | undefined
+  let stream: MediaStream
   let recorder: MediaRecorder
   try {
+    if (mic || systemTracks.length > 1) {
+      // Keep the recorder's track set stable even if the mic disconnects and comes back.
+      audioMixer = createRecordingAudioMixer(systemTracks, mic, getMicStream, onMicrophoneStatus)
+    }
+    stream = new MediaStream([videoTrack, ...(audioMixer?.tracks ?? systemTracks)])
     recorder = new MediaRecorder(stream, {
       mimeType: pickMimeType(),
       videoBitsPerSecond: videoBitrate(outWidth, outHeight, options.fps),
@@ -564,7 +551,7 @@ export async function startCapture(
     mic?.getTracks().forEach((track) => track.stop())
     webcam?.getTracks().forEach((track) => track.stop())
     videoTrack.stop()
-    void audioContext?.close()
+    audioMixer?.dispose()
     throw new Error(
       `The recorder could not start with the selected source and devices: ${(error as Error).message}`
     )
@@ -596,9 +583,7 @@ export async function startCapture(
   const setPaused = (paused: boolean) => {
     compositingPaused = paused
     displayTrack.enabled = !paused
-    mic?.getTracks().forEach((track) => {
-      track.enabled = !paused
-    })
+    audioMixer?.setPaused(paused)
     webcam?.getTracks().forEach((track) => {
       track.enabled = !paused
     })
@@ -620,10 +605,9 @@ export async function startCapture(
     displayVideo?.pause()
     webcamVideo?.pause()
     display.getTracks().forEach((t) => t.stop())
-    mic?.getTracks().forEach((t) => t.stop())
     webcam?.getTracks().forEach((t) => t.stop())
     videoTrack.stop()
-    void audioContext?.close()
+    audioMixer?.dispose()
   }
 
   const dispose = () => {
@@ -637,7 +621,7 @@ export async function startCapture(
   displayTrack.addEventListener('ended', () => {
     if (recorder.state !== 'inactive') recorder.stop()
   })
-  for (const track of [...(mic?.getTracks() ?? []), ...(webcam?.getTracks() ?? [])]) {
+  for (const track of webcam?.getTracks() ?? []) {
     track.addEventListener('ended', () => {
       if (recorder.state !== 'inactive') recorder.stop()
     })

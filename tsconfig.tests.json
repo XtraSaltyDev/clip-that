@@ -34,6 +34,7 @@
     "src/renderer/editor/clipboard-intent.ts",
     "src/renderer/editor/responsive.ts",
     "src/renderer/editor/tools.ts",
+    "src/renderer/hud/pipeline.ts",
     "src/renderer/hud/recording-sources.ts",
     "src/renderer/hud/preflight-summary.ts",
     "src/shared/recording-exports.ts",

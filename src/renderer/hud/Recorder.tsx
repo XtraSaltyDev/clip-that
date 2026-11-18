@@ -20,6 +20,7 @@ import {
   startCapture,
   type CaptureHandles
 } from './pipeline'
+import type { RecordingMicrophoneStatus } from './recording-audio'
 import { reconcileRecordingSources } from './recording-sources'
 import { capabilityStateLabel, recordingReadiness } from './preflight-summary'
 import './hud.css'
@@ -72,6 +73,7 @@ export default function Recorder(): React.ReactElement {
   const [count, setCount] = useState(3)
   const [elapsed, setElapsed] = useState(0)
   const [paused, setPaused] = useState(false)
+  const [microphoneStatus, setMicrophoneStatus] = useState<RecordingMicrophoneStatus>('active')
   const [error, setError] = useState<string | null>(null)
   const [progress, setProgress] = useState(0)
 
@@ -260,8 +262,13 @@ export default function Recorder(): React.ReactElement {
     try {
       const status = await api.recording.start(options)
       if (!status.sessionId) throw new Error('Recording session did not start')
-      const handles = await startCapture(options, options.region, (sequence, bytes, mimeType) =>
-        api.recording.appendChunk(status.sessionId!, sequence, bytes, mimeType)
+      setMicrophoneStatus('active')
+      const handles = await startCapture(
+        options,
+        options.region,
+        (sequence, bytes, mimeType) =>
+          api.recording.appendChunk(status.sessionId!, sequence, bytes, mimeType),
+        setMicrophoneStatus
       )
       capture.current = handles
       startedAt.current = Date.now()
@@ -487,9 +494,15 @@ export default function Recorder(): React.ReactElement {
     return (
       <div className="hud-bar drag-region">
         <span className={`hud-rec ${paused ? 'paused' : ''}`} />
-        <span className="hud-recording-state" role="status" aria-live="polite">
+        <div className="hud-recording-state" role="status" aria-live="polite">
           {paused ? 'Paused' : 'Recording'}
-        </span>
+          {microphoneStatus === 'disconnected' && (
+            <span className="hud-mic-status hud-mic-disconnected">Mic disconnected</span>
+          )}
+          {microphoneStatus === 'system-default' && (
+            <span className="hud-mic-status">Using default mic</span>
+          )}
+        </div>
         <span className="hud-time mono" aria-live="off">
           {formatDuration(elapsed)}
         </span>

@@ -488,6 +488,18 @@ export const RELEASE_NOTES = [
         body: 'Combine title, exact-tag, trusted-text, capture-type, favourite and local-date fields with phrases and exclusions. Search tips in the Library show the supported syntax.'
       }
     ]
+  },
+  {
+    version: '0.2.1',
+    title: 'Keep recording when your microphone disconnects',
+    summary:
+      'Screen video and available system audio keep recording if AirPods or another microphone disconnects.',
+    items: [
+      {
+        title: 'Automatic microphone fallback',
+        body: 'ClipThat switches to your system’s default microphone when it becomes available. The recording controls show when the mic is disconnected and when the default mic is in use.'
+      }
+    ]
   }
 ] as const satisfies readonly ReleaseNotes[]
 
